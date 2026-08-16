@@ -6,14 +6,19 @@ de custo crescente (classificação → corte → rejeitor híbrido → reranker
 ambíguo) até os **5 itens confirmados mais baratos** por código de catálogo.
 
 O desenho completo (regras de negócio, formatos de arquivo, convenções) está em
-[`GUIA_IMPLEMENTACAO_PIPELINE.md`](GUIA_IMPLEMENTACAO_PIPELINE.md); o desenho da **rodada de
-atualização incremental** (a novidade do v3) está em [`../PLANO_V3.md`](../PLANO_V3.md).
+[`GUIA_IMPLEMENTACAO_PIPELINE.md`](GUIA_IMPLEMENTACAO_PIPELINE.md). O projeto de
+transformação desta pipeline em aplicação (banco, API, web) está em [`docs/`](docs/).
+
+> **A "regra dos 5" descrita abaixo está DESATIVADA** (`MIN_ITENS=1`, `TOP_N=0` no `.env`).
+> Mais de 5 itens por código é comportamento esperado. Ver [`CLAUDE.md`](CLAUDE.md) e
+> [ADR-016](docs/07_DECISOES.md#adr-016).
 
 > **v3 vs v2** — o v3 nasce como cópia do v2 (scripts + resultados + checkpoints), **sem**
 > `data/arquivos/` (os PDFs são re-baixados sob demanda pela etapa 2). Os patches retroativos
-> (ex.: `2b_corrigir_precos_homologados.py`) foram **aposentados em `legado/`**: o caminho
-> base já coleta o valor homologado inline, então há um caminho canônico só. O v2 permanece
-> intacto como fallback.
+> (ex.: `2b_corrigir_precos_homologados.py`) foram **aposentados**: o caminho base já coleta o
+> valor homologado inline, então há um caminho canônico só. Desde a Fase 0 o patch vive na tag
+> git `legado-2b-precos-homologados`, não mais em `legado/`. O v2 permanece intacto como
+> fallback.
 
 ## Fluxo
 
@@ -36,43 +41,59 @@ baratos por preço unitário. Pares nunca são deduplicados (item ambíguo é ju
 categoria). O corte da etapa 4 é a versão "matematicamente segura"; a contagem definitiva é
 na etapa 7, sobre confirmados e fora os outliers de preço.
 
-## Tabela script → entrada → saída
+## Tabela etapa → entrada → saída
 
-| Script | Entrada | Saída | LLM/GPU |
+Cada etapa é um módulo em `pesquisa_precos/etapas/`, executado com
+`python -m pesquisa_precos.etapas.<módulo>`.
+
+| Módulo | Entrada | Saída | LLM/GPU |
 |---|---|---|---|
-| `0a_obter_catalogo.py` | Dados Abertos Compras.gov | `0a_catalogo_*` | — |
-| `1_gerar_conceitos.py` | `0a_catalogo_filtrado.csv` | `1_conceitos_termos.csv` | LLM |
-| `2_coletar_pncp.py` | `1_conceitos_termos.csv` | `2_itens_coletados.csv` + PDFs | — |
-| `3_classificar_itens.py` | `2_itens_coletados.csv` | `3_itens_classificados.csv` | LLM local |
-| `4_cortar_minimo.py` | `2_*`, `3_*` | `4_itens_sobreviventes.csv` | — |
-| `5_enriquecer_pdf.py` | `4_*`, PDFs | `5_itens_enriquecidos.csv` | LLM + OCR |
-| `6a_gerar_pares.py` | `4_*`, `5_*`, `0a_*`, `1_*` | `6a_pares_candidatos.csv` | GPU (embedder) |
-| `6b_rerankear_pares.py` | `6a_*` | `6b_pares_rerankeados.csv` | GPU (reranker) |
-| `6c_validar_pares_llm.py` | `6b_*` | `6c_pares_validados.csv`, `6_rotulos_acumulados.csv` | LLM forte |
-| `7_agrupar_top5.py` | `6b_*`, `6c_*`, `4_*`, `5_*`, `0a_*` | `7_itens_agrupados.csv` | — |
-| `8_exportar_plaseg.py` | `7_*` | `8_itens_plaseg.xlsx` | — |
+| `e0a_catalogo` | Dados Abertos Compras.gov | `0a_catalogo_*` | — |
+| `e1_termos` | `0a_catalogo_filtrado.csv` | `1_conceitos_termos.csv` | LLM |
+| `e2_coletar` | `1_conceitos_termos.csv` | `2_itens_coletados.csv` + PDFs | — |
+| `e3_classificar` | `2_itens_coletados.csv` | `3_itens_classificados.csv` | LLM local |
+| `e4_cortar` | `2_*`, `3_*` | `4_itens_sobreviventes.csv` | — |
+| `e5a_ocr` | `4_*`, PDFs | `5_pdf_texto.csv` | OCR |
+| `e5b_extrair` | `4_*`, `5_pdf_texto.csv` | `5_itens_enriquecidos.csv`, `5_itens_destino.csv` | LLM |
+| `e6a_pares` | `4_*`, `5_*`, `0a_*`, `1_*` | `6a_pares_candidatos.csv` | GPU (embedder) |
+| `e6b_rerank` | `6a_*` | `6b_pares_rerankeados.csv` | GPU (reranker) |
+| `e6c_validar` | `6b_*` | `6c_pares_validados.csv`, `6_rotulos_acumulados.csv` | LLM |
+| `e7_agrupar` | `6b_*`, `6c_*`, `4_*`, `5_*`, `0a_*` | `7_itens_agrupados.csv` | — |
+| `e8_exportar` | `7_*` | `8_itens_plaseg.xlsx` | — |
+
+Caminho alternativo da etapa 5 (`rodar.py --caminho-5 alt`): `e5_alt_a_tabela` extrai a tabela
+do PDF por modelo de visão e `e5_alt_b_casar` casa cada item da API contra ela.
 
 ## Convenções
 
-- Saídas prefixadas pelo script que as produziu (`data/{N}{letra?}_*`). Checkpoints em
-  `data/checkpoints/{N}_*`; erros em `data/erros/{N}_erros.csv`.
+- Saídas prefixadas pela etapa que as produziu (`data/{N}{letra?}_*`). Checkpoints em
+  `data/checkpoints/{N}_*`; erros em `data/erros/{N}_erros.csv`. **Os caminhos não são
+  escritos à mão em lugar nenhum**: todos vivem em `pesquisa_precos/config/paths.py`.
 - Toda etapa que itera é **resumível**: relê as chaves já concluídas da própria saída e as
   pula; falhas de registro vão para o log de erros sem derrubar a execução.
 - Todo I/O de texto é utf-8 explícito (defesa contra o bug de acentos cp1252 no Windows).
 - **GPU (6 GB)**: embedder, reranker, OCR e LLM local **nunca rodam simultaneamente**. As
-  etapas são sequenciais e cada script carrega seu modelo no início e libera ao final.
+  etapas são sequenciais e cada uma carrega seu modelo no início e libera ao final.
 
 ## Configuração
 
 Copie `.env.example` para `.env` e preencha (OpenRouter, LM Studio, OCR, modelos e
-thresholds — ver seção 1.5 do guia). Instale as dependências:
+thresholds — ver seção 1.5 do guia). Instale o pacote em modo editável:
 
 ```
-pip install -r requirements.txt
+uv sync                 # ou:  pip install -e ".[dev]"
 ```
 
+As dependências vivem no `pyproject.toml` (o `requirements.txt` ficou obsoleto na Fase 0).
 `sentence-transformers` e `rank-bm25` só são necessárias para as etapas 6a/6b; `pymupdf` para
 a 5.
+
+Rodar uma etapa isolada:
+
+```
+python -m pesquisa_precos.etapas.e3_classificar --provedor local --concurrency 8
+python -m pesquisa_precos.etapas.e8_exportar --novos
+```
 
 ## Orquestração
 
@@ -87,7 +108,7 @@ python rodar.py --completo  --dry-run        # só imprime a sequência
 
 No `--atualizar`: a 0a rebaixa o catálogo (detecta PDMs novos/removidos → delta) e a 2 roda com
 `--atualizar` (para no watermark + revisita pendentes); as demais são resumíveis/agregadoras e só
-tocam o novo. Ver [`../PLANO_V3.md`](../PLANO_V3.md) para o desenho.
+tocam o novo. O desenho do incremental está em [`CLAUDE.md`](CLAUDE.md).
 
 ## Utilitários
 
@@ -96,13 +117,17 @@ tocam o novo. Ver [`../PLANO_V3.md`](../PLANO_V3.md) para o desenho.
   (PDFs) e `--tudo`.
 - `ferramentas/calibrar_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável
   e sugere `REJEITOR_THRESHOLD`, `RERANK_T_ACEITA`, `RERANK_T_REJEITA` a partir dela.
+- `pytest` — guarda estrutural: confere que os caminhos das etapas continuam apontando para
+  `data/` e que o pacote inteiro importa.
 
 Todas as etapas de LLM aceitam `--provedor local|openrouter` e a maioria um `--limite N` para
 validação barata.
 
 ## Legado
 
-O código da v1 fica em [`../itens-contratos-atas/`](../itens-contratos-atas/) e dados antigos
-em [`data/legado/`](data/legado/). A curadoria do catálogo por LLM (antiga etapa 0b) foi
-**aposentada** e substituída pela allow-list em `scripts/catalogo_local.py`
+O código da v1 fica em
+[`../itens-via-script/itens-contratos-atas/`](../itens-via-script/itens-contratos-atas/) e
+dados antigos em [`data/legado/`](data/legado/). Os 111 GB de PDFs herdados continuam em
+`../itens-via-script/itens-contratos-atas-v2/data/arquivos/` — ver [`CLAUDE.md`](CLAUDE.md). A curadoria do catálogo por LLM (antiga etapa 0b) foi
+**aposentada** e substituída pela allow-list em `pesquisa_precos/core/catalogo/local.py`
 (`PDMS_MATERIAIS`, `CODIGOS_SERVICOS`).

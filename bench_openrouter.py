@@ -14,8 +14,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, ".")
-from scripts.config import carregar_config  # noqa: E402
-from scripts.llm_curador import Curador  # noqa: E402
+from pesquisa_precos.config.settings import carregar_config  # noqa: E402
+from pesquisa_precos.providers.llm_curador import Curador  # noqa: E402
 
 # (descricao, unidade, categoria_esperada)  — "" = deve dar lista vazia (acessório/fora)
 CASOS = [

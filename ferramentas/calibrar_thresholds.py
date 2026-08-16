@@ -15,14 +15,18 @@ Uso: python ferramentas/calibrar_thresholds.py --amostrar [--n 180]
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 RAIZ = Path(__file__).resolve().parent.parent
-PARES = RAIZ / "data" / "6a_pares_candidatos.csv"
-RERANK = RAIZ / "data" / "6b_pares_rerankeados.csv"
+sys.path.insert(0, str(RAIZ))
+from pesquisa_precos.config import paths  # noqa: E402
+
+PARES = paths.E6A_PARES
+RERANK = paths.E6B_RERANKEADOS
 AMOSTRA = Path(__file__).resolve().parent / "amostra_rotulagem.csv"
 
 

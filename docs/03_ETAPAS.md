@@ -131,7 +131,7 @@ muda em relação ao script atual, e as armadilhas conhecidas.
 
 ### 0a — Obter catálogo
 
-**Origem:** [`0a_obter_catalogo.py`](../0a_obter_catalogo.py)
+**Origem:** [`etapas/e0a_catalogo.py`](../pesquisa_precos/etapas/e0a_catalogo.py)
 
 Baixa CATMAT (materiais) e CATSER (serviços) da API de Dados Abertos do Compras.gov.br.
 
@@ -145,7 +145,7 @@ Baixa CATMAT (materiais) e CATSER (serviços) da API de Dados Abertos do Compras
 
 ### 1 — Gerar termos de busca `[GATE]`
 
-**Origem:** [`1_gerar_conceitos.py`](../1_gerar_conceitos.py)
+**Origem:** [`etapas/e1_termos.py`](../pesquisa_precos/etapas/e1_termos.py)
 
 Para cada item do catálogo, o LLM gera termos de busca **genéricos** (a partir de `nome_pdm` +
 `descricao`) e uma categoria. Depois expande variações de grafia e agrega um termo por linha,
@@ -171,7 +171,7 @@ usuário só descobre horas depois. O gate deve oferecer:
 
 ### 2 — Coletar no PNCP `[GATE: volume]`
 
-**Origem:** [`2_coletar_pncp.py`](../2_coletar_pncp.py), `scripts/coleta_pncp.py`, `scripts/buscar_pncp.py`
+**Origem:** [`etapas/e2_coletar.py`](../pesquisa_precos/etapas/e2_coletar.py), `core/coleta/coleta_pncp.py`, `core/coleta/buscar_pncp.py`
 
 Para cada `(termo ativo, tipo_doc)`: busca paginada, dedup por `numero_controle_pncp`, e para
 documento novo consulta os itens homologados da API.
@@ -203,7 +203,7 @@ acrescenta linhas em `documento_termo` — nunca reprocessa o documento.
 
 ### 3 — Classificar itens `[GATE]`
 
-**Origem:** [`3_classificar_itens.py`](../3_classificar_itens.py)
+**Origem:** [`etapas/e3_classificar.py`](../pesquisa_precos/etapas/e3_classificar.py)
 
 Classificação multi-label de categoria, **por texto único**, não por item.
 
@@ -226,7 +226,7 @@ aparecer antes do play.
 
 ### 4 — Cortar / definir escopo `[GATE]`
 
-**Origem:** [`4_cortar_minimo.py`](../4_cortar_minimo.py)
+**Origem:** [`etapas/e4_cortar.py`](../pesquisa_precos/etapas/e4_cortar.py)
 
 Sem LLM. Marca `item.sobrevivente = true` para item com ≥1 categoria e atualiza
 `documento.n_itens_sobreviventes` e `documento.estado` (`fora_de_escopo` quando zero).
@@ -244,9 +244,9 @@ estratégia de roteamento. É o último ponto barato antes de gastar com downloa
 
 ### 5 — Extrair e enriquecer (duas estratégias)
 
-**Origem:** [`5a_ocr_pdf.py`](../5a_ocr_pdf.py) + [`5b_extrair_itens.py`](../5b_extrair_itens.py)
-(caminho `janela`); [`5_alt_a_extrair_tabela.py`](../5_alt_a_extrair_tabela.py) +
-[`5_alt_b_casar_itens.py`](../5_alt_b_casar_itens.py) (embrião das outras)
+**Origem:** [`etapas/e5a_ocr.py`](../pesquisa_precos/etapas/e5a_ocr.py) + [`etapas/e5b_extrair.py`](../pesquisa_precos/etapas/e5b_extrair.py)
+(caminho `janela`); [`etapas/e5_alt_a_tabela.py`](../pesquisa_precos/etapas/e5_alt_a_tabela.py) +
+[`etapas/e5_alt_b_casar.py`](../pesquisa_precos/etapas/e5_alt_b_casar.py) (embrião das outras)
 
 Esta é a etapa com implementações intercambiáveis. Fluxo por documento:
 
@@ -294,7 +294,7 @@ depois uma chamada barata por item para casar contra a linha certa.
 confirmação por quantidade, banda de sanidade, `doc_status`, e **chunking por página com overlap**
 para os 5,6% de documentos acima de 40k tokens. Truncar em silêncio faz item sumir sem erro.
 
-> A implementação atual de `5_alt_b_casar_itens.py` valida **só por preço** e não deriva
+> A implementação atual de `etapas/e5_alt_b_casar.py` valida **só por preço** e não deriva
 > `doc_status`. **Não usar como referência** sem corrigir isso.
 
 #### 5.3 Estratégia `visao`
@@ -327,7 +327,7 @@ por fila em memória. Este é o **único** paralelismo real do monolito.
 
 ### 6a — Gerar pares + rejeitor híbrido
 
-**Origem:** [`6a_gerar_pares.py`](../6a_gerar_pares.py)
+**Origem:** [`etapas/e6a_pares.py`](../pesquisa_precos/etapas/e6a_pares.py)
 
 Produto (código × item) **restrito à mesma categoria**. Item multi-label pareia em todas as suas
 categorias. **Sem dedup de pares** — é regra de negócio.
@@ -353,7 +353,7 @@ novo vai à GPU. BM25 e corte são recomputados frescos (baratos, CPU).
 
 ### 6b — Rerankear pares
 
-**Origem:** [`6b_rerankear_pares.py`](../6b_rerankear_pares.py)
+**Origem:** [`etapas/e6b_rerank.py`](../pesquisa_precos/etapas/e6b_rerank.py)
 
 Cross-encoder sobre `(texto_catalogo, descricao_final)`. **Custo zero de token** — roda na GPU.
 
@@ -374,7 +374,7 @@ entre                     → ambiguo   (só estes vão para a 6c)
 
 ### 6c — Validar ambíguos com LLM `[GATE]`
 
-**Origem:** [`6c_validar_pares_llm.py`](../6c_validar_pares_llm.py)
+**Origem:** [`etapas/e6c_validar.py`](../pesquisa_precos/etapas/e6c_validar.py)
 
 Só a faixa `ambiguo` chega aqui — tipicamente a minoria (57k de 250k no acervo atual).
 
@@ -396,7 +396,7 @@ fine-tuning. Nunca truncar.
 
 ### 7 — Agrupar e ranquear
 
-**Origem:** [`7_agrupar_top5.py`](../7_agrupar_top5.py)
+**Origem:** [`etapas/e7_agrupar.py`](../pesquisa_precos/etapas/e7_agrupar.py)
 
 Confirmados = `decisao='aceito'` ∪ `veredito='sim'`. Antes do ranking:
 
@@ -417,7 +417,7 @@ por código **não é bug**. Isso já foi investigado à toa em uma sessão ante
 
 ### 8 — Exportar XLSX PLASEG
 
-**Origem:** [`8_exportar_plaseg.py`](../8_exportar_plaseg.py)
+**Origem:** [`etapas/e8_exportar.py`](../pesquisa_precos/etapas/e8_exportar.py)
 
 Aba "Itens PLASEG", schema fechado com o cliente:
 

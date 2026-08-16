@@ -30,9 +30,10 @@ csv.field_size_limit(10_000_000)  # descrições longas em campos citados
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
-from scripts.coleta_pncp import COLUNAS_ITENS  # noqa: E402
+from pesquisa_precos.config import paths  # noqa: E402
+from pesquisa_precos.core.coleta.coleta_pncp import COLUNAS_ITENS  # noqa: E402
 
-SAIDA = RAIZ / "data" / "2_itens_coletados.csv"
+SAIDA = paths.E2_ITENS
 N = len(COLUNAS_ITENS)  # 20
 
 

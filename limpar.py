@@ -15,7 +15,6 @@ import glob
 import os
 import shutil
 import sys
-from pathlib import Path
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -23,7 +22,9 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-DATA = Path(__file__).resolve().parent / "data"
+from pesquisa_precos.config import paths
+
+DATA = paths.DATA
 
 # Saídas e checkpoints por etapa (globs relativos a data/). Etapa 6 cobre 6a/6b/6c.
 POR_ETAPA = {

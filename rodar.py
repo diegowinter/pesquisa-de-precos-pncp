@@ -11,8 +11,9 @@ Dois modos:
                 As demais etapas são resumíveis/agregadoras por natureza: só processam o novo
                 (3, 5, 6a-embeddings, 6b, 6c) ou recomputam barato o conjunto todo (4, 7, 8).
 
-Cada etapa é um script `N_*.py` invocado como subprocesso (a saída aparece ao vivo). As flags
-comuns são repassadas só a quem as aceita: --provedor (1,3,5,6c), --remoto (6a,6b).
+Cada etapa é um módulo `pesquisa_precos.etapas.e*` invocado como subprocesso `python -m` (a
+saída aparece ao vivo). As flags comuns são repassadas só a quem as aceita: --provedor
+(1,3,5,6c), --remoto (6a,6b).
 
 Uso:
   python rodar.py --completo  [--provedor openrouter] [--remoto] [--caminho-5 base|alt]
@@ -25,7 +26,6 @@ import argparse
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -36,48 +36,52 @@ for _s in (sys.stdout, sys.stderr):
 from rich.console import Console
 from rich.table import Table
 
+from pesquisa_precos.config import paths
+
 console = Console()
-RAIZ = Path(__file__).resolve().parent
-DATA = RAIZ / "data"
+RAIZ = paths.RAIZ
+DATA = paths.DATA
 PY = sys.executable
 
-# Capacidades de flag por script (ver matriz verificada). provedor: LLM; remoto: GPU remota.
-ACEITA_PROVEDOR = {"1_gerar_conceitos", "3_classificar_itens", "5b_extrair_itens",
-                   "5_alt_a_extrair_tabela", "5_alt_b_casar_itens", "6c_validar_pares_llm"}
-ACEITA_REMOTO = {"6a_gerar_pares", "6b_rerankear_pares"}
+MODULO_BASE = "pesquisa_precos.etapas"
+
+# Capacidades de flag por etapa (ver matriz verificada). provedor: LLM; remoto: GPU remota.
+ACEITA_PROVEDOR = {"e1_termos", "e3_classificar", "e5b_extrair",
+                   "e5_alt_a_tabela", "e5_alt_b_casar", "e6c_validar"}
+ACEITA_REMOTO = {"e6a_pares", "e6b_rerank"}
 
 
 def montar_etapas(args) -> list[tuple[str, str]]:
-    """Devolve a lista ordenada [(id, script)] do caminho escolhido."""
-    cinco = [("5a", "5a_ocr_pdf"), ("5b", "5b_extrair_itens")] if args.caminho_5 == "base" \
-        else [("5a", "5_alt_a_extrair_tabela"), ("5b", "5_alt_b_casar_itens")]
+    """Devolve a lista ordenada [(id, modulo)] do caminho escolhido."""
+    cinco = [("5a", "e5a_ocr"), ("5b", "e5b_extrair")] if args.caminho_5 == "base" \
+        else [("5a", "e5_alt_a_tabela"), ("5b", "e5_alt_b_casar")]
     return [
-        ("0a", "0a_obter_catalogo"),
-        ("1", "1_gerar_conceitos"),
-        ("2", "2_coletar_pncp"),
-        ("3", "3_classificar_itens"),
-        ("4", "4_cortar_minimo"),
+        ("0a", "e0a_catalogo"),
+        ("1", "e1_termos"),
+        ("2", "e2_coletar"),
+        ("3", "e3_classificar"),
+        ("4", "e4_cortar"),
         *cinco,
-        ("6a", "6a_gerar_pares"),
-        ("6b", "6b_rerankear_pares"),
-        ("6c", "6c_validar_pares_llm"),
-        ("7", "7_agrupar_top5"),
-        ("8", "8_exportar_plaseg"),
+        ("6a", "e6a_pares"),
+        ("6b", "e6b_rerank"),
+        ("6c", "e6c_validar"),
+        ("7", "e7_agrupar"),
+        ("8", "e8_exportar"),
     ]
 
 
 def montar_comando(script: str, args) -> list[str]:
-    """Monta os argumentos de um script conforme o modo e as flags que ele aceita."""
+    """Monta os argumentos de uma etapa conforme o modo e as flags que ela aceita."""
     extra: list[str] = []
     if script in ACEITA_PROVEDOR:
         extra += ["--provedor", args.provedor]
     if script in ACEITA_REMOTO and args.remoto:
         extra += ["--remoto"]
-    if script == "0a_obter_catalogo" and args.atualizar and not args.sem_catalogo:
+    if script == "e0a_catalogo" and args.atualizar and not args.sem_catalogo:
         extra += ["--forcar"]  # rebaixa o catálogo p/ detectar mudanças de PDM e gerar o delta
-    if script == "2_coletar_pncp" and args.atualizar:
+    if script == "e2_coletar" and args.atualizar:
         extra += ["--atualizar"]
-    return [PY, f"{script}.py", *extra]
+    return [PY, "-m", f"{MODULO_BASE}.{script}", *extra]
 
 
 def relatorio_final(resultados: list[tuple]) -> None:
@@ -88,7 +92,7 @@ def relatorio_final(resultados: list[tuple]) -> None:
         t.add_row(eid, script, f"[{cor}]{status}[/]", f"{seg:.0f}s" if seg else "—")
     console.print(t)
     # Contexto incremental: delta do catálogo e tamanho da exportação final.
-    delta = DATA / "0a_catalogo_delta.csv"
+    delta = paths.E0A_DELTA
     if delta.exists():
         import csv
         with open(delta, encoding="utf-8-sig") as f:
@@ -96,7 +100,7 @@ def relatorio_final(resultados: list[tuple]) -> None:
         novos = sum(1 for r in linhas if r.get("status") == "novo")
         rem = sum(1 for r in linhas if r.get("status") == "removido")
         console.print(f"[dim]Catálogo: {novos} códigos novos, {rem} removidos (delta 0a).[/]")
-    export = DATA / "8_itens_plaseg.csv"
+    export = paths.E8_CSV
     if export.exists():
         n = sum(1 for _ in open(export, encoding="utf-8-sig")) - 1
         console.print(f"[dim]Exportação final: {n} linhas → {export.name}[/]")

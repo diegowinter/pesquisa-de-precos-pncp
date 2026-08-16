@@ -8,14 +8,43 @@ para cá e virou a raiz deste projeto. O desenho técnico completo do pipeline e
 os dois antes de mexer em qualquer etapa. Este arquivo cobre o que eles não cobrem: como
 trabalhar com o usuário, decisões já tomadas e o estado da validação.
 
+Desde 2026-08-16 existe também **[docs/](docs/)** — o projeto de engenharia da transformação
+desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fase, comece por
+[docs/README.md](docs/README.md) e [docs/08_CONVENCOES.md](docs/08_CONVENCOES.md).
+
+## Estrutura: a Fase 0 já foi aplicada
+
+Os scripts numerados na raiz **não existem mais**. Desde a Fase 0
+([docs/04_FASES.md](docs/04_FASES.md)) o código vive num pacote instalável:
+
+```
+pesquisa_precos/
+  config/    paths.py (TODOS os caminhos de dados) · settings.py (.env)
+  etapas/    e0a_catalogo · e1_termos · e2_coletar · e3_classificar · e4_cortar
+             e5a_ocr · e5b_extrair · e5_alt_a_tabela · e5_alt_b_casar
+             e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
+  core/      regras, io_seguro, paralelo, prompts, coleta PNCP, catálogo, classificação
+  providers/ llm_curador · embedder_local · reranker_local · gpu_remoto · ocr_pdf
+  db/ runner/ api/ web/ cli/ estrategias/   ← vazios, placeholders das fases seguintes
+```
+
+Uma etapa roda como módulo: `python -m pesquisa_precos.etapas.e3_classificar --provedor local`.
+`rodar.py` e `limpar.py` continuam na raiz e já apontam para os módulos novos.
+
+**Nunca escreva um caminho de `data/` literal.** Todos estão em
+[pesquisa_precos/config/paths.py](pesquisa_precos/config/paths.py); um caminho solto que
+divirja não levanta exceção — a etapa só não acha o checkpoint, reprocessa do zero e recobra
+o LLM. `tests/test_estrutura.py` guarda exatamente isso.
+
 ## Regra nº 1: quem roda a pipeline é o usuário
 
-**Claude NÃO dispara scripts da pipeline** (`0a_*.py` até `8_*.py`, `rodar.py`). O usuário roda
-tudo no terminal dele — a ideia é human-in-the-loop, com ele visualizando o progresso ao vivo.
-O papel do Claude é: explicar o que esperar antes de cada etapa, ler código e ajudar a
-debugar quando algo falha, inspecionar resultados depois (Bash/Python **read-only** é OK), e
-implementar correções/features pontuais quando pedido. Ferramentas auxiliares de leitura/
-diagnóstico (`ferramentas/`, inspeção de CSV) o Claude pode rodar livremente.
+**Claude NÃO dispara etapas da pipeline** (`pesquisa_precos/etapas/*`, `rodar.py`). O usuário
+roda tudo no terminal dele (via `uv run`) — a ideia é human-in-the-loop, com ele visualizando o
+progresso ao vivo. O papel do Claude é: explicar o que esperar antes de cada etapa, ler código
+e ajudar a debugar quando algo falha, inspecionar resultados depois (Bash/Python **read-only**
+é OK), e implementar correções/features pontuais quando pedido. Ferramentas auxiliares de
+leitura/diagnóstico (`ferramentas/`, inspeção de CSV, `pytest`, `ruff`) o Claude pode rodar
+livremente.
 
 ## Restrição crítica de custo de LLM
 
@@ -107,16 +136,34 @@ Todo o pipeline (0a → 8) já foi validado end-to-end pelo usuário, rodando o 
 | 7 (agrupar) | ✅ | sem LLM, recomputa tudo |
 | 8 (exportar) | ✅ | feature nova `--novos` (delta incremental) implementada e testada |
 
-Não há mais nenhuma etapa pendente de validação — o próximo ciclo de trabalho é rodadas
-normais de `--atualizar` no dia a dia, não mais validação do mecanismo em si.
+Não há mais nenhuma etapa pendente de validação **do mecanismo**. Pendente agora é só o aceite
+da Fase 0: rodar um ciclo `--atualizar` pelos comandos novos e conferir que as saídas em
+`data/` saem idênticas às de antes. O que já foi verificado é o proxy — as 79 constantes de
+caminho resolvem para os mesmos arquivos e o pacote inteiro importa (`pytest`).
 
 ## Onde ficam as coisas úteis para debugar
 
 - `ferramentas/` — scripts de apoio pontuais (correção de schema, seed de watermark,
   calibração de thresholds). Não fazem parte do fluxo normal.
-- `legado/` — patches/scripts aposentados (ex.: `2b_corrigir_precos_homologados.py`), mantidos
-  só de referência.
+- `tests/` — por ora só a guarda estrutural da Fase 0 (`pytest` roda em segundos).
 - `data/checkpoints/` — estado de resumo por etapa (chaves já concluídas).
 - `data/erros/` — falhas de registro por etapa, não derrubam a execução.
 - `.env` — nunca commitar (está no `.gitignore`); tem chaves de API e a URL do túnel ngrok da
   GPU remota (`GPU_BASE_URL`), que muda de tempos em tempos.
+- `legado/` **saiu do repositório** na Fase 0. O patch aposentado
+  `2b_corrigir_precos_homologados.py` está na tag `legado-2b-precos-homologados`:
+  `git show legado-2b-precos-homologados:legado/2b_corrigir_precos_homologados.py`.
+  (O CSV de 41 MB que morava junto nunca esteve no git e continua no disco.)
+
+## Dívida conhecida da Fase 0
+
+- `ruff check pesquisa_precos` reporta ~9 achados cosméticos **pré-existentes** (`open(x, "r")`,
+  um f-string sem placeholder, um `args` não usado). Não foram corrigidos de propósito: o
+  critério de aceite da fase é saída byte a byte idêntica, e mexer no corpo das etapas
+  trocaria risco por estética. `E501`/`E741`/`E702`/`B905` estão desligados no `pyproject.toml`
+  pelo mesmo motivo — reativar por módulo à medida que a Fase 1 reescrever cada etapa.
+- `I001` (ordenação de import) fica desligado **permanentemente** nos módulos de etapa: elas
+  fazem `sys.stdout.reconfigure(encoding="utf-8")` antes de importar `rich`/`pandas`, e o
+  autofix do isort moveria os imports para cima disso — reintroduzindo o bug de acento
+  corrompido no console do Windows.
+- `requirements.txt` está obsoleto; a lista canônica é o `[project]` do `pyproject.toml`.

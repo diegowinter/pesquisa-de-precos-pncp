@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pesquisa-precos"
+version = "0.1.0"
+description = "Pesquisa de preços PLASEG via PNCP — pipeline de coleta, classificação, pareamento e export"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas",
+    "pyarrow",
+    "requests",
+    "python-dotenv",
+    "rich",
+    "openpyxl",
+    "langchain-openai",
+    "langchain-core",
+    "unidecode",
+    # Etapa 5 (PDF/OCR)
+    "pymupdf",
+    # Etapas 6a/6b — rodam na GPU (local ou via servidor remoto)
+    "rank-bm25",
+    "sentence-transformers",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest"]
+
+[tool.setuptools.packages.find]
+# Só o pacote da aplicação. `ferramentas/`, `migracao/` e os servidores de GPU/OCR são
+# scripts avulsos, rodados de dentro do repositório — não fazem parte do pacote instalável.
+include = ["pesquisa_precos*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# As duas listas abaixo são diferentes em natureza. Não fundir.
+ignore = [
+    # ── Desligados por serem incompatíveis com o código, não por dívida ────────────────
+    # E402/I001: as etapas fazem `sys.stdout.reconfigure(encoding="utf-8")` ANTES de importar
+    # rich/pandas — é o que evita acentos corrompidos no console do Windows (cp1252). Isso
+    # obriga imports depois de código; pior, o autofix do isort MOVERIA os imports para cima
+    # do reconfigure, reintroduzindo o bug. Ordenação de import fica manual nestes módulos.
+    "E402",
+    "I001",
+
+    # ── Dívida herdada da pipeline em scripts ─────────────────────────────────────────
+    # A Fase 0 move o código sem tocar no corpo (o critério de aceite é saída byte a byte
+    # idêntica), então reflowar 125 linhas longas aqui seria trocar risco por estética.
+    # Reativar por módulo à medida que a Fase 1 reescrever cada etapa em `executar()`.
+    "E501",   # 125 ocorrências — linhas de 100-115 col
+    "E741",   # `l` como variável de laço em list comprehensions de CSV
+    "E702",   # `t.add_column(...); t.add_column(...)` em blocos de montagem de tabela rich
+    "B905",   # zip() sem strict= — comportamento atual depende do truncamento silencioso
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pesquisa_precos"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

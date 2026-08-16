@@ -39,10 +39,12 @@ from rich.console import Console
 console = Console()
 
 RAIZ = Path(__file__).resolve().parent.parent
-DATA = RAIZ / "data"
-ITENS = DATA / "2_itens_coletados.csv"
-EXTRA = DATA / "checkpoints" / "2_conceitos_extra.csv"
-WATERMARK = DATA / "checkpoints" / "2_watermark.csv"
+sys.path.insert(0, str(RAIZ))
+from pesquisa_precos.config import paths  # noqa: E402
+
+ITENS = paths.E2_ITENS
+EXTRA = paths.CK_2_CONCEITOS_EXTRA
+WATERMARK = paths.CK_2_WATERMARK
 
 CHUNK = 200_000
 
@@ -153,7 +155,7 @@ def main():
         return
     gravar(wm)
     console.print(f"[bold green]Watermark gravado[/] → {WATERMARK}")
-    console.print("[dim]Próximo passo: python 2_coletar_pncp.py --atualizar "
+    console.print("[dim]Próximo passo: python -m pesquisa_precos.etapas.e2_coletar --atualizar "
                   "(vai parar em cada marca e coletar só a lacuna).[/]")
 
 
