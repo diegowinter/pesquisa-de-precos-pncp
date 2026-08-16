@@ -1,0 +1,108 @@
+# Pipeline `itens-contratos-atas` v3
+
+Pesquisa de preços de itens de segurança pública via PNCP: parte do catálogo CATMAT/CATSER
+filtrado por allow-list, coleta contratos/atas do PNCP por conceito, e afunila com um funil
+de custo crescente (classificação → corte → rejeitor híbrido → reranker local → LLM só no
+ambíguo) até os **5 itens confirmados mais baratos** por código de catálogo.
+
+O desenho completo (regras de negócio, formatos de arquivo, convenções) está em
+[`GUIA_IMPLEMENTACAO_PIPELINE.md`](GUIA_IMPLEMENTACAO_PIPELINE.md); o desenho da **rodada de
+atualização incremental** (a novidade do v3) está em [`../PLANO_V3.md`](../PLANO_V3.md).
+
+> **v3 vs v2** — o v3 nasce como cópia do v2 (scripts + resultados + checkpoints), **sem**
+> `data/arquivos/` (os PDFs são re-baixados sob demanda pela etapa 2). Os patches retroativos
+> (ex.: `2b_corrigir_precos_homologados.py`) foram **aposentados em `legado/`**: o caminho
+> base já coleta o valor homologado inline, então há um caminho canônico só. O v2 permanece
+> intacto como fallback.
+
+## Fluxo
+
+```
+0a  Catálogo + filtro allow-list (PDM / codigoServico)     → data/0a_catalogo_filtrado.csv
+1   Conceitos + termos de busca (LLM, versionado à mão)     → data/1_conceitos_termos.csv
+2   Coleta larga PNCP (busca → homologado → PDF → explode)   → data/2_itens_coletados.csv
+3   Classificação de categoria por item (LLM local)          → data/3_itens_classificados.csv
+4   Corte antecipado (regra dos 5, categorias < 5)           → data/4_itens_sobreviventes.csv
+5   Enriquecimento via PDF (parse/OCR → extração → âncora)   → data/5_itens_enriquecidos.csv
+6a  Pares (catálogo × item, mesma categoria) + rejeitor      → data/6a_pares_candidatos.csv
+6b  Reranker local (aceito / rejeitado / ambíguo)            → data/6b_pares_rerankeados.csv
+6c  LLM forte só nos ambíguos + acúmulo de rótulos           → data/6c_pares_validados.csv
+7   Agrupar por código, sanity de preço, top 5              → data/7_itens_agrupados.csv
+8   Export XLSX Plaseg                                       → data/8_itens_plaseg.xlsx
+```
+
+**Regra dos 5**: cada código de catálogo precisa de 5 itens confirmados; ficam os 5 mais
+baratos por preço unitário. Pares nunca são deduplicados (item ambíguo é julgado em cada
+categoria). O corte da etapa 4 é a versão "matematicamente segura"; a contagem definitiva é
+na etapa 7, sobre confirmados e fora os outliers de preço.
+
+## Tabela script → entrada → saída
+
+| Script | Entrada | Saída | LLM/GPU |
+|---|---|---|---|
+| `0a_obter_catalogo.py` | Dados Abertos Compras.gov | `0a_catalogo_*` | — |
+| `1_gerar_conceitos.py` | `0a_catalogo_filtrado.csv` | `1_conceitos_termos.csv` | LLM |
+| `2_coletar_pncp.py` | `1_conceitos_termos.csv` | `2_itens_coletados.csv` + PDFs | — |
+| `3_classificar_itens.py` | `2_itens_coletados.csv` | `3_itens_classificados.csv` | LLM local |
+| `4_cortar_minimo.py` | `2_*`, `3_*` | `4_itens_sobreviventes.csv` | — |
+| `5_enriquecer_pdf.py` | `4_*`, PDFs | `5_itens_enriquecidos.csv` | LLM + OCR |
+| `6a_gerar_pares.py` | `4_*`, `5_*`, `0a_*`, `1_*` | `6a_pares_candidatos.csv` | GPU (embedder) |
+| `6b_rerankear_pares.py` | `6a_*` | `6b_pares_rerankeados.csv` | GPU (reranker) |
+| `6c_validar_pares_llm.py` | `6b_*` | `6c_pares_validados.csv`, `6_rotulos_acumulados.csv` | LLM forte |
+| `7_agrupar_top5.py` | `6b_*`, `6c_*`, `4_*`, `5_*`, `0a_*` | `7_itens_agrupados.csv` | — |
+| `8_exportar_plaseg.py` | `7_*` | `8_itens_plaseg.xlsx` | — |
+
+## Convenções
+
+- Saídas prefixadas pelo script que as produziu (`data/{N}{letra?}_*`). Checkpoints em
+  `data/checkpoints/{N}_*`; erros em `data/erros/{N}_erros.csv`.
+- Toda etapa que itera é **resumível**: relê as chaves já concluídas da própria saída e as
+  pula; falhas de registro vão para o log de erros sem derrubar a execução.
+- Todo I/O de texto é utf-8 explícito (defesa contra o bug de acentos cp1252 no Windows).
+- **GPU (6 GB)**: embedder, reranker, OCR e LLM local **nunca rodam simultaneamente**. As
+  etapas são sequenciais e cada script carrega seu modelo no início e libera ao final.
+
+## Configuração
+
+Copie `.env.example` para `.env` e preencha (OpenRouter, LM Studio, OCR, modelos e
+thresholds — ver seção 1.5 do guia). Instale as dependências:
+
+```
+pip install -r requirements.txt
+```
+
+`sentence-transformers` e `rank-bm25` só são necessárias para as etapas 6a/6b; `pymupdf` para
+a 5.
+
+## Orquestração
+
+`rodar.py` encadeia as etapas, para no primeiro erro e reporta:
+
+```
+python rodar.py --completo   [--provedor openrouter] [--remoto] [--caminho-5 base|alt]
+python rodar.py --atualizar  [--provedor openrouter] [--remoto] [--sem-catalogo]
+python rodar.py --atualizar --de 3          # retoma a partir de uma etapa
+python rodar.py --completo  --dry-run        # só imprime a sequência
+```
+
+No `--atualizar`: a 0a rebaixa o catálogo (detecta PDMs novos/removidos → delta) e a 2 roda com
+`--atualizar` (para no watermark + revisita pendentes); as demais são resumíveis/agregadoras e só
+tocam o novo. Ver [`../PLANO_V3.md`](../PLANO_V3.md) para o desenho.
+
+## Utilitários
+
+- `limpar.py --etapa N` — apaga saídas/checkpoints da etapa N em diante (preserva os ativos
+  caros: `0a_*`, `1_conceitos_termos.csv`, `6_rotulos_acumulados.csv`). Também `--arquivos`
+  (PDFs) e `--tudo`.
+- `ferramentas/calibrar_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável
+  e sugere `REJEITOR_THRESHOLD`, `RERANK_T_ACEITA`, `RERANK_T_REJEITA` a partir dela.
+
+Todas as etapas de LLM aceitam `--provedor local|openrouter` e a maioria um `--limite N` para
+validação barata.
+
+## Legado
+
+O código da v1 fica em [`../itens-contratos-atas/`](../itens-contratos-atas/) e dados antigos
+em [`data/legado/`](data/legado/). A curadoria do catálogo por LLM (antiga etapa 0b) foi
+**aposentada** e substituída pela allow-list em `scripts/catalogo_local.py`
+(`PDMS_MATERIAIS`, `CODIGOS_SERVICOS`).

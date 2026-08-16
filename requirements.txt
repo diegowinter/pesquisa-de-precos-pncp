@@ -1,0 +1,17 @@
+# Pipeline itens-contratos-atas v2
+pandas
+pyarrow
+requests
+python-dotenv
+rich
+openpyxl
+langchain-openai
+langchain-core
+unidecode
+
+# Etapa 5 (PDF/OCR)
+pymupdf
+
+# Etapas 6a/6b (GPU — rodam sozinhos na VRAM)
+rank-bm25
+sentence-transformers

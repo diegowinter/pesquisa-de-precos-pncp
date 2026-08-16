@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+data/
+!data/.gitkeep
+
+*.csv
+*.parquet
+*.xlsx
+*.pdf
+*.json
+
+.claude/
