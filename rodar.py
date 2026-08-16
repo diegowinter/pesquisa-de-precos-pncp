@@ -12,8 +12,9 @@ Dois modos:
                 (3, 5, 6a-embeddings, 6b, 6c) ou recomputam barato o conjunto todo (4, 7, 8).
 
 Cada etapa é um módulo `pesquisa_precos.etapas.e*` invocado como subprocesso `python -m` (a
-saída aparece ao vivo). As flags comuns são repassadas só a quem as aceita: --provedor
-(1,3,5,6c), --remoto (6a,6b).
+saída aparece ao vivo). A sequência e as flags aceitas por cada etapa vêm do **registry**
+(`pesquisa_precos.etapas.registry`) e dos `Params` de cada uma — antes da Fase 1 as duas
+coisas eram tabelas escritas à mão aqui, que precisavam ser lembradas a cada etapa nova.
 
 Uso:
   python rodar.py --completo  [--provedor openrouter] [--remoto] [--caminho-5 base|alt]
@@ -37,6 +38,7 @@ from rich.console import Console
 from rich.table import Table
 
 from pesquisa_precos.config import paths
+from pesquisa_precos.etapas import registry
 
 console = Console()
 RAIZ = paths.RAIZ
@@ -45,37 +47,42 @@ PY = sys.executable
 
 MODULO_BASE = "pesquisa_precos.etapas"
 
-# Capacidades de flag por etapa (ver matriz verificada). provedor: LLM; remoto: GPU remota.
-ACEITA_PROVEDOR = {"e1_termos", "e3_classificar", "e5b_extrair",
-                   "e5_alt_a_tabela", "e5_alt_b_casar", "e6c_validar"}
-ACEITA_REMOTO = {"e6a_pares", "e6b_rerank"}
+# Caminho alternativo da etapa 5 (--caminho-5 alt): módulos-embrião ainda em argparse, fora do
+# registry. Ficam aqui até a Fase 8 substituí-los pelas estratégias `janela`/`completa`.
+ALT_5 = [("5a", "e5_alt_a_tabela"), ("5b", "e5_alt_b_casar")]
 
 
 def montar_etapas(args) -> list[tuple[str, str]]:
-    """Devolve a lista ordenada [(id, modulo)] do caminho escolhido."""
-    cinco = [("5a", "e5a_ocr"), ("5b", "e5b_extrair")] if args.caminho_5 == "base" \
-        else [("5a", "e5_alt_a_tabela"), ("5b", "e5_alt_b_casar")]
-    return [
-        ("0a", "e0a_catalogo"),
-        ("1", "e1_termos"),
-        ("2", "e2_coletar"),
-        ("3", "e3_classificar"),
-        ("4", "e4_cortar"),
-        *cinco,
-        ("6a", "e6a_pares"),
-        ("6b", "e6b_rerank"),
-        ("6c", "e6c_validar"),
-        ("7", "e7_agrupar"),
-        ("8", "e8_exportar"),
-    ]
+    """Devolve a lista ordenada [(id, modulo)] do caminho escolhido, a partir do registry."""
+    ordem = [(e.chave, e.modulo) for e in registry.ordem()]
+    if args.caminho_5 == "alt":
+        ordem = [par for par in ordem if par[0] not in ("5a", "5b")]
+        pos = next(i for i, (chave, _) in enumerate(ordem) if chave == "6a")
+        ordem = ordem[:pos] + ALT_5 + ordem[pos:]
+    return ordem
 
 
-def montar_comando(script: str, args) -> list[str]:
+# Os dois módulos-embrião do caminho alt não têm `Params`; a matriz de flags deles continua
+# escrita à mão até a Fase 8.
+FLAGS_ALT = {"e5_alt_a_tabela": {"provedor"}, "e5_alt_b_casar": {"provedor"}}
+
+
+def _aceita(chave: str, script: str, flag: str) -> bool:
+    """A etapa expõe esta flag? Pergunta ao schema `Params` dela — sem tabela paralela."""
+    if script in FLAGS_ALT:
+        return flag in FLAGS_ALT[script]
+    try:
+        return flag in registry.obter(chave).params_model.model_fields
+    except KeyError:
+        return False
+
+
+def montar_comando(chave: str, script: str, args) -> list[str]:
     """Monta os argumentos de uma etapa conforme o modo e as flags que ela aceita."""
     extra: list[str] = []
-    if script in ACEITA_PROVEDOR:
+    if _aceita(chave, script, "provedor"):
         extra += ["--provedor", args.provedor]
-    if script in ACEITA_REMOTO and args.remoto:
+    if args.remoto and _aceita(chave, script, "remoto"):
         extra += ["--remoto"]
     if script == "e0a_catalogo" and args.atualizar and not args.sem_catalogo:
         extra += ["--forcar"]  # rebaixa o catálogo p/ detectar mudanças de PDM e gerar o delta
@@ -136,14 +143,14 @@ def main():
     console.print(f"[bold]Pipeline v3 — modo {modo_txt}[/] · provedor={args.provedor} · "
                   f"remoto={args.remoto} · caminho-5={args.caminho_5}")
     for eid, script in selecionadas:
-        cmd = montar_comando(script, args)
+        cmd = montar_comando(eid, script, args)
         console.print(f"  [cyan]{eid:>2}[/] → {' '.join(cmd[1:])}")
     if args.dry_run:
         return
 
     resultados = []
     for eid, script in selecionadas:
-        cmd = montar_comando(script, args)
+        cmd = montar_comando(eid, script, args)
         console.rule(f"[bold]Etapa {eid} · {script}")
         t0 = time.time()
         proc = subprocess.run(cmd, cwd=str(RAIZ))

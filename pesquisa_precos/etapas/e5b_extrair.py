@@ -14,11 +14,16 @@ item em data/5_itens_destino.csv (detector de PDF-trocado):
 
 Entradas: data/4_itens_sobreviventes.csv, data/5_pdf_texto.csv (rode a 5a antes).
 Saídas: data/5_itens_enriquecidos.csv, data/5_itens_destino.csv. Erros: erros/5_erros.csv.
+Chave de resumo: item_key.
+
+NÃO fazer: usar o preço como critério de aceite do item (é SAÍDA, não filtro), ancorar a
+janela só na descrição (perde a cláusula de preço em contrato grande) ou descartar item por
+divergência de preço.
+
 Uso: python -m pesquisa_precos.etapas.e5b_extrair [--provedor openrouter|local]
                                                   [--concurrency 8] [--limite N]
 """
 
-import argparse
 import csv
 import re
 import sys
@@ -33,24 +38,22 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 import pandas as pd
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.core import erros_log
-from pesquisa_precos.config.settings import carregar_config, exigir
-from pesquisa_precos.core.io_seguro import EscritorSeguro, escrever_csv, ler_chaves_concluidas, ler_csv
-from pesquisa_precos.providers.llm_curador import Curador
+from pesquisa_precos.config.settings import custo_por_chamada, exigir
+from pesquisa_precos.core.io_seguro import (
+    EscritorSeguro,
+    escrever_csv,
+    ler_chaves_concluidas,
+    ler_csv,
+)
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+from pesquisa_precos.providers.llm_curador import Curador
 
-console = Console()
+CHAVE = "5b"
+VERSAO_CODIGO = "1.0.0"
 
 SOBREVIVENTES = paths.E4_SOBREVIVENTES
 TEXTO = paths.E5_PDF_TEXTO
@@ -64,6 +67,12 @@ DESTINO_COLS = ["item_key", "enriquecimento", "doc_status", "destino"]
 JANELA = 3000          # raio ao redor da âncora de descrição
 RAIO_PRECO = 1500      # raio ao redor de cada ocorrência do preço
 MAX_JANELA = 9000      # teto de chars da janela final (soma dos trechos)
+
+
+class Params(BaseModel):
+    provedor: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
+    concurrency: int = Field(8, ge=1, le=32, description="Chamadas simultâneas ao LLM")
+    limite: int | None = Field(None, description="Teto de itens a extrair (debug)")
 
 
 def _norm(s: str) -> str:
@@ -187,7 +196,7 @@ def carregar_texto_docs() -> tuple[dict, dict]:
         raise SystemExit(f"{TEXTO} ausente. Rode a etapa 5a (OCR/parse) antes.")
     paginas = defaultdict(list)          # doc_key -> [(pagina:int, texto)]
     ocr_por_doc = defaultdict(set)       # doc_key -> {paginas via ocr}
-    with open(TEXTO, "r", encoding="utf-8", newline="") as f:
+    with open(TEXTO, encoding="utf-8", newline="") as f:
         for r in csv.DictReader(f):
             dk = r["doc_key"]
             try:
@@ -231,15 +240,27 @@ def consolidar_destino(saida_csv: str, sob: pd.DataFrame, dest_csv: str) -> dict
     return contagem
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Etapa 5b — extração guiada por item + destino")
-    ap.add_argument("--provedor", choices=["local", "openrouter"], default="openrouter")
-    ap.add_argument("--concurrency", type=int, default=8)
-    ap.add_argument("--limite", type=int, default=None)
-    args = ap.parse_args()
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Uma chamada de LLM por ITEM sobrevivente ainda não enriquecido (não há dedup aqui)."""
+    if not SOBREVIVENTES.exists():
+        return Estimativa(detalhes={"aviso": f"{SOBREVIVENTES} ausente — rode a etapa 4 antes."})
+    sob = pd.read_csv(SOBREVIVENTES, dtype=str, encoding="utf-8").fillna("")
+    feitas = ler_chaves_concluidas(str(SAIDA), "item_key")
+    pend = [k for k in sob["item_key"] if k not in feitas]
+    n = len(pend) if not params.limite else min(len(pend), params.limite)
+    preco = custo_por_chamada(ctx.config, params.provedor)
+    return Estimativa(
+        unidades=n, chamadas_llm=n,
+        custo_usd=None if preco is None else n * preco,
+        duracao_s=n / max(params.concurrency, 1) * 2,
+        detalhes={"itens_sobreviventes": len(sob), "já_enriquecidos": len(feitas),
+                  "texto_disponivel": TEXTO.exists()},
+    )
 
-    cfg = carregar_config()
-    msg = exigir(cfg, args.provedor)
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    cfg = ctx.config
+    msg = exigir(cfg, params.provedor)
     if msg:
         raise SystemExit(msg)
     if not SOBREVIVENTES.exists():
@@ -250,24 +271,25 @@ def main():
 
     feitas = ler_chaves_concluidas(str(SAIDA), "item_key")
     pend = [r.to_dict() for _, r in sob.iterrows() if r["item_key"] not in feitas]
-    if args.limite:
-        pend = pend[: args.limite]
+    if params.limite:
+        pend = pend[: params.limite]
     if not pend:
-        console.print("[5b] Nada a extrair (tudo já feito). Consolidando destino...")
+        ctx.log("info", "[5b] Nada a extrair (tudo já feito). Consolidando destino...")
         cont = consolidar_destino(str(SAIDA), sob, str(DESTINO))
-        console.print(f"[5b] Destino: manter={cont['manter']} descartar={cont['descartar']} "
-                      f"revisar={cont['revisar']} (preço diverge={cont['preco_diverge']}, "
-                      f"sem preço={cont['sem_preco']})")
-        return
+        ctx.log("info", f"[5b] Destino: manter={cont['manter']} descartar={cont['descartar']} "
+                        f"revisar={cont['revisar']} (preço diverge={cont['preco_diverge']}, "
+                        f"sem preço={cont['sem_preco']})")
+        return ResultadoEtapa(metricas=dict(cont))
 
-    console.print(f"[bold][5b] {len(pend)} itens a extrair[/] (já feitos: {len(feitas)}), "
-                  f"provedor: {args.provedor}, concorrência: {args.concurrency}")
+    ctx.log("info", f"[bold][5b] {len(pend)} itens a extrair[/] (já feitos: {len(feitas)}), "
+                    f"provedor: {params.provedor}, concorrência: {params.concurrency}")
 
     # Um Curador por thread (compartilhar um cliente serializa as chamadas — ver etapa 3).
     _tls = threading.local()
+
     def _curador():
         if not hasattr(_tls, "c"):
-            _tls.c = Curador.from_provedor(cfg, args.provedor, max_retries=6)
+            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6)
         return _tls.c
 
     def _linha(item, res):
@@ -280,6 +302,7 @@ def main():
                 "divergencia_preco": "" if dv is None else dv,
                 "paginas_ocr": res["n_ocr"], "enriquecimento": res["motivo"]}
 
+    n_erros = [0]
     with EscritorSeguro(str(SAIDA), COLS) as w:
         def fn(item):
             pasta = item.get("pasta_arquivos", "")
@@ -300,35 +323,38 @@ def main():
             w.escrever(_linha(item, res))
 
         def err(item, exc):
-            erros_log.logar_erro(str(ERROS), "5b", "", item["item_key"], "", exc)
+            n_erros[0] += 1
+            ctx.erro_item(item["item_key"], exc)
             w.escrever(_linha(item, {
                 "descricao_final": item.get("descricao_api", ""), "fonte": "api",
                 "preco_api": _num(item.get("preco_unitario")), "preco_pdf": None,
                 "divergencia": None, "n_ocr": int(n_ocr_doc.get(item.get("pasta_arquivos", ""), 0)),
                 "motivo": "erro"}))
 
-        progress = Progress(
-            SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=30),
-            MofNCompleteColumn(), TimeElapsedColumn(), console=console,
-        )
-        with progress:
-            tarefa = progress.add_task("extraindo", total=len(pend))
-            executar_paralelo(pend, fn, concurrency=args.concurrency, on_result=ok, on_error=err,
-                              on_progress=lambda f, t: progress.update(tarefa, completed=f))
+        ctx.progresso(0, len(pend), descricao="extraindo")
+        executar_paralelo(pend, fn, concurrency=params.concurrency, on_result=ok, on_error=err,
+                          on_progress=lambda f, t: ctx.progresso(f, t))
 
     cont = consolidar_destino(str(SAIDA), sob, str(DESTINO))
-    console.print(f"[bold green][5b] Concluído.[/] → {SAIDA}")
-    console.print(f"[5b] Destino: manter={cont['manter']} descartar={cont['descartar']} "
-                  f"revisar={cont['revisar']} (docs suspeitos={cont['docs_suspeitos']}, "
-                  f"ilegíveis={cont['docs_ilegiveis']}) → {DESTINO}")
-    console.print(f"[5b] Preço: {cont['preco_diverge']} divergentes (estimado vs. registrado), "
-                  f"{cont['preco_suspeito']} suspeitos (provável misparse), "
-                  f"{cont['sem_preco']} sem preço legível.")
+    ctx.log("info", f"[bold green][5b] Concluído.[/] → {SAIDA}")
+    ctx.log("info", f"[5b] Destino: manter={cont['manter']} descartar={cont['descartar']} "
+                    f"revisar={cont['revisar']} (docs suspeitos={cont['docs_suspeitos']}, "
+                    f"ilegíveis={cont['docs_ilegiveis']}) → {DESTINO}")
+    ctx.log("info", f"[5b] Preço: {cont['preco_diverge']} divergentes (estimado vs. registrado), "
+                    f"{cont['preco_suspeito']} suspeitos (provável misparse), "
+                    f"{cont['sem_preco']} sem preço legível.")
+
+    return ResultadoEtapa(
+        processados=len(pend) - n_erros[0], erros=n_erros[0],
+        metricas=dict(cont),
+    )
+
+
+def main() -> None:
+    from pesquisa_precos.cli.app import rodar_etapa_isolada
+
+    rodar_etapa_isolada(CHAVE)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        console.print("\n[yellow][5b] Interrompido — progresso salvo (resumível por item_key).[/]")
-        sys.exit(130)
+    main()

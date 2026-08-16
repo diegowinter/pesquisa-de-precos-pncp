@@ -8,11 +8,15 @@ antiga regra dos 5 (descartar categoria com < MIN_ITENS) foi removida. O único 
 
 Entradas: data/2_itens_coletados.csv, data/3_itens_classificados.csv.
 Saídas: data/4_itens_sobreviventes.csv (colunas da etapa 2 + categorias do item),
-         data/4_relatorio_corte.csv (categoria, n_itens_coletados, mantida≡True) — diagnóstico.
+        data/4_relatorio_corte.csv (categoria, n_itens_coletados, mantida≡True) — diagnóstico.
+Chave de resumo: nenhuma — recomputa o corpus inteiro (é barato e o resultado depende de tudo).
+
+NÃO fazer: reintroduzir descarte por MIN_ITENS aqui (ADR-016 — a "regra dos 5" está
+desativada de propósito; mais de 5 itens por código é comportamento esperado).
+
 Uso: python -m pesquisa_precos.etapas.e4_cortar
 """
 
-import argparse
 import sys
 
 for _s in (sys.stdout, sys.stderr):
@@ -22,9 +26,14 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 import pandas as pd
+from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
 from pesquisa_precos.core.coleta import coleta_pncp
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+
+CHAVE = "4"
+VERSAO_CODIGO = "1.0.0"
 
 ITENS = paths.E2_ITENS
 CK_EXTRA = paths.CK_2_CONCEITOS_EXTRA
@@ -33,19 +42,35 @@ SOBREVIVENTES = paths.E4_SOBREVIVENTES
 RELATORIO = paths.E4_RELATORIO
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Etapa 4 — corte antecipado (regra dos 5)")
-    ap.add_argument("--entrada-legado", default=None, help="CSV explodido da v1 (aceite fase 2)")
-    args = ap.parse_args()
+class Params(BaseModel):
+    entrada_legado: str | None = Field(None, description="CSV explodido da v1 (aceite fase 2)")
 
-    if args.entrada_legado:
-        base = pd.read_csv(args.entrada_legado, dtype=str, encoding="utf-8-sig").fillna("")
+
+def carregar_base(entrada_legado: str | None) -> pd.DataFrame:
+    if entrada_legado:
+        base = pd.read_csv(entrada_legado, dtype=str, encoding="utf-8-sig").fillna("")
         ctrl = base.get("numero_controle_pncp", "")
         num = base.get("item.numero_item", "")
         base = base.assign(item_key=[coleta_pncp.montar_item_key(c, n) for c, n in zip(ctrl, num)])
-        base = base.drop_duplicates(subset="item_key", keep="first")
-    else:
-        base = coleta_pncp.carregar_itens_coletados(str(ITENS), str(CK_EXTRA))
+        return base.drop_duplicates(subset="item_key", keep="first")
+    return coleta_pncp.carregar_itens_coletados(str(ITENS), str(CK_EXTRA))
+
+
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Sem LLM: só conta quantos itens classificados entrariam no corte."""
+    if not CLASSIF.exists():
+        return Estimativa(detalhes={"aviso": f"{CLASSIF} ausente — rode a etapa 3 antes."})
+    clas = pd.read_csv(CLASSIF, dtype=str, encoding="utf-8").fillna("")
+    com_categoria = clas[clas["categorias"].str.strip() != ""]
+    return Estimativa(
+        unidades=len(com_categoria), chamadas_llm=0,
+        detalhes={"itens_classificados": len(clas),
+                  "sem_categoria (morrem aqui)": len(clas) - len(com_categoria)},
+    )
+
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    base = carregar_base(params.entrada_legado)
     if base.empty:
         raise SystemExit("Sem itens coletados. Rode a etapa 2 antes (ou use --entrada-legado).")
 
@@ -80,9 +105,21 @@ def main():
     sobrev = itens_cat.merge(base[base_cols], on="item_key", how="left")
     sobrev.to_csv(SOBREVIVENTES, index=False, encoding="utf-8")
 
-    print(f"[4] Categorias mantidas: {sorted(mantidas)}")
-    print(f"[4] Itens sobreviventes: {len(sobrev)} | relatório: {RELATORIO}")
-    print(f"[4] Saída: {SOBREVIVENTES}")
+    ctx.log("info", f"[4] Categorias mantidas: {sorted(mantidas)}")
+    ctx.log("info", f"[4] Itens sobreviventes: {len(sobrev)} | relatório: {RELATORIO}")
+    ctx.log("info", f"[4] Saída: {SOBREVIVENTES}")
+
+    return ResultadoEtapa(
+        processados=len(sobrev), erros=0,
+        metricas={"categorias_mantidas": len(mantidas), "itens_sobreviventes": len(sobrev)},
+        preview=relatorio.head(50).to_dict("records"),
+    )
+
+
+def main() -> None:
+    from pesquisa_precos.cli.app import rodar_etapa_isolada
+
+    rodar_etapa_isolada(CHAVE)
 
 
 if __name__ == "__main__":

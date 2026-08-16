@@ -14,6 +14,9 @@ dependencies = [
     "python-dotenv",
     "rich",
     "openpyxl",
+    # Fase 1: contrato de etapa (Params/Estimativa/ResultadoEtapa) e CLI gerada a partir dele.
+    "pydantic>=2",
+    "typer>=0.12",
     "langchain-openai",
     "langchain-core",
     "unidecode",

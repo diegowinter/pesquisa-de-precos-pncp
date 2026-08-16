@@ -31,6 +31,20 @@ pesquisa_precos/
 Uma etapa roda como módulo: `python -m pesquisa_precos.etapas.e3_classificar --provedor local`.
 `rodar.py` e `limpar.py` continuam na raiz e já apontam para os módulos novos.
 
+Desde a **Fase 1** cada etapa expõe `Params` (Pydantic) + `executar(params, ctx)` +
+`estimar(params, ctx)`, e o `main()` é só uma casca. Existe uma CLI equivalente, com as flags
+geradas a partir dos próprios `Params`:
+
+```
+python -m pesquisa_precos.cli etapa 3 --concurrency 8   # mesma coisa que o -m da etapa
+python -m pesquisa_precos.cli estimar 3                 # escopo/custo, sem gastar nada
+python -m pesquisa_precos.cli grafo                     # ordem e dependências (registry)
+```
+
+A ordem das etapas e "quem aceita qual flag" vêm de `pesquisa_precos/etapas/registry.py` e dos
+`Params` — `rodar.py` não tem mais tabela própria. Ao mudar a lógica de uma etapa, **bumpe o
+`VERSAO_CODIGO` do módulo** (é o que vai alimentar o fingerprint na Fase 3).
+
 **Nunca escreva um caminho de `data/` literal.** Todos estão em
 [pesquisa_precos/config/paths.py](pesquisa_precos/config/paths.py); um caminho solto que
 divirja não levanta exceção — a etapa só não acha o checkpoint, reprocessa do zero e recobra
@@ -49,9 +63,12 @@ livremente.
 ## Restrição crítica de custo de LLM
 
 **Não há orçamento para o modelo caro** (`OPENAI_MODEL_PASS2`, hoje `qwen3.7-plus`). Use sempre
-o modelo barato (`OPENAI_MODEL_PASS1`, `inclusionai/ling-2.6-flash`). Isso importa
-especialmente na **etapa 6c**: ela só usa o modelo barato se rodar com a flag `--fraco` — sem
-essa flag, cai no modelo caro por padrão. **Nunca sugerir rodar 6c sem `--fraco`.**
+o modelo barato (`OPENAI_MODEL_PASS1`, `inclusionai/ling-2.6-flash`).
+
+Até a Fase 0 isso dependia de lembrar de digitar `--fraco` na **etapa 6c** — sem a flag, ela
+caía no modelo caro. **A Fase 1 inverteu** (ADR-004): o barato é o padrão e o caro exige
+`--forte` explícito. `--fraco` continua sendo aceito, sem efeito, para não quebrar o comando
+que já está no histórico do terminal. **Nunca sugerir rodar 6c com `--forte`.**
 
 ## "Regra dos 5" — foi removida intencionalmente
 
@@ -157,11 +174,9 @@ caminho resolvem para os mesmos arquivos e o pacote inteiro importa (`pytest`).
 
 ## Dívida conhecida da Fase 0
 
-- `ruff check pesquisa_precos` reporta ~9 achados cosméticos **pré-existentes** (`open(x, "r")`,
-  um f-string sem placeholder, um `args` não usado). Não foram corrigidos de propósito: o
-  critério de aceite da fase é saída byte a byte idêntica, e mexer no corpo das etapas
-  trocaria risco por estética. `E501`/`E741`/`E702`/`B905` estão desligados no `pyproject.toml`
-  pelo mesmo motivo — reativar por módulo à medida que a Fase 1 reescrever cada etapa.
+- ~~`ruff check pesquisa_precos` reporta ~9 achados cosméticos pré-existentes~~ — zerados na
+  Fase 1, que reescreveu o corpo das etapas de qualquer forma. `E501`/`E741`/`E702`/`B905`
+  seguem desligados no `pyproject.toml`; reativar por módulo quando houver motivo.
 - `I001` (ordenação de import) fica desligado **permanentemente** nos módulos de etapa: elas
   fazem `sys.stdout.reconfigure(encoding="utf-8")` antes de importar `rich`/`pandas`, e o
   autofix do isort moveria os imports para cima disso — reintroduzindo o bug de acento

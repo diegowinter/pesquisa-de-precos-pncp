@@ -12,10 +12,12 @@ documento por vez (páginas em sequência). Case este valor com o --workers do s
 
 Entrada: data/4_itens_sobreviventes.csv (coluna pasta_arquivos).
 Saída: data/5_pdf_texto.csv (doc_key, arquivo, pagina, fonte, texto). Chave de resumo: doc_key.
+
+NÃO fazer: mandar o documento inteiro ao OCR — é uma imagem de página por chamada.
+
 Uso: python -m pesquisa_precos.etapas.e5a_ocr [--concurrency 3] [--pular-ocr] [--limite-docs N]
 """
 
-import argparse
 import glob
 import os
 import sys
@@ -27,28 +29,30 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 import pandas as pd
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.providers import ocr_pdf
-from pesquisa_precos.config.settings import carregar_config, exigir
+from pesquisa_precos.config.settings import exigir
 from pesquisa_precos.core.io_seguro import EscritorSeguro, ler_chaves_concluidas
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+from pesquisa_precos.providers import ocr_pdf
 
-console = Console()
+CHAVE = "5a"
+VERSAO_CODIGO = "1.0.0"
 
 SOBREVIVENTES = paths.E4_SOBREVIVENTES
 SAIDA = paths.E5_PDF_TEXTO
 
 COLS = ["doc_key", "arquivo", "pagina", "fonte", "texto"]
+
+
+class Params(BaseModel):
+    concurrency: int = Field(
+        3, ge=1, le=32,
+        description="Documentos processados em paralelo (case com --workers do servidor OCR)")
+    pular_ocr: bool = Field(False, description="Só PDFs nativos (não chama o OCR)")
+    limite_docs: int | None = Field(None, description="Teto de documentos (debug)")
 
 
 def parse_documento(pasta: str, pular_ocr: bool, cfg: dict) -> list[dict]:
@@ -75,40 +79,52 @@ def parse_documento(pasta: str, pular_ocr: bool, cfg: dict) -> list[dict]:
     return registros
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Etapa 5a — parse + OCR dos PDFs")
-    ap.add_argument("--concurrency", type=int, default=3,
-                    help="documentos processados em paralelo (case com --workers do servidor OCR)")
-    ap.add_argument("--pular-ocr", action="store_true", help="Só PDFs nativos (não chama o OCR)")
-    ap.add_argument("--limite-docs", type=int, default=None)
-    args = ap.parse_args()
+def _documentos_pendentes(params: Params) -> tuple[list[str], list[str], set]:
+    """(todos os documentos, os que faltam, os já feitos)."""
+    sob = pd.read_csv(SOBREVIVENTES, dtype=str, encoding="utf-8").fillna("")
+    docs = [p for p in dict.fromkeys(sob["pasta_arquivos"]) if p and os.path.isdir(p)]
+    feitos = ler_chaves_concluidas(str(SAIDA), "doc_key")
+    pend = [d for d in docs if d not in feitos]
+    if params.limite_docs:
+        pend = pend[: params.limite_docs]
+    return docs, pend, feitos
 
-    cfg = carregar_config()
-    if not args.pular_ocr:
+
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Documentos a parsear. Custo é CPU/GPU (OCR), não token — `custo_usd` fica em zero."""
+    if not SOBREVIVENTES.exists():
+        return Estimativa(detalhes={"aviso": f"{SOBREVIVENTES} ausente — rode a etapa 4 antes."})
+    docs, pend, feitos = _documentos_pendentes(params)
+    return Estimativa(
+        unidades=len(pend), chamadas_llm=0, custo_usd=0.0,
+        detalhes={"documentos_visiveis": len(docs), "já_processados": len(feitos),
+                  "ocr": "desligado" if params.pular_ocr else "ligado"},
+    )
+
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    cfg = ctx.config
+    if not params.pular_ocr:
         msg = exigir(cfg, "ocr")
         if msg:
             raise SystemExit(msg)
     if not SOBREVIVENTES.exists():
         raise SystemExit(f"{SOBREVIVENTES} ausente. Rode a etapa 4 antes.")
 
-    sob = pd.read_csv(SOBREVIVENTES, dtype=str, encoding="utf-8").fillna("")
-    docs = [p for p in dict.fromkeys(sob["pasta_arquivos"]) if p and os.path.isdir(p)]
-    feitos = ler_chaves_concluidas(str(SAIDA), "doc_key")
-    pend = [d for d in docs if d not in feitos]
-    if args.limite_docs:
-        pend = pend[: args.limite_docs]
+    docs, pend, feitos = _documentos_pendentes(params)
     if not pend:
-        console.print("[5a] Nada a fazer (todos os documentos já processados).")
-        return
+        ctx.log("info", "[5a] Nada a fazer (todos os documentos já processados).")
+        return ResultadoEtapa(metricas={"documentos_ja_processados": len(feitos)})
 
-    console.print(f"[bold][5a] {len(docs)} documentos, já feitos: {len(feitos)}, "
-                  f"pendentes: {len(pend)}[/] — concorrência: {args.concurrency}"
-                  f"{' (SEM OCR)' if args.pular_ocr else ''}")
+    ctx.log("info", f"[bold][5a] {len(docs)} documentos, já feitos: {len(feitos)}, "
+                    f"pendentes: {len(pend)}[/] — concorrência: {params.concurrency}"
+                    f"{' (SEM OCR)' if params.pular_ocr else ''}")
 
     n_ocr = [0]
+    n_erros = [0]
     with EscritorSeguro(str(SAIDA), COLS) as w:
         def fn(pasta):
-            return parse_documento(pasta, args.pular_ocr, cfg)
+            return parse_documento(pasta, params.pular_ocr, cfg)
 
         def ok(_pasta, regs):
             for r in regs:
@@ -117,22 +133,26 @@ def main():
                 w.escrever(r)
 
         def err(pasta, exc):
-            console.print(f"[yellow][5a] erro em {os.path.basename(pasta)}: {str(exc)[:120]}[/]")
+            n_erros[0] += 1
+            ctx.log("aviso", f"[yellow][5a] erro em {os.path.basename(pasta)}: "
+                             f"{str(exc)[:120]}[/]")
 
-        progress = Progress(
-            SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=30),
-            MofNCompleteColumn(), TimeElapsedColumn(), console=console,
-        )
-        with progress:
-            tarefa = progress.add_task("ocr/parse", total=len(pend))
-            executar_paralelo(pend, fn, concurrency=args.concurrency, on_result=ok, on_error=err,
-                              on_progress=lambda f, t: progress.update(tarefa, completed=f))
-    console.print(f"[bold green][5a] Concluído.[/] {n_ocr[0]} páginas via OCR. → {SAIDA}")
+        ctx.progresso(0, len(pend), descricao="ocr/parse")
+        executar_paralelo(pend, fn, concurrency=params.concurrency, on_result=ok, on_error=err,
+                          on_progress=lambda f, t: ctx.progresso(f, t))
+    ctx.log("info", f"[bold green][5a] Concluído.[/] {n_ocr[0]} páginas via OCR. → {SAIDA}")
+
+    return ResultadoEtapa(
+        processados=len(pend) - n_erros[0], erros=n_erros[0],
+        metricas={"documentos": len(pend), "paginas_via_ocr": n_ocr[0]},
+    )
+
+
+def main() -> None:
+    from pesquisa_precos.cli.app import rodar_etapa_isolada
+
+    rodar_etapa_isolada(CHAVE)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        console.print("\n[yellow][5a] Interrompido — progresso salvo (resumível por documento).[/]")
-        sys.exit(130)
+    main()

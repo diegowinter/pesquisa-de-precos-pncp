@@ -1118,12 +1118,14 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "pydantic" },
     { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "rank-bm25" },
     { name = "requests" },
     { name = "rich" },
     { name = "sentence-transformers" },
+    { name = "typer" },
     { name = "unidecode" },
 ]
 
@@ -1140,6 +1142,7 @@ requires-dist = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "pydantic", specifier = ">=2" },
     { name = "pymupdf" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv" },
@@ -1148,6 +1151,7 @@ requires-dist = [
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sentence-transformers" },
+    { name = "typer", specifier = ">=0.12" },
     { name = "unidecode" },
 ]
 provides-extras = ["dev"]

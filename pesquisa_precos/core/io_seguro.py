@@ -67,7 +67,7 @@ def ler_chaves_concluidas(caminho: str, col_chave) -> set:
     if not (os.path.exists(caminho) and os.path.getsize(caminho) > 0):
         return feitas
     cols = (col_chave,) if isinstance(col_chave, str) else tuple(col_chave)
-    with open(caminho, "r", encoding="utf-8", newline="") as f:
+    with open(caminho, encoding="utf-8", newline="") as f:
         for r in csv.DictReader(f):
             chave = tuple(str(r.get(c, "")) for c in cols)
             feitas.add(chave[0] if len(cols) == 1 else chave)
@@ -80,7 +80,7 @@ def ler_por_codigo(caminho: str, col_chave=("tipo", "codigo")) -> dict:
     if not (os.path.exists(caminho) and os.path.getsize(caminho) > 0):
         return por_cod
     cols = (col_chave,) if isinstance(col_chave, str) else tuple(col_chave)
-    with open(caminho, "r", encoding="utf-8", newline="") as f:
+    with open(caminho, encoding="utf-8", newline="") as f:
         for r in csv.DictReader(f):
             chave = tuple(str(r.get(c, "")) for c in cols)
             por_cod[chave[0] if len(cols) == 1 else chave] = r
@@ -91,7 +91,7 @@ def ler_csv(caminho: str) -> list[dict]:
     """Lê um CSV inteiro como lista de dicts (utf-8). Arquivo ausente → lista vazia."""
     if not (os.path.exists(caminho) and os.path.getsize(caminho) > 0):
         return []
-    with open(caminho, "r", encoding="utf-8", newline="") as f:
+    with open(caminho, encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
 

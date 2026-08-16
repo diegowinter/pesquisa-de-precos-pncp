@@ -1,5 +1,5 @@
 """
-Etapa 6b — Reranker local (cross-encoder) decide a maioria dos pares, custo zero de token.
+Etapa 6b — Reranker (cross-encoder) decide a maioria dos pares, custo zero de token.
 
 Para cada par sobrevivente da 6a: score do cross-encoder bge-reranker sobre (texto_catalogo,
 descricao_final do item). Decisão por threshold:
@@ -8,10 +8,13 @@ descricao_final do item). Decisão por threshold:
 Entrada: data/6a_pares_candidatos.csv (sobreviveu=true) + textos das saídas anteriores.
 Saída: data/6b_pares_rerankeados.csv (par_key, score_rerank, decisao). Chave de resumo: par_key.
 GPU: o reranker roda sozinho.
-Uso: python -m pesquisa_precos.etapas.e6b_rerank [--limite N]
+
+NÃO fazer: trocar o modelo do reranker sem recalibrar os thresholds — a base para isso é
+data/6_rotulos_acumulados.csv (ver ferramentas/calibrar_thresholds.py).
+
+Uso: python -m pesquisa_precos.etapas.e6b_rerank [--limite N] [--remoto]
 """
 
-import argparse
 import sys
 
 for _s in (sys.stdout, sys.stderr):
@@ -21,20 +24,15 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 import pandas as pd
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.config.settings import carregar_config
 from pesquisa_precos.core.io_seguro import EscritorSeguro, ler_chaves_concluidas
 from pesquisa_precos.core.textos import descricao_itens, texto_catalogo
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+
+CHAVE = "6b"
+VERSAO_CODIGO = "1.0.0"
 
 PARES = paths.E6A_PARES
 CATALOGO = paths.E0A_CATALOGO
@@ -45,6 +43,13 @@ SAIDA = paths.E6B_RERANKEADOS
 COLS = ["par_key", "score_rerank", "decisao"]
 
 
+class Params(BaseModel):
+    limite: int | None = Field(None, description="Teto de pares a rerankear (debug)")
+    batch: int = Field(16, ge=1, description="Tamanho do lote enviado ao reranker")
+    remoto: bool = Field(
+        False, description="Usa o servidor de GPU (GPU_BASE_URL) para o reranker")
+
+
 def decidir(score: float, t_aceita: float, t_rejeita: float) -> str:
     if score >= t_aceita:
         return "aceito"
@@ -53,27 +58,37 @@ def decidir(score: float, t_aceita: float, t_rejeita: float) -> str:
     return "ambiguo"
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Etapa 6b — reranker local")
-    ap.add_argument("--limite", type=int, default=None)
-    ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--remoto", action="store_true",
-                    help="usa o servidor de GPU (GPU_BASE_URL) para o reranker, em vez do local")
-    args = ap.parse_args()
-
-    cfg = carregar_config()
-    if not PARES.exists():
-        raise SystemExit(f"{PARES} ausente. Rode a etapa 6a antes.")
-
+def _pares_pendentes(params: Params) -> pd.DataFrame:
     df = pd.read_csv(PARES, dtype=str, encoding="utf-8").fillna("")
     df = df[df["sobreviveu"].str.lower().isin(["true", "1", "verdadeiro"])]
     feitas = ler_chaves_concluidas(str(SAIDA), "par_key")
     df = df[~df["par_key"].isin(feitas)]
-    if args.limite:
-        df = df.head(args.limite)
+    if params.limite:
+        df = df.head(params.limite)
+    return df
+
+
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Pares a rerankear. Roda na GPU: custo de token zero."""
+    if not PARES.exists():
+        return Estimativa(detalhes={"aviso": f"{PARES} ausente — rode a etapa 6a antes."})
+    df = _pares_pendentes(params)
+    return Estimativa(
+        unidades=len(df), chamadas_llm=0, custo_usd=0.0,
+        detalhes={"lotes": -(-len(df) // max(params.batch, 1)),
+                  "reranker": "GPU remota" if params.remoto else "local"},
+    )
+
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    cfg = ctx.config
+    if not PARES.exists():
+        raise SystemExit(f"{PARES} ausente. Rode a etapa 6a antes.")
+
+    df = _pares_pendentes(params)
     if df.empty:
-        print("[6b] Nada a rerankear.")
-        return
+        ctx.log("info", "[6b] Nada a rerankear.")
+        return ResultadoEtapa()
 
     cat = texto_catalogo(str(CATALOGO))
     itens = descricao_itens(str(SOBREVIVENTES), str(ENRIQUECIDOS))
@@ -85,31 +100,45 @@ def main():
         pares_txt.append((t_cat, t_itm))
         registros.append(r["par_key"])
 
-    print(f"[6b] Rerankeando {len(pares_txt)} pares{' (remoto)' if args.remoto else ''}...")
-    if args.remoto:
+    ctx.log("info", f"[6b] Rerankeando {len(pares_txt)} pares"
+                    f"{' (remoto)' if params.remoto else ''}...")
+    if params.remoto:
         from pesquisa_precos.providers.gpu_remoto import RerankerRemoto
-        rer = RerankerRemoto(cfg["gpu_base_url"], cfg["gpu_api_key"], batch=args.batch)
+        rer = RerankerRemoto(cfg["gpu_base_url"], cfg["gpu_api_key"], batch=params.batch)
     else:
         from pesquisa_precos.providers.reranker_local import RerankerLocal
-        rer = RerankerLocal(cfg["reranker_model"], batch=args.batch)
+        rer = RerankerLocal(cfg["reranker_model"], batch=params.batch)
 
     # Processa em blocos para a barra de progresso avançar (local e remoto).
-    passo = max(args.batch, 256)
-    progress = Progress(
-        SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=30),
-        MofNCompleteColumn(), TimeElapsedColumn(), console=Console(),
-    )
-    with progress, EscritorSeguro(str(SAIDA), COLS) as w:
-        tarefa = progress.add_task("rerankeando", total=len(pares_txt))
+    passo = max(params.batch, 256)
+    decisoes: dict[str, int] = {"aceito": 0, "rejeitado": 0, "ambiguo": 0}
+    with EscritorSeguro(str(SAIDA), COLS) as w:
+        ctx.progresso(0, len(pares_txt), descricao="rerankeando")
         for i in range(0, len(pares_txt), passo):
+            if ctx.cancelado():
+                break
             bloco = pares_txt[i:i + passo]
             scores = rer.score_pares(bloco)
             for par_key, score in zip(registros[i:i + passo], scores):
+                decisao = decidir(float(score), cfg["rerank_t_aceita"], cfg["rerank_t_rejeita"])
+                decisoes[decisao] += 1
                 w.escrever({"par_key": par_key, "score_rerank": round(float(score), 4),
-                            "decisao": decidir(float(score), cfg["rerank_t_aceita"], cfg["rerank_t_rejeita"])})
-            progress.update(tarefa, completed=min(i + passo, len(pares_txt)))
+                            "decisao": decisao})
+            ctx.progresso(min(i + passo, len(pares_txt)))
     rer.liberar()
-    print(f"[6b] Concluído. Saída: {SAIDA}")
+    ctx.log("info", f"[6b] Concluído. Saída: {SAIDA}")
+
+    return ResultadoEtapa(
+        processados=sum(decisoes.values()), erros=0,
+        metricas={**decisoes, "t_aceita": cfg["rerank_t_aceita"],
+                  "t_rejeita": cfg["rerank_t_rejeita"]},
+    )
+
+
+def main() -> None:
+    from pesquisa_precos.cli.app import rodar_etapa_isolada
+
+    rodar_etapa_isolada(CHAVE)
 
 
 if __name__ == "__main__":

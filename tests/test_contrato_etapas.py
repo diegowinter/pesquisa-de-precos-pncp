@@ -1,0 +1,95 @@
+"""
+Guarda da Fase 1: o contrato de etapa e o registry estão de pé.
+
+O modo de falha específico desta fase é silencioso do mesmo jeito que o da Fase 0: uma etapa
+que não expõe `executar`, um `Params` cujo campo não vira flag, ou uma dependência escrita
+errada no registry não quebram nada até alguém rodar a etapa — provavelmente depois de já ter
+pago pela anterior. Estes testes fazem isso aparecer em segundos.
+
+Não testam regra de negócio (isso é a Fase 9) — testam fiação.
+"""
+
+import inspect
+
+import pytest
+from pydantic import BaseModel
+
+from pesquisa_precos.cli import flags
+from pesquisa_precos.etapas import registry
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+from pesquisa_precos.runner.contexto_console import ContextoConsole
+
+CHAVES = [e.chave for e in registry.todas()]
+
+
+@pytest.mark.parametrize("chave", CHAVES)
+def test_etapa_cumpre_o_contrato(chave):
+    """CHAVE, VERSAO_CODIGO, Params, executar(params, ctx) e estimar(params, ctx)."""
+    definicao = registry.obter(chave)
+    mod = definicao.carregar()
+    assert mod.CHAVE == chave, f"{definicao.modulo}.CHAVE diverge do registry"
+    assert isinstance(mod.VERSAO_CODIGO, str) and mod.VERSAO_CODIGO
+    assert issubclass(mod.Params, BaseModel)
+    for nome in ("executar", "estimar"):
+        fn = getattr(mod, nome)
+        assert list(inspect.signature(fn).parameters) == ["params", "ctx"], (
+            f"{definicao.modulo}.{nome} deve receber (params, ctx)")
+
+
+@pytest.mark.parametrize("chave", CHAVES)
+def test_params_tem_defaults_para_tudo(chave):
+    """`estimar` e o gate instanciam `Params()` sem argumentos — nenhum campo pode ser exigido."""
+    registry.obter(chave).params_model()
+
+
+@pytest.mark.parametrize("chave", CHAVES)
+def test_toda_flag_do_cli_vem_de_um_campo_de_params(chave):
+    """As flags são geradas do schema; um campo sem flag correspondente é regressão."""
+    modelo = registry.obter(chave).params_model
+    parametros = flags.parametros_typer(modelo)
+    assert [p.name for p in parametros] == list(modelo.model_fields)
+
+
+def test_ordem_topologica_resolve_e_e_completa():
+    ordem = registry.ordem()
+    assert len(ordem) == len(registry.todas())
+    vistas: set[str] = set()
+    for etapa in ordem:
+        assert set(etapa.depende_de) <= vistas, f"{etapa.chave} vem antes de suas dependências"
+        vistas.add(etapa.chave)
+
+
+def test_dependencias_apontam_para_etapas_existentes():
+    chaves = set(CHAVES)
+    for etapa in registry.todas():
+        assert set(etapa.depende_de) <= chaves, etapa.chave
+
+
+def test_etapa_paga_nunca_e_silenciosa():
+    """Etapa `pago` sem gate seria dinheiro saindo sem ninguém confirmar (ADR-004).
+
+    A 5b é a exceção conhecida e aceita: ela roda depois do gate da 4, que é justamente onde o
+    volume da extração é aprovado.
+    """
+    sem_gate = [e.chave for e in registry.todas() if e.custo == "pago" and not e.precisa_gate]
+    assert sem_gate == ["5b"], sem_gate
+
+
+def test_6c_usa_o_modelo_barato_por_padrao():
+    """Restrição nº 1 do projeto: o comportamento seguro não depende de digitar uma flag."""
+    params = registry.obter("6c").params_model()
+    assert params.forte is False
+
+
+def test_top_n_zero_e_sem_teto_e_nao_e_rejeitado_pela_validacao():
+    """ADR-016 — `top_n=0` significa SEM TETO; o schema não pode tratá-lo como inválido."""
+    assert registry.obter("7").params_model(top_n=0).top_n == 0
+
+
+def test_contexto_console_satisfaz_o_protocolo():
+    assert isinstance(ContextoConsole("teste"), ContextoExecucao)
+
+
+def test_modelos_de_resultado_tem_defaults():
+    assert ResultadoEtapa().processados == 0
+    assert Estimativa().custo_usd is None

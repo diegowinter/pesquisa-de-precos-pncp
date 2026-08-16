@@ -74,7 +74,25 @@ def carregar_config() -> dict:
         "rerank_t_rejeita": _f("RERANK_T_REJEITA", 0.30),
         "min_itens": _i("MIN_ITENS", 1),
         "top_n": _i("TOP_N", 5),
+        # Preço médio de UMA chamada, por modelo, em USD. Só existe para o `estimar` das
+        # etapas: sem número, ele responde "não estimado" em vez de inventar. A medição real
+        # (tokens por chamada, gravados em `llm_chamada`) é entrega da Fase 3 — até lá quem
+        # sabe o preço é o operador, e ele o informa aqui.
+        "custo_usd_chamada_pass1": _f("CUSTO_USD_CHAMADA_PASS1", 0.0),
+        "custo_usd_chamada_pass2": _f("CUSTO_USD_CHAMADA_PASS2", 0.0),
     }
+
+
+def custo_por_chamada(cfg: dict, provedor: str, forte: bool = False) -> float | None:
+    """USD por chamada de LLM, ou None quando não configurado (ver `carregar_config`).
+
+    O provedor `local` (LM Studio na GPU caseira) não custa dinheiro: devolve 0.0.
+    """
+    if provedor == "local":
+        return 0.0
+    chave = "custo_usd_chamada_pass2" if forte else "custo_usd_chamada_pass1"
+    valor = cfg.get(chave) or 0.0
+    return valor or None
 
 
 def resolver_provedor(cfg: dict, provedor: str, forte: bool = False) -> dict:

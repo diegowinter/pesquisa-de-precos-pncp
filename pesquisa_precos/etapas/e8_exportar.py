@@ -18,10 +18,15 @@ Schema (definido com o cliente):
     são descartados da exportação final.
 
 Entrada: data/7_itens_agrupados.csv + data/0a_catalogo_filtrado.csv. Saída: data/8_itens_plaseg.xlsx.
-Uso: python -m pesquisa_precos.etapas.e8_exportar
+Chave de resumo: nenhuma — recomputa o corpus inteiro.
+
+NÃO fazer: deixar o export completo tocar o snapshot do `--novos` (isso "consumiria" o delta
+sem querer). E a primeira execução de `--novos` sem snapshot marca TUDO como novo — isso é
+esperado, a correção é semear o snapshot a partir do último export oficial.
+
+Uso: python -m pesquisa_precos.etapas.e8_exportar [--novos]
 """
 
-import argparse
 import os
 import re
 import sys
@@ -35,8 +40,13 @@ for _s in (sys.stdout, sys.stderr):
 
 import pandas as pd
 from openpyxl import Workbook
+from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
+from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
+
+CHAVE = "8"
+VERSAO_CODIGO = "1.0.0"
 
 ENTRADA = paths.E7_AGRUPADOS
 CATALOGO = paths.E0A_CATALOGO
@@ -57,6 +67,12 @@ COLUNAS_PLASEG = [
 
 # {cnpj}-{tipo}-{seq}/{ano}[-{seqAta}]  → captura seq (compra/contrato), ano e o sequencial da ata.
 _CTRL = re.compile(r"-(\d+)-0*(\d+)/(\d{4})(?:-0*(\d+))?$")
+
+
+class Params(BaseModel):
+    novos: bool = Field(
+        False, description="Exporta só os itens NOVOS desde o último export --novos "
+                           "(compara com 8_export_snapshot.csv e o avança).")
 
 
 def parse_controle(nc: str) -> tuple[str, str, str]:
@@ -202,12 +218,23 @@ def montar_linhas(df: pd.DataFrame, catmap: dict) -> list:
     return linhas_csv
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Etapa 8 — export PLASEG")
-    ap.add_argument("--novos", action="store_true",
-                    help="Exporta só os itens NOVOS desde o último export --novos "
-                         "(compara com 8_export_snapshot.csv e o avança). O export completo não o toca.")
-    args = ap.parse_args()
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Sem LLM: conta as linhas que sairiam do export (e quantas seriam podadas)."""
+    if not ENTRADA.exists():
+        return Estimativa(detalhes={"aviso": f"{ENTRADA} ausente — rode a etapa 7 antes."})
+    df = pd.read_csv(ENTRADA, dtype=str, encoding="utf-8").fillna("")
+    removidos = carregar_removidos()
+    podadas = int(df["codigo"].isin(removidos).sum()) if removidos else 0
+    detalhes = {"linhas_agrupadas": len(df), "podadas_por_catalogo_removido": podadas}
+    if params.novos:
+        prev = carregar_snapshot()
+        detalhes["snapshot_anterior"] = (
+            f"{len(prev)} chaves" if prev else "ausente — a 1ª execução marca TUDO como novo")
+    return Estimativa(unidades=len(df) - podadas, chamadas_llm=0, custo_usd=0.0,
+                      detalhes=detalhes)
+
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     if not ENTRADA.exists():
         raise SystemExit(f"{ENTRADA} ausente. Rode a etapa 7 antes.")
     df = pd.read_csv(ENTRADA, dtype=str, encoding="utf-8").fillna("")
@@ -215,24 +242,44 @@ def main():
     if removidos:
         n0 = len(df)
         df = df[~df["codigo"].isin(removidos)].copy()
-        print(f"[8] Poda: {n0 - len(df)} linhas de {len(removidos)} códigos removidos do catálogo.")
+        ctx.log("info", f"[8] Poda: {n0 - len(df)} linhas de {len(removidos)} códigos "
+                        f"removidos do catálogo.")
     catmap = carregar_catalogo()
     linhas_csv = montar_linhas(df, catmap)
 
-    if args.novos:
+    if params.novos:
         prev = carregar_snapshot()
         novos = [l for l in linhas_csv if _chave(l) not in prev]
         escrever_export(novos, SAIDA_NOVOS, SAIDA_NOVOS_CSV)
         base = "primeira execução (sem snapshot) — tudo é novo" if not prev \
             else f"baseline anterior: {len(prev)} linhas"
-        print(f"[8] NOVOS: {len(novos)} de {len(linhas_csv)} linhas ({base}) → {SAIDA_NOVOS}")
-        print(f"[8] CSV novos → {SAIDA_NOVOS_CSV}")
+        ctx.log("info", f"[8] NOVOS: {len(novos)} de {len(linhas_csv)} linhas ({base}) "
+                        f"→ {SAIDA_NOVOS}")
+        ctx.log("info", f"[8] CSV novos → {SAIDA_NOVOS_CSV}")
         salvar_snapshot({_chave(l) for l in linhas_csv})
-        print(f"[8] Snapshot avançado ({len(linhas_csv)} chaves) → {SNAPSHOT.name}")
-    else:
-        escrever_export(linhas_csv, SAIDA, SAIDA_CSV)
-        print(f"[8] Exportadas {len(linhas_csv)} linhas → {SAIDA}")
-        print(f"[8] CSV para a web → {SAIDA_CSV}")
+        ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves) → {SNAPSHOT.name}")
+        return ResultadoEtapa(
+            processados=len(novos), erros=0,
+            metricas={"linhas_novas": len(novos), "linhas_no_export": len(linhas_csv),
+                      "baseline_anterior": len(prev)},
+            preview=novos[:50],
+        )
+
+    escrever_export(linhas_csv, SAIDA, SAIDA_CSV)
+    ctx.log("info", f"[8] Exportadas {len(linhas_csv)} linhas → {SAIDA}")
+    ctx.log("info", f"[8] CSV para a web → {SAIDA_CSV}")
+    return ResultadoEtapa(
+        processados=len(linhas_csv), erros=0,
+        metricas={"linhas_no_export": len(linhas_csv),
+                  "codigos_podados": len(removidos)},
+        preview=linhas_csv[:50],
+    )
+
+
+def main() -> None:
+    from pesquisa_precos.cli.app import rodar_etapa_isolada
+
+    rodar_etapa_isolada(CHAVE)
 
 
 if __name__ == "__main__":
