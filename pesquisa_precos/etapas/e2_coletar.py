@@ -17,6 +17,11 @@ Saída: data/2_itens_coletados.csv (append-only). Consolidação (merge dos conc
 Chave de resumo: (termo, tipo_doc) em data/checkpoints/2_progresso.csv (granularidade de
 termo/fonte; o dedup por documento cobre a sobreposição entre termos). Erros: erros/2_erros.csv.
 
+Fase 8 (ADR-011): esta etapa NÃO baixa mais PDF — só a "capa" (metadados + itens homologados
+da API). O download passa para a etapa 5, depois do corte (etapa 4), preservando os
+identificadores (`numero_sequencial`/`numero_sequencial_ata`) e a `url_pncp` (ADR-012) que a
+etapa 5 precisa para refazer a listagem de arquivos sem reconsultar a busca.
+
 Rodada de atualização (--atualizar): revisita TODOS os (termo, fonte), mas para de paginar ao
 cruzar o watermark — a maior data_atualizacao_pncp já vista naquela busca
 (data/checkpoints/2_watermark.csv). A busca do PNCP vem ordenada por data_atualizacao_pncp desc
@@ -56,7 +61,7 @@ from pesquisa_precos.etapas.base import (
 )
 
 CHAVE = "2"
-VERSAO_CODIGO = "1.0.0"
+VERSAO_CODIGO = "2.0.0"  # Fase 8/ADR-011: parou de baixar PDF (ver docstring do módulo)
 
 CONCEITOS = paths.E1_TERMOS
 SAIDA = paths.E2_ITENS
@@ -237,7 +242,7 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                     continue
                 try:
                     linhas, status = coleta_pncp.revisitar_pendente(
-                        rec["base"], rec["tipo_doc"], str(ARQUIVOS_DIR), rec["conceito"])
+                        rec["base"], rec["tipo_doc"], rec["conceito"])
                 except Exception as exc:  # noqa: BLE001
                     ctx.erro_item(ctrl, exc, tipo=rec["tipo_doc"], nome="revisita")
                     feitos_rev += 1
@@ -289,8 +294,7 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                         for ik in doc_para_itens[ctrl]:
                             esc_extra.escrever({"item_key": ik, "conceito": conceito})
                         continue
-                    linhas, status = coleta_pncp.coletar_documento(
-                        r, fonte, str(ARQUIVOS_DIR), conceito)
+                    linhas, status = coleta_pncp.coletar_documento(r, fonte, conceito)
                     if status != "ok":
                         if status == "erro":
                             total_erros += 1

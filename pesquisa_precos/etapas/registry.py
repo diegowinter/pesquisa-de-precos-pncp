@@ -5,11 +5,11 @@ CLI, API e runner descobrem as etapas por aqui; ninguém hardcoda a sequência `
 (docs/03_ETAPAS.md §2). Antes da Fase 1 a sequência estava escrita à mão em `rodar.py`,
 junto com uma tabela de "quem aceita --provedor" — dois lugares para esquecer de atualizar.
 
-Uma divergência consciente em relação à tabela de docs/03_ETAPAS.md §2.1: lá a extração é
-uma etapa só (`5`). Aqui ela aparece como **`5a` (parse/OCR) e `5b` (extração por item)**,
-que é o que existe hoje em código e o que o usuário roda. A unificação em `5` com
-estratégias intercambiáveis é entrega da Fase 8 (ADR-010) — antecipá-la aqui seria mudar
-lógica de extração numa fase cujo objetivo é só extrair `executar()`.
+Fase 8 (ADR-010): a extração é uma etapa só (`5`), com estratégias plugáveis (`janela`|
+`completa`|`visao`|`auto`) roteadas por documento — `etapas/e5_extrair.py`. Antes da Fase 8
+ela existia como `5a` (parse/OCR) + `5b` (extração por janela), que a Fase 1 só extraiu
+`executar()` de, sem mudar lógica; a unificação (e o download que passou da etapa 2 para
+esta) é o que a Fase 8 entrega.
 
 `params_model` é resolvido por import preguiçoso: o registry é importado pela CLI e pelo
 `main()` de cada etapa, e importar as 12 etapas de uma vez arrastaria pymupdf/pandas/torch
@@ -76,12 +76,10 @@ ETAPAS: tuple[DefinicaoEtapa, ...] = (
                    ("2",), "pago", True, False, paths.ERROS_3, ("chat",)),
     DefinicaoEtapa("4", "Cortar / definir escopo", "e4_cortar",
                    ("3",), "gratis", True, True),
-    DefinicaoEtapa("5a", "Parse + OCR dos PDFs", "e5a_ocr",
-                   ("4",), "gpu", False, False, None, ("ocr",)),
-    DefinicaoEtapa("5b", "Extrair e enriquecer itens", "e5b_extrair",
-                   ("5a",), "pago", False, False, paths.ERROS_5, ("chat",)),
+    DefinicaoEtapa("5", "Extrair e enriquecer itens (download + OCR + LLM)", "e5_extrair",
+                   ("4",), "pago", False, False, paths.ERROS_5, ("ocr", "chat")),
     DefinicaoEtapa("6a", "Gerar pares + rejeitor híbrido", "e6a_pares",
-                   ("4", "5b"), "gpu", False, True, None, ("embed",)),
+                   ("4", "5"), "gpu", False, True, None, ("embed",)),
     DefinicaoEtapa("6b", "Rerankear pares", "e6b_rerank",
                    ("6a",), "gpu", False, False, None, ("rerank",)),
     DefinicaoEtapa("6c", "Validar ambíguos (LLM)", "e6c_validar",

@@ -1,23 +1,32 @@
 """
 Lógica de coleta do PNCP como funções puras (etapa 2), migrada do `1_obter_itens.py`
 da v1. Sem `__main__` de pipeline, sem `rich`/`Progress` — a etapa `e2_coletar.py`
-orquestra e mostra o progresso; aqui ficam só busca → filtro homologado → download →
-explode em itens, além do consolidador `carregar_itens_coletados()`.
+orquestra e mostra o progresso; aqui ficam só busca → filtro homologado → explode em
+itens, além do consolidador `carregar_itens_coletados()`.
 
 Elimina o hack de `importlib` para módulo que começa com dígito: quem precisa da coleta
 importa este módulo normalmente.
 
-Regras de negócio (idênticas à v1):
+Regras de negócio (idênticas à v1, MENOS o download — ver Fase 8/ADR-011):
   1. Documento precisa ter arquivo do tipo alvo (Contrato / Ata de Registro de Preço).
   2. Precisa ter pelo menos um item Homologado.
-  3. Passando as duas: baixa os PDFs numa subpasta por documento e explode 1 linha por item.
+  3. Passando as duas: explode 1 linha por item — SEM baixar PDF.
+
+Fase 8 (docs/04_FASES.md, ADR-011): esta etapa deixou de baixar PDF. Antes disso, ~90% dos
+documentos descobertos aqui eram baixados e boa parte descartada nas etapas 3/4 sem nunca
+render item confirmado — banda, disco e CPU gastos à toa. Agora só a "capa" (metadados +
+itens homologados da API) é obtida; o download vira responsabilidade da etapa 5, DEPOIS do
+corte, só para os documentos que sobrevivem. `numero_sequencial`/`numero_sequencial_ata`
+(mais `orgao_cnpj`/`ano`/`tipo_doc` já presentes) são o que a etapa 5 precisa para refazer
+`consultar_arquivos.listar_arquivos()` sem reconsultar a busca. `url_pncp`
+(`core.coleta.urls.url_documento`) é a rede de segurança do ADR-012 para rebaixar sob demanda.
 """
 
 import os
 
 import pandas as pd
 
-from pesquisa_precos.core.coleta import buscar_pncp, consultar_arquivos, consultar_itens
+from pesquisa_precos.core.coleta import buscar_pncp, consultar_arquivos, consultar_itens, urls
 
 # Fontes de documento suportadas (tipo_doc na saída da etapa 2).
 FONTES = ["contrato", "ata"]
@@ -27,11 +36,14 @@ FONTES = ["contrato", "ata"]
 COLUNAS_ITENS = [
     "item_key", "tipo_doc", "numeroControlePNCP", "numeroItem", "descricao_api",
     "unidade", "quantidade", "preco_unitario", "orgao", "uf", "data",
-    "conceitos_origem", "pasta_arquivos",
+    "conceitos_origem",
     # metadados extras úteis à exportação final (etapa 8):
     "ano", "orgao_cnpj", "data_fim_vigencia", "data_assinatura",
     # preço: preco_unitario = HOMOLOGADO (adjudicado); preco_estimado preserva o do edital.
     "preco_estimado", "fornecedor", "data_resultado",
+    # Fase 8 (ADR-011/ADR-012): identificadores p/ a etapa 5 baixar o PDF DEPOIS do corte,
+    # sem reconsultar a busca, e URL pública p/ rebaixar sob demanda (PDF nunca é persistido).
+    "numero_sequencial", "numero_sequencial_ata", "url_pncp",
 ]
 
 
@@ -73,27 +85,29 @@ def identificar(r: dict, fonte: str) -> dict:
     return _base_resultado(r, fonte)
 
 
-def coletar_documento(r: dict, fonte: str, arquivos_dir: str, conceito: str) -> tuple[list[dict], str]:
+def coletar_documento(r: dict, fonte: str, conceito: str) -> tuple[list[dict], str]:
     """
     Aplica as regras de negócio a um resultado de busca e devolve (linhas_de_item, status).
 
     status ∈ {ok, sem_identificacao, sem_arquivo, sem_homologado, erro}. `conceito` é o
-    conceito da etapa 1 que trouxe este documento (vai para `conceitos_origem`).
+    conceito da etapa 1 que trouxe este documento (vai para `conceitos_origem`). NÃO baixa
+    PDF (Fase 8/ADR-011) — só confirma que existe arquivo do tipo alvo e que há item
+    homologado; o download fica para a etapa 5, depois do corte.
     """
-    return _coletar_de_base(_base_resultado(r, fonte), fonte, arquivos_dir, conceito)
+    return _coletar_de_base(_base_resultado(r, fonte), fonte, conceito)
 
 
-def revisitar_pendente(base: dict, fonte: str, arquivos_dir: str, conceito: str) -> tuple[list[dict], str]:
+def revisitar_pendente(base: dict, fonte: str, conceito: str) -> tuple[list[dict], str]:
     """Re-tenta coletar um documento antes 'sem_homologado', partindo do `base` persistido.
 
     Igual a `coletar_documento`, mas sem passar pela busca — consulta direto os itens do
     documento (endpoint de resultados). Se a homologação já saiu, devolve as linhas e status
     'ok'; senão, 'sem_homologado' de novo (segue pendente).
     """
-    return _coletar_de_base(base, fonte, arquivos_dir, conceito)
+    return _coletar_de_base(base, fonte, conceito)
 
 
-def _coletar_de_base(base: dict, fonte: str, arquivos_dir: str, conceito: str) -> tuple[list[dict], str]:
+def _coletar_de_base(base: dict, fonte: str, conceito: str) -> tuple[list[dict], str]:
     """Núcleo compartilhado por `coletar_documento` e `revisitar_pendente` (ver docstrings)."""
     cnpj, ano, seq = base["orgao_cnpj"], base["ano"], base["numero_sequencial"]
     seq_ata = base.get("_seq_ata")
@@ -124,13 +138,7 @@ def _coletar_de_base(base: dict, fonte: str, arquivos_dir: str, conceito: str) -
     if not homologados:
         return [], "sem_homologado"
 
-    identificador = consultar_arquivos.sanitizar(f"{fonte.upper()}_{cnpj}_{ano}_{seq}")
-    if fonte == "ata":
-        identificador = consultar_arquivos.sanitizar(f"{identificador}_{seq_ata}")
-    pasta_doc = os.path.join(arquivos_dir, identificador)
-    nomes = consultar_arquivos.baixar_arquivos(alvos, pasta_doc, silent=True)
-    if not nomes:
-        return [], "erro"
+    url_pncp = urls.url_documento(base["numeroControlePNCP"], fonte)
 
     linhas = []
     for item in homologados:
@@ -159,7 +167,6 @@ def _coletar_de_base(base: dict, fonte: str, arquivos_dir: str, conceito: str) -
             "uf": base["uf"],
             "data": base["data"],
             "conceitos_origem": conceito,
-            "pasta_arquivos": pasta_doc,
             "ano": base["ano"],
             "orgao_cnpj": base["orgao_cnpj"],
             "data_fim_vigencia": base["data_fim_vigencia"] or "",
@@ -167,6 +174,9 @@ def _coletar_de_base(base: dict, fonte: str, arquivos_dir: str, conceito: str) -
             "preco_estimado": estimado,
             "fornecedor": forn,
             "data_resultado": data_res,
+            "numero_sequencial": seq,
+            "numero_sequencial_ata": seq_ata or "",
+            "url_pncp": url_pncp,
         })
     return linhas, "ok"
 

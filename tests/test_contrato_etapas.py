@@ -68,11 +68,11 @@ def test_dependencias_apontam_para_etapas_existentes():
 def test_etapa_paga_nunca_e_silenciosa():
     """Etapa `pago` sem gate seria dinheiro saindo sem ninguém confirmar (ADR-004).
 
-    A 5b é a exceção conhecida e aceita: ela roda depois do gate da 4, que é justamente onde o
+    A 5 é a exceção conhecida e aceita: ela roda depois do gate da 4, que é justamente onde o
     volume da extração é aprovado.
     """
     sem_gate = [e.chave for e in registry.todas() if e.custo == "pago" and not e.precisa_gate]
-    assert sem_gate == ["5b"], sem_gate
+    assert sem_gate == ["5"], sem_gate
 
 
 def test_6c_usa_o_modelo_barato_por_padrao():

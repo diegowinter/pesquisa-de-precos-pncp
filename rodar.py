@@ -17,7 +17,7 @@ saída aparece ao vivo). A sequência e as flags aceitas por cada etapa vêm do 
 coisas eram tabelas escritas à mão aqui, que precisavam ser lembradas a cada etapa nova.
 
 Uso:
-  python rodar.py --completo  [--provedor openrouter] [--remoto] [--caminho-5 base|alt]
+  python rodar.py --completo  [--provedor openrouter] [--remoto]
   python rodar.py --atualizar [--provedor openrouter] [--remoto] [--sem-catalogo]
   python rodar.py --atualizar --de 3          # começa na etapa 3 (retomar após corrigir algo)
   python rodar.py --completo  --dry-run        # só imprime a sequência
@@ -47,30 +47,14 @@ PY = sys.executable
 
 MODULO_BASE = "pesquisa_precos.etapas"
 
-# Caminho alternativo da etapa 5 (--caminho-5 alt): módulos-embrião ainda em argparse, fora do
-# registry. Ficam aqui até a Fase 8 substituí-los pelas estratégias `janela`/`completa`.
-ALT_5 = [("5a", "e5_alt_a_tabela"), ("5b", "e5_alt_b_casar")]
-
 
 def montar_etapas(args) -> list[tuple[str, str]]:
-    """Devolve a lista ordenada [(id, modulo)] do caminho escolhido, a partir do registry."""
-    ordem = [(e.chave, e.modulo) for e in registry.ordem()]
-    if args.caminho_5 == "alt":
-        ordem = [par for par in ordem if par[0] not in ("5a", "5b")]
-        pos = next(i for i, (chave, _) in enumerate(ordem) if chave == "6a")
-        ordem = ordem[:pos] + ALT_5 + ordem[pos:]
-    return ordem
-
-
-# Os dois módulos-embrião do caminho alt não têm `Params`; a matriz de flags deles continua
-# escrita à mão até a Fase 8.
-FLAGS_ALT = {"e5_alt_a_tabela": {"provedor"}, "e5_alt_b_casar": {"provedor"}}
+    """Devolve a lista ordenada [(id, modulo)], a partir do registry."""
+    return [(e.chave, e.modulo) for e in registry.ordem()]
 
 
 def _aceita(chave: str, script: str, flag: str) -> bool:
     """A etapa expõe esta flag? Pergunta ao schema `Params` dela — sem tabela paralela."""
-    if script in FLAGS_ALT:
-        return flag in FLAGS_ALT[script]
     try:
         return flag in registry.obter(chave).params_model.model_fields
     except KeyError:
@@ -120,8 +104,6 @@ def main():
     modo.add_argument("--atualizar", action="store_true", help="Rodada de atualização incremental")
     ap.add_argument("--provedor", choices=["local", "openrouter"], default="local")
     ap.add_argument("--remoto", action="store_true", help="Usa a GPU remota nas etapas 6a/6b")
-    ap.add_argument("--caminho-5", choices=["base", "alt"], default="base", dest="caminho_5",
-                    help="Caminho da etapa 5: base (5a OCR + 5b extração) ou alt (tabela + casamento)")
     ap.add_argument("--sem-catalogo", action="store_true",
                     help="No --atualizar, NÃO rebaixa o catálogo na 0a (assume que não mudou)")
     ap.add_argument("--de", metavar="ID", help="Começa nesta etapa (ex.: 3, 6a) — p/ retomar")
@@ -141,7 +123,7 @@ def main():
 
     modo_txt = "ATUALIZAR" if args.atualizar else "COMPLETO"
     console.print(f"[bold]Pipeline v3 — modo {modo_txt}[/] · provedor={args.provedor} · "
-                  f"remoto={args.remoto} · caminho-5={args.caminho_5}")
+                  f"remoto={args.remoto}")
     for eid, script in selecionadas:
         cmd = montar_comando(eid, script, args)
         console.print(f"  [cyan]{eid:>2}[/] → {' '.join(cmd[1:])}")

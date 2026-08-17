@@ -39,6 +39,7 @@ from pesquisa_precos.core.prompts import (  # noqa: F401
     montar_prompt_extrair_item_pdf,
     montar_prompt_extrair_itens,
     montar_prompt_extrair_tabela_pdf,
+    montar_prompt_extrair_tabela_texto,
     montar_prompt_material,
     montar_prompt_servico,
     montar_prompt_termos_item,
@@ -214,6 +215,27 @@ class Curador:
         try:
             resp = self.llm.invoke([HumanMessage(content=content)])
             data = _extrair_json((resp.content or "").strip())
+        except Exception:  # noqa: BLE001
+            return []
+        itens = data.get("itens") or []
+        out = []
+        for it in itens:
+            if not isinstance(it, dict):
+                continue
+            out.append({k: str(it.get(k, "") or "").strip() for k in
+                        ("numero_item", "descricao", "unidade", "quantidade",
+                         "preco_unitario", "preco_total", "fornecedor")})
+        return out
+
+    def extrair_tabela_texto(self, texto: str) -> list[dict]:
+        """
+        Etapa 5 — estratégia `completa` (Fase 8): extrai a tabela de itens de UM CHUNK de
+        texto (nativo/OCR) do documento inteiro. Mesmo formato de saída de
+        `extrair_tabela_pdf` (visão) — `casar_item_tabela` serve às duas. Nunca levanta: em
+        erro devolve [].
+        """
+        try:
+            data = self._invocar_json(montar_prompt_extrair_tabela_texto(texto))
         except Exception:  # noqa: BLE001
             return []
         itens = data.get("itens") or []

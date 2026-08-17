@@ -396,6 +396,35 @@ def montar_prompt_extrair_tabela_pdf() -> str:
     )
 
 
+def montar_prompt_extrair_tabela_texto(texto: str) -> str:
+    """
+    Etapa 5 — estratégia `completa` (Fase 8, ADR-010): extrai a tabela de itens de UM CHUNK
+    de texto já parseado do documento (nativo/OCR), em vez da imagem da página (essa é a
+    `visao`). Mesmo contrato de saída de `montar_prompt_extrair_tabela_pdf`, para que
+    `casar_item_tabela` sirva às duas estratégias sem distinção.
+    """
+    return (
+        "Você recebe um TRECHO do texto de um contrato/ata de registro de preços (PDF já "
+        "convertido para texto). Extraia a TABELA DE ITENS deste trecho EXATAMENTE como "
+        "aparece — transcreva, não interprete nem normalize.\n\n"
+        "REGRAS:\n"
+        "- Cada item/linha da tabela vira um objeto. Só itens de produto/serviço com preço; "
+        "ignore cláusulas, assinaturas e texto corrido que não seja tabela/lista de itens.\n"
+        "- Copie os NÚMEROS como estão no texto (ex.: '1.234,56' fica '1.234,56'); NÃO "
+        "converta separador decimal, NÃO arredonde, NÃO complete casas.\n"
+        "- Copie a descrição do item integralmente, como escrita (especificações inclusas).\n"
+        "- Se um campo não existir no trecho, use string vazia. NÃO invente valores.\n"
+        "- Se este trecho NÃO tiver tabela/lista de itens, devolva lista vazia.\n"
+        "- Este é só um PEDAÇO do documento — pode não ter todos os itens; não invente os "
+        "que faltam.\n\n"
+        "TRECHO DO DOCUMENTO:\n"
+        f"{texto}\n\n"
+        'Responda SOMENTE com JSON puro:\n'
+        '{"itens": [{"numero_item": "", "descricao": "", "unidade": "", "quantidade": "", '
+        '"preco_unitario": "", "preco_total": "", "fornecedor": ""}]}'
+    )
+
+
 def montar_prompt_casar_item_tabela(item_api: dict, linhas: list[dict]) -> str:
     """
     Etapa 5_alt_b — casa UM item da API do PNCP contra a tabela LIMPA extraída do PDF

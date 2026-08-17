@@ -85,7 +85,7 @@ class ProvedorRerank(Protocol):
 
 @runtime_checkable
 class ProvedorOcr(Protocol):
-    """Capacidade `ocr` — markdown de UMA página escaneada (etapa 5a)."""
+    """Capacidade `ocr` — markdown de UMA página escaneada (etapa 5)."""
 
     info: InfoProvedor
 

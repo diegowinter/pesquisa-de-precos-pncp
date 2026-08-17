@@ -65,16 +65,14 @@ ERROS_3 = ERROS / "3_erros.csv"
 E4_SOBREVIVENTES = DATA / "4_itens_sobreviventes.csv"
 E4_RELATORIO = DATA / "4_relatorio_corte.csv"
 
-# ── Etapa 5 (caminho base: 5a OCR + 5b extração por janela) ──────────────────────
-E5_PDF_TEXTO = DATA / "5_pdf_texto.csv"
-E5_ENRIQUECIDOS = DATA / "5_itens_enriquecidos.csv"
-E5_DESTINO = DATA / "5_itens_destino.csv"
+# ── Etapa 5 — extração e enriquecimento (Fase 8, ADR-010/011/012: estratégias plugáveis:
+# janela|completa|visao, roteadas por documento; download+OCR+extração+descarte do PDF numa
+# etapa só) ────────────────────────────────────────────────────────────────────────────────
+E5_PDF_TEXTO = DATA / "5_pdf_texto.csv"          # documento_pagina (texto por página)
+E5_ENRIQUECIDOS = DATA / "5_itens_enriquecidos.csv"  # contrato de saída (ADR-010) — item_key
+E5_DESTINO = DATA / "5_itens_destino.csv"        # manter/revisar/descartar por item
+E5_DOC_EXTRACAO = DATA / "5_documento_extracao.csv"  # 1 linha por (documento, estratégia)
 ERROS_5 = ERROS / "5_erros.csv"
-
-# ── Etapa 5 (caminho alternativo: tabela por visão + casamento) ──────────────────
-E5ALT_TABELA = DATA / "5alt_tabela.csv"
-E5ALT_ENRIQUECIDOS = DATA / "5alt_itens_enriquecidos.csv"
-E5ALT_DESTINO = DATA / "5alt_itens_destino.csv"
 
 # ── Etapa 6 — pares, reranker, validação LLM ─────────────────────────────────────
 E6A_PARES = DATA / "6a_pares_candidatos.csv"

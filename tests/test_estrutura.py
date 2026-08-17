@@ -19,7 +19,7 @@ from pesquisa_precos.config import paths
 
 ETAPAS = [
     "e0a_catalogo", "e1_termos", "e2_coletar", "e3_classificar", "e4_cortar",
-    "e5a_ocr", "e5b_extrair", "e5_alt_a_tabela", "e5_alt_b_casar",
+    "e5_extrair",
     "e6a_pares", "e6b_rerank", "e6c_validar", "e7_agrupar", "e8_exportar",
 ]
 
