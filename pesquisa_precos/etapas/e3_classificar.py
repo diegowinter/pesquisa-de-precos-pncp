@@ -42,11 +42,14 @@ from pesquisa_precos.core.io_seguro import (
     ler_csv,
 )
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.core.textos import texto_hash
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "3"
-VERSAO_CODIGO = "1.0.0"
+# 1.1.0 (Fase 2): o dedup passa a agrupar pelo `texto_hash` canônico de core.textos, que
+# dobra acento — antes o agrupamento era por (lower, espaços colapsados) sem dobra.
+VERSAO_CODIGO = "1.1.0"
 
 ENTRADA = paths.E2_ITENS
 CK_EXTRA = paths.CK_2_CONCEITOS_EXTRA
@@ -84,20 +87,20 @@ def carregar_itens(entrada_legado: str | None) -> pd.DataFrame:
     return df[["item_key", "descricao_api", "unidade"]]
 
 
-def _norm(s) -> str:
-    return " ".join(str(s or "").strip().lower().split())
-
-
 def agrupar_por_texto(pendentes: list) -> list[dict]:
     """DEDUP: a descrição do PNCP é canônica e se repete MUITO (o mesmo texto reaparece
     milhares de vezes — às vezes centenas dentro de um único contrato). Classificamos cada
     texto ÚNICO uma vez e ESPALHAMOS o rótulo para todos os item_keys daquele texto.
     A saída continua por item_key (referência à ata/contrato intacta); só as chamadas de LLM
     caem de O(itens) para O(textos distintos). Chave = (descrição, unidade) — os dois campos
-    que o classificador usa, então texto igual ⇒ mesma classe, sem perda."""
+    que o classificador usa, então texto igual ⇒ mesma classe, sem perda.
+
+    A chave é o `texto_hash` de `core.textos` — o MESMO que a ingestão grava em `item` e que
+    `texto_classificacao` usa como PK. Duas normalizações diferentes aqui e lá fariam o dedup
+    permanente errar e recomprar 320k classificações (docs/08_CONVENCOES.md §5.4)."""
     grupos: dict = {}
     for r in pendentes:
-        chave = (_norm(r["descricao_api"]), _norm(r.get("unidade", "")))
+        chave = texto_hash(r["descricao_api"], r.get("unidade", ""))
         g = grupos.get(chave)
         if g is None:
             g = grupos[chave] = {"descricao_api": r["descricao_api"],

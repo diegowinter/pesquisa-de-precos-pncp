@@ -17,20 +17,27 @@ Schema (definido com o cliente):
   - Poda incremental: códigos marcados 'removido' em data/0a_catalogo_delta.csv (etapa 0a)
     são descartados da exportação final.
 
-Entrada: data/7_itens_agrupados.csv + data/0a_catalogo_filtrado.csv. Saída: data/8_itens_plaseg.xlsx.
-Chave de resumo: nenhuma — recomputa o corpus inteiro.
+Entrada (`--fonte csv`): data/7_itens_agrupados.csv + data/0a_catalogo_filtrado.csv.
+Saída: data/8_itens_plaseg.xlsx. Chave de resumo: nenhuma — recomputa o corpus inteiro.
+
+FASE 2 — `--fonte banco` lê `grupo_item` do run indicado (default: o último que produziu
+ranking), com catálogo, item, documento e enriquecido no mesmo SELECT. O snapshot do `--novos`
+passa a ser a tabela `export_snapshot`, e cada export gera uma linha em `export`. O ARQUIVO de
+saída é o mesmo nos dois caminhos — quem consome o XLSX não deve notar de onde veio, e é isso
+que torna o export comparável com o último oficial (critério de aceite da fase).
 
 NÃO fazer: deixar o export completo tocar o snapshot do `--novos` (isso "consumiria" o delta
 sem querer). E a primeira execução de `--novos` sem snapshot marca TUDO como novo — isso é
-esperado, a correção é semear o snapshot a partir do último export oficial.
+esperado, a correção é semear o snapshot a partir do último export oficial (m16).
 
-Uso: python -m pesquisa_precos.etapas.e8_exportar [--novos]
+Uso: python -m pesquisa_precos.etapas.e8_exportar [--novos] [--fonte banco|csv]
 """
 
 import os
 import re
 import sys
 from pathlib import Path  # usado nas anotações de escrever_export()
+from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -46,7 +53,8 @@ from pesquisa_precos.config import paths
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 
 CHAVE = "8"
-VERSAO_CODIGO = "1.0.0"
+# 1.1.0 (Fase 2): ganhou `--fonte banco`. O formato do XLSX não mudou.
+VERSAO_CODIGO = "1.1.0"
 
 ENTRADA = paths.E7_AGRUPADOS
 CATALOGO = paths.E0A_CATALOGO
@@ -72,7 +80,12 @@ _CTRL = re.compile(r"-(\d+)-0*(\d+)/(\d{4})(?:-0*(\d+))?$")
 class Params(BaseModel):
     novos: bool = Field(
         False, description="Exporta só os itens NOVOS desde o último export --novos "
-                           "(compara com 8_export_snapshot.csv e o avança).")
+                           "(compara com o snapshot anterior e o avança).")
+    fonte: Literal["csv", "banco"] = Field(
+        "csv", description="De onde vêm as linhas agrupadas e o snapshot do --novos")
+    run_id: int | None = Field(
+        None, description="Run a exportar (só com --fonte banco; default: o último com "
+                          "ranking em grupo_item)")
 
 
 def parse_controle(nc: str) -> tuple[str, str, str]:
@@ -153,16 +166,106 @@ def _chave(linha: dict) -> tuple:
     return (linha["Codigo CATMAT/CATSER"], linha["Num Controle PNCP"], linha["Item"])
 
 
-def carregar_snapshot() -> set:
-    """Chaves do último export --novos (vazio na 1ª vez → tudo é novo)."""
+# ── Fonte: banco ────────────────────────────────────────────────────────────────────
+
+def _quantidade_texto(valor) -> str:
+    """Quantidade como o caminho CSV a entrega: repr de float ('1.0', '2420.0').
+
+    Vem do banco como `Decimal('2420.0000')`; escrever assim mudaria a célula do XLSX em
+    relação ao último export oficial, e o critério de aceite da fase é justamente comparar os
+    dois. Preço não passa por aqui — ele vai para `formatar_valor_br`, que já normaliza.
+    """
+    if valor is None or valor == "":
+        return ""
+    try:
+        return str(float(valor))
+    except (TypeError, ValueError):
+        return str(valor)
+
+
+def carregar_do_banco(params: Params, ctx: ContextoExecucao) -> tuple[pd.DataFrame, dict, int]:
+    """(linhas agrupadas, catálogo por código, run_id) a partir de `grupo_item`.
+
+    O catálogo sai do MESMO SELECT (join com `catalogo_item`), então não há segunda consulta
+    nem chance de o export usar uma versão do catálogo diferente da que produziu o ranking.
+    """
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import grupo as repo_grupo
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+    with db.sessao() as s:
+        run_id = params.run_id or repo_grupo.ultimo_run_com_grupos(s)
+        if run_id is None:
+            raise SystemExit("Nenhum run com ranking em grupo_item. Rode a etapa 7 com "
+                             "--fonte banco antes.")
+        linhas = repo_grupo.linhas_do_run(s, run_id)
+    if not linhas:
+        raise SystemExit(f"run #{run_id} não tem linhas em grupo_item.")
+
+    catmap = {
+        r["codigo"]: {"tipo": r["tipo"], "nome_pdm": r["nome_pdm"] or "",
+                      "descricao": r["descricao_catalogo"] or "",
+                      "nome_classe": r["nome_classe"] or "", "ativo": r["ativo"]}
+        for r in linhas
+    }
+    df = pd.DataFrame(linhas).rename(columns={
+        "numero_controle_pncp": "numeroControlePNCP",
+        "numero_item": "numeroItem",
+    })
+    df["quantidade"] = df["quantidade"].map(_quantidade_texto)
+    # `montar_linhas` trata tudo como texto (o caminho CSV lê com dtype=str). Preço é
+    # convertido lá dentro por `formatar_valor_br`, então string aqui é seguro.
+    for coluna in df.columns:
+        if coluna != "quantidade":
+            df[coluna] = df[coluna].map(lambda v: "" if v is None else str(v))
+    ctx.log("info", f"[8] Fonte: banco (run #{run_id}) — {len(df)} linhas agrupadas.")
+    return df, catmap, run_id
+
+
+def carregar_snapshot(params: Params | None = None) -> set:
+    """Chaves do último export --novos (vazio na 1ª vez → tudo é novo).
+
+    Do banco, a chave inclui o `tipo` (a PK de `export_snapshot` é composta), mas ele é
+    descartado aqui: a identidade da linha do export continua sendo
+    (código, nº controle, item), como no CSV. Incluir o tipo mudaria o delta sem motivo.
+    """
+    if params is not None and params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+        from pesquisa_precos.db.repos import grupo as repo_grupo
+        with db.sessao() as s:
+            return {(codigo, nc, str(numero))
+                    for _tipo, codigo, nc, numero in repo_grupo.snapshot(s)}
     if not (SNAPSHOT.exists() and SNAPSHOT.stat().st_size > 0):
         return set()
     s = pd.read_csv(SNAPSHOT, dtype=str, encoding="utf-8-sig").fillna("")
     return set(zip(s["codigo"], s["numeroControlePNCP"], s["numeroItem"]))
 
 
-def salvar_snapshot(chaves: set) -> None:
-    """Grava (atômico) as chaves do export atual como novo baseline do --novos."""
+def salvar_snapshot(chaves: set, params: Params | None = None,
+                    catmap: dict | None = None, export_id: int | None = None) -> None:
+    """Grava as chaves do export atual como novo baseline do --novos.
+
+    No CSV a escrita é atômica (grava `.tmp` e `os.replace`): um snapshot truncado por
+    interrupção faria o próximo `--novos` reportar milhares de linhas velhas como novidade.
+    No banco a transação já dá essa garantia.
+    """
+    if params is not None and params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+        from pesquisa_precos.db.repos import grupo as repo_grupo
+        catmap = catmap or {}
+        completas = []
+        for codigo, nc, numero in chaves:
+            tipo = (catmap.get(codigo, {}).get("tipo") or "material")
+            try:
+                completas.append((tipo, codigo, nc, int(numero)))
+            except (TypeError, ValueError):
+                continue  # item sem número utilizável não identifica linha nenhuma
+        with db.conexao_bruta() as conn:
+            repo_grupo.avancar_snapshot(conn, completas, export_id, substituir=True)
+        return
     df = pd.DataFrame(sorted(chaves), columns=["codigo", "numeroControlePNCP", "numeroItem"])
     tmp = SNAPSHOT.with_suffix(".csv.tmp")
     df.to_csv(tmp, index=False, encoding="utf-8-sig")
@@ -218,37 +321,84 @@ def montar_linhas(df: pd.DataFrame, catmap: dict) -> list:
     return linhas_csv
 
 
-def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
-    """Sem LLM: conta as linhas que sairiam do export (e quantas seriam podadas)."""
-    if not ENTRADA.exists():
-        return Estimativa(detalhes={"aviso": f"{ENTRADA} ausente — rode a etapa 7 antes."})
-    df = pd.read_csv(ENTRADA, dtype=str, encoding="utf-8").fillna("")
-    removidos = carregar_removidos()
-    podadas = int(df["codigo"].isin(removidos).sum()) if removidos else 0
-    detalhes = {"linhas_agrupadas": len(df), "podadas_por_catalogo_removido": podadas}
-    if params.novos:
-        prev = carregar_snapshot()
-        detalhes["snapshot_anterior"] = (
-            f"{len(prev)} chaves" if prev else "ausente — a 1ª execução marca TUDO como novo")
-    return Estimativa(unidades=len(df) - podadas, chamadas_llm=0, custo_usd=0.0,
-                      detalhes=detalhes)
-
-
-def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+def carregar_entrada(params: Params, ctx: ContextoExecucao) -> tuple[pd.DataFrame, dict, int | None]:
+    """(linhas agrupadas, catálogo por código, run_id) — do banco ou do CSV da etapa 7."""
+    if params.fonte == "banco":
+        return carregar_do_banco(params, ctx)
     if not ENTRADA.exists():
         raise SystemExit(f"{ENTRADA} ausente. Rode a etapa 7 antes.")
     df = pd.read_csv(ENTRADA, dtype=str, encoding="utf-8").fillna("")
-    removidos = carregar_removidos()
-    if removidos:
-        n0 = len(df)
-        df = df[~df["codigo"].isin(removidos)].copy()
-        ctx.log("info", f"[8] Poda: {n0 - len(df)} linhas de {len(removidos)} códigos "
-                        f"removidos do catálogo.")
-    catmap = carregar_catalogo()
+    return df, carregar_catalogo(), None
+
+
+def podar_removidos(df: pd.DataFrame, catmap: dict, params: Params,
+                    ctx: ContextoExecucao) -> tuple[pd.DataFrame, int]:
+    """Tira do export os códigos removidos do catálogo. Devolve (df podado, nº de códigos).
+
+    Do banco a marca é `catalogo_item.ativo = false` (o m04 aplica o delta da 0a nela); do
+    CSV é o `0a_catalogo_delta.csv`. Fonte diferente, mesma decisão de negócio.
+    """
+    if params.fonte == "banco":
+        removidos = {c for c, dados in catmap.items() if not _verdadeiro(dados.get("ativo"))}
+    else:
+        removidos = carregar_removidos()
+    if not removidos:
+        return df, 0
+    n0 = len(df)
+    df = df[~df["codigo"].isin(removidos)].copy()
+    ctx.log("info", f"[8] Poda: {n0 - len(df)} linhas de {len(removidos)} códigos "
+                    f"removidos do catálogo.")
+    return df, len(removidos)
+
+
+def _verdadeiro(valor) -> bool:
+    """`ativo` chega como bool (banco) ou como a string 'True'/'False' (após o cast a texto)."""
+    if isinstance(valor, str):
+        return valor.strip().lower() in ("true", "t", "1")
+    return bool(valor)
+
+
+def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
+    """Sem LLM: conta as linhas que sairiam do export (e quantas seriam podadas)."""
+    try:
+        df, catmap, run_id = carregar_entrada(params, ctx)
+    except SystemExit as exc:
+        return Estimativa(detalhes={"fonte": params.fonte, "aviso": str(exc)})
+    podado, _ = podar_removidos(df, catmap, params, ctx)
+    detalhes = {"fonte": params.fonte, "run_id": run_id, "linhas_agrupadas": len(df),
+                "podadas_por_catalogo_removido": len(df) - len(podado)}
+    if params.novos:
+        prev = carregar_snapshot(params)
+        detalhes["snapshot_anterior"] = (
+            f"{len(prev)} chaves" if prev else "ausente — a 1ª execução marca TUDO como novo")
+    return Estimativa(unidades=len(podado), chamadas_llm=0, custo_usd=0.0, detalhes=detalhes)
+
+
+def registrar_export(params: Params, run_id: int | None, tipo: str, arquivo: Path,
+                     linhas: list) -> int | None:
+    """Uma linha em `export` por arquivo gerado (só com `--fonte banco`).
+
+    É o que permite responder "qual arquivo saiu de qual run" sem depender do nome do
+    arquivo, que é sempre o mesmo e é sobrescrito a cada execução.
+    """
+    if params.fonte != "banco" or run_id is None:
+        return None
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import grupo as repo_grupo
+    codigos = {l["Codigo CATMAT/CATSER"] for l in linhas}
+    with db.sessao() as s:
+        return repo_grupo.registrar_export(
+            s, run_id, tipo, str(arquivo.relative_to(paths.DATA.parent)),
+            len(linhas), len(codigos))
+
+
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    df, catmap, run_id = carregar_entrada(params, ctx)
+    df, n_codigos_removidos = podar_removidos(df, catmap, params, ctx)
     linhas_csv = montar_linhas(df, catmap)
 
     if params.novos:
-        prev = carregar_snapshot()
+        prev = carregar_snapshot(params)
         novos = [l for l in linhas_csv if _chave(l) not in prev]
         escrever_export(novos, SAIDA_NOVOS, SAIDA_NOVOS_CSV)
         base = "primeira execução (sem snapshot) — tudo é novo" if not prev \
@@ -256,22 +406,28 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         ctx.log("info", f"[8] NOVOS: {len(novos)} de {len(linhas_csv)} linhas ({base}) "
                         f"→ {SAIDA_NOVOS}")
         ctx.log("info", f"[8] CSV novos → {SAIDA_NOVOS_CSV}")
-        salvar_snapshot({_chave(l) for l in linhas_csv})
-        ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves) → {SNAPSHOT.name}")
+        export_id = registrar_export(params, run_id, "novos", SAIDA_NOVOS, novos)
+        # O snapshot avança com as chaves do export COMPLETO, não das novas: ele é o retrato
+        # do que já foi entregue, e só as novas deixaria o delta se repetir para sempre.
+        salvar_snapshot({_chave(l) for l in linhas_csv}, params, catmap, export_id)
+        ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves).")
         return ResultadoEtapa(
             processados=len(novos), erros=0,
             metricas={"linhas_novas": len(novos), "linhas_no_export": len(linhas_csv),
-                      "baseline_anterior": len(prev)},
+                      "baseline_anterior": len(prev), "fonte": params.fonte,
+                      "run_id": run_id},
             preview=novos[:50],
         )
 
     escrever_export(linhas_csv, SAIDA, SAIDA_CSV)
+    registrar_export(params, run_id, "completo", SAIDA, linhas_csv)
     ctx.log("info", f"[8] Exportadas {len(linhas_csv)} linhas → {SAIDA}")
     ctx.log("info", f"[8] CSV para a web → {SAIDA_CSV}")
     return ResultadoEtapa(
         processados=len(linhas_csv), erros=0,
         metricas={"linhas_no_export": len(linhas_csv),
-                  "codigos_podados": len(removidos)},
+                  "codigos_podados": n_codigos_removidos,
+                  "fonte": params.fonte, "run_id": run_id},
         preview=linhas_csv[:50],
     )
 

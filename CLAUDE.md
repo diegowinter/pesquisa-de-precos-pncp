@@ -50,6 +50,38 @@ A ordem das etapas e "quem aceita qual flag" vêm de `pesquisa_precos/etapas/reg
 divirja não levanta exceção — a etapa só não acha o checkpoint, reprocessa do zero e recobra
 o LLM. `tests/test_estrutura.py` guarda exatamente isso.
 
+## Fase 2 (banco) — implementada, migração ainda NÃO rodada
+
+Desde 2026-08-16 existe o pacote `pesquisa_precos/db/` (SQLAlchemy 2.x + Alembic), o pacote
+`migracao/` (17 passos CSV → PostgreSQL) e as etapas 7 e 8 com `--fonte banco`. O schema é o
+de [docs/02_SCHEMA.md](docs/02_SCHEMA.md), criado por `alembic upgrade head` com DDL literal.
+
+```
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/pesquisa_precos   # .env
+uv run alembic upgrade head        # cria/atualiza o schema
+uv run python -m migracao          # lista os 17 passos e o estado de cada um
+uv run python -m migracao.m04_catalogo     # um por vez, com pg_dump entre agregados
+uv run python -m migracao.validar          # contagens + integridade referencial
+```
+
+**O acervo real ainda não foi migrado.** O banco `pesquisa_precos` existe com o schema aplicado
+e ZERO linhas. A mecânica dos 17 passos foi validada ponta a ponta num banco descartável, com
+uma amostra coerente de 60 mil itens (todas as checagens de integridade em zero, e as etapas
+7/8 produzindo o mesmo export pelos dois caminhos). Rodar sobre os 1,6 milhão de itens é do
+usuário — e cada agregado pede `pg_dump` antes.
+
+Três coisas descobertas rodando a amostra, que já estão tratadas no código:
+- **`termo_norm` NÃO dobra acento** (diverge de docs/05_MIGRACAO.md §m05 de propósito): a
+  etapa 1 gera o par com/sem acento para todo termo porque a busca do PNCP é sensível a
+  acento. Dobrar colapsaria 499 termos em 338. Ver `core.textos.normalizar_termo`.
+- **Texto de PDF contém bytes NUL**, que `text` do Postgres rejeita — `db.copia.texto_para_pg`
+  os remove no m10.
+- **`5_pdf_texto.csv` tem cada página 2×** (extração append-only rodou duas vezes, texto
+  idêntico). A PK dedupa; a contagem final fica ~metade das 888.656 linhas do CSV. Esperado.
+
+Diferença conhecida no export entre CSV e banco: a coluna `Unidade` perde o espaço à direita
+que o PNCP devolve (473 de 8.154 linhas na amostra). Só isso; nenhuma outra célula difere.
+
 ## Regra nº 1: quem roda a pipeline é o usuário
 
 **Claude NÃO dispara etapas da pipeline** (`pesquisa_precos/etapas/*`, `rodar.py`). O usuário

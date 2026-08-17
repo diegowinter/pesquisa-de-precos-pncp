@@ -3,8 +3,15 @@
 Esta pasta contém o **projeto de engenharia** da transformação da pipeline atual (scripts CLI +
 CSV) em uma aplicação de verdade (monolito Python com banco, API e interface web).
 
-> **Estado:** projeto aprovado, desenvolvimento **não iniciado**. Estes documentos são o
-> contrato para os agentes/desenvolvedores que vão implementar. Nada aqui foi codificado ainda.
+> **Estado:** Fases 0, 1 e 2 implementadas. Da 3 em diante, estes documentos continuam sendo o
+> contrato para quem for implementar.
+>
+> A Fase 2 seguiu o schema de [02_SCHEMA.md](02_SCHEMA.md) literalmente e a migração de
+> [05_MIGRACAO.md](05_MIGRACAO.md) com **uma divergência deliberada**, registrada aqui para não
+> se perder: `termo_norm` **preserva o acento** (§m05 manda tirar). Motivo medido no acervo —
+> a etapa 1 gera de propósito o par com/sem acento de cada termo, porque a busca do PNCP é
+> sensível a acento; dobrar acento apagaria 161 dos 499 termos em silêncio. A justificativa
+> completa está na docstring de `pesquisa_precos.core.textos.normalizar_termo`.
 
 ## Ordem de leitura
 
