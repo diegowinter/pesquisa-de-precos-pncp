@@ -42,7 +42,9 @@ from pesquisa_precos.core.io_seguro import (
     ler_csv,
 )
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.core.textos import texto_hash
+from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
@@ -175,11 +177,20 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                         if params.provedor == "local" else {"reasoning": {"enabled": False}})
     ctx.log("debug", f"[dim][3] reasoning: "
                      f"{'ligado (default do modelo)' if params.reasoning else 'DESLIGADO'}[/]")
+    # Prompt 'classificar_item' resolvido UMA vez, fora dos workers (Fase 6): compartilha um
+    # dict imutável em vez de repassar `Session` para threads (não é thread-safe).
+    try:
+        with db.sessao() as sessao:
+            prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["classificar_item"])
+    except Exception:  # noqa: BLE001 — sem banco configurado, cai no prompt hardcoded
+        prompts_ativos = {}
+
     _tls = threading.local()
 
     def _curador():
         if not hasattr(_tls, "c"):
-            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6, **reasoning_kw)
+            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6,
+                                           prompts_ativos=prompts_ativos, **reasoning_kw)
         return _tls.c
 
     n_erros = [0]

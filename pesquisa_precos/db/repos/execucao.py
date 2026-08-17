@@ -57,6 +57,40 @@ def ler_config(sessao: Session, config_versao_id: int) -> dict[str, Any]:
         {"v": config_versao_id}).all()}
 
 
+def listar_config_versoes(sessao: Session) -> list[dict[str, Any]]:
+    """Todas as versões, mais recente primeiro — tela de configuração (docs/06_API_E_WEB.md
+    §4.5). Config é IMUTÁVEL (ADR-014): esta lista é o histórico completo, nunca sobrescrito."""
+    linhas = sessao.execute(
+        text("SELECT id, rotulo, criado_por, criado_em, notas FROM config_versao "
+             "ORDER BY id DESC")).mappings().all()
+    return [dict(linha) for linha in linhas]
+
+
+def config_versao_por_id(sessao: Session, config_versao_id: int) -> dict[str, Any] | None:
+    linha = sessao.execute(
+        text("SELECT id, rotulo, criado_por, criado_em, notas FROM config_versao "
+             "WHERE id = :id"), {"id": config_versao_id}).mappings().first()
+    if linha is None:
+        return None
+    dado = dict(linha)
+    dado["valores"] = ler_config(sessao, config_versao_id)
+    return dado
+
+
+def diff_config(sessao: Session, id_a: int, id_b: int) -> dict[str, Any]:
+    """Diferença chave a chave entre duas `config_versao` (docs/06_API_E_WEB.md
+    `GET /api/config/versoes/{id}/diff/{outro_id}`). Só reporta chaves que mudaram — chave
+    ausente de um lado aparece com valor `None` do lado que não a define."""
+    valores_a = ler_config(sessao, id_a)
+    valores_b = ler_config(sessao, id_b)
+    chaves = sorted(set(valores_a) | set(valores_b))
+    diferencas = [
+        {"chave": c, "de": valores_a.get(c), "para": valores_b.get(c)}
+        for c in chaves if valores_a.get(c) != valores_b.get(c)
+    ]
+    return {"config_versao_a": id_a, "config_versao_b": id_b, "diferencas": diferencas}
+
+
 def criar_run(sessao: Session, rotulo: str, config_versao_id: int, *,
               modo: str = "assistido", status: str = "aberto",
               criado_por: str | None = None) -> int:
@@ -132,6 +166,87 @@ def prompt_versao_ativa(sessao: Session, nome: str) -> int | None:
     return sessao.execute(
         text("SELECT id FROM prompt_versao WHERE prompt_nome = :n AND ativa"),
         {"n": nome}).scalar()
+
+
+def template_prompt_ativo(sessao: Session, nome: str) -> dict[str, Any] | None:
+    """`(id, template)` da versão ativa — é o que `core.prompts_resolver` usa para montar o
+    prompt de verdade em tempo de execução. `None` quando o prompt não existe no banco ainda
+    (etapa cai no fallback hardcoded de `core/prompts.py`, ver docstring do resolver)."""
+    linha = sessao.execute(
+        text("SELECT id, template FROM prompt_versao WHERE prompt_nome = :n AND ativa"),
+        {"n": nome}).mappings().first()
+    return dict(linha) if linha else None
+
+
+def listar_prompts(sessao: Session) -> list[dict[str, Any]]:
+    """Prompts + versões (docs/06_API_E_WEB.md `GET /api/prompts`) — tela de edição com
+    histórico e diff."""
+    prompts = {p["nome"]: {**p, "versoes": []} for p in sessao.execute(
+        text("SELECT nome, descricao, capacidade FROM prompt ORDER BY nome")).mappings().all()}
+    for v in sessao.execute(
+            text("SELECT id, prompt_nome, versao, template, ativa, criado_por, criado_em, "
+                 "       notas FROM prompt_versao ORDER BY prompt_nome, versao DESC")).mappings().all():
+        if v["prompt_nome"] in prompts:
+            prompts[v["prompt_nome"]]["versoes"].append(dict(v))
+    return list(prompts.values())
+
+
+def prompt_versoes(sessao: Session, nome: str) -> list[dict[str, Any]]:
+    linhas = sessao.execute(
+        text("SELECT id, prompt_nome, versao, template, ativa, criado_por, criado_em, notas "
+             "FROM prompt_versao WHERE prompt_nome = :n ORDER BY versao DESC"),
+        {"n": nome}).mappings().all()
+    return [dict(l) for l in linhas]
+
+
+def prompt_versao_por_numero(sessao: Session, nome: str, versao: int) -> dict[str, Any] | None:
+    linha = sessao.execute(
+        text("SELECT id, prompt_nome, versao, template, ativa, criado_por, criado_em, notas "
+             "FROM prompt_versao WHERE prompt_nome = :n AND versao = :v"),
+        {"n": nome, "v": versao}).mappings().first()
+    return dict(linha) if linha else None
+
+
+def proxima_versao_prompt(sessao: Session, nome: str) -> int:
+    atual = sessao.execute(
+        text("SELECT COALESCE(MAX(versao), 0) FROM prompt_versao WHERE prompt_nome = :n"),
+        {"n": nome}).scalar_one()
+    return atual + 1
+
+
+def criar_prompt_versao(sessao: Session, nome: str, template: str, *,
+                        criado_por: str | None = None, notas: str | None = None) -> int:
+    """Cria uma versão NOVA, inativa (histórico — ADR-007/ADR-014: editar cria versão, nunca
+    sobrescreve). `ativar_prompt_versao` é quem promove uma versão a ativa."""
+    versao = proxima_versao_prompt(sessao, nome)
+    return sessao.execute(
+        text("INSERT INTO prompt_versao (prompt_nome, versao, template, ativa, criado_por, "
+             "                           notas) "
+             "VALUES (:n, :v, :t, false, :p, :notas) RETURNING id"),
+        {"n": nome, "v": versao, "t": template, "p": criado_por, "notas": notas},
+    ).scalar_one()
+
+
+def ativar_prompt_versao(sessao: Session, nome: str, versao: int) -> bool:
+    """Promove `versao` a ativa e desativa qualquer outra do mesmo prompt — `ux_prompt_ativa`
+    garante no máximo uma ativa por nome, então o UPDATE que desativa vem antes do que ativa."""
+    sessao.execute(
+        text("UPDATE prompt_versao SET ativa = false WHERE prompt_nome = :n AND ativa"),
+        {"n": nome})
+    linha = sessao.execute(
+        text("UPDATE prompt_versao SET ativa = true "
+             "WHERE prompt_nome = :n AND versao = :v RETURNING id"),
+        {"n": nome, "v": versao}).first()
+    return linha is not None
+
+
+def diff_prompt(sessao: Session, nome: str, versao_a: int, versao_b: int) -> dict[str, Any]:
+    a = prompt_versao_por_numero(sessao, nome, versao_a)
+    b = prompt_versao_por_numero(sessao, nome, versao_b)
+    if a is None or b is None:
+        raise KeyError(f"prompt {nome!r} não tem as duas versões {versao_a}/{versao_b}")
+    return {"prompt_nome": nome, "versao_a": versao_a, "versao_b": versao_b,
+            "template_a": a["template"], "template_b": b["template"]}
 
 
 # ── Provedores ──────────────────────────────────────────────────────────────────────

@@ -38,7 +38,9 @@ from pesquisa_precos.config import paths
 from pesquisa_precos.config.settings import custo_por_chamada, exigir
 from pesquisa_precos.core.io_seguro import EscritorSeguro, ler_chaves_concluidas
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.core.textos import descricao_itens, texto_catalogo
+from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
@@ -146,7 +148,14 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         ctx.log("info" if not forte else "aviso",
                 f"[6c] modelo de validação: {modelo} "
                 f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
-        curador = Curador.from_provedor(cfg, params.provedor, forte=forte, max_retries=6)
+        # Prompt 'comparar_par' resolvido UMA vez, fora dos workers (Fase 6, ver etapa 3).
+        try:
+            with db.sessao() as sessao:
+                prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
+        except Exception:  # noqa: BLE001 — sem banco configurado, cai no prompt hardcoded
+            prompts_ativos = {}
+        curador = Curador.from_provedor(cfg, params.provedor, forte=forte, max_retries=6,
+                                        prompts_ativos=prompts_ativos)
         esc_val = EscritorSeguro(str(VALIDADOS), COLS_VALID)
 
         def fn(row):

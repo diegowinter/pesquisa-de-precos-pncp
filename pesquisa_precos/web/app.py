@@ -19,13 +19,17 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from pesquisa_precos.services import config as servico_config
 from pesquisa_precos.services import execucao as servico
+from pesquisa_precos.services import prompts as servico_prompts
+from pesquisa_precos.services.config import ConfigVersaoInexistente
 from pesquisa_precos.services.execucao import (
     DependenciaNaoSatisfeita,
     ExecucaoEmAndamento,
     RefazerSemConfirmacao,
     RunInexistente,
 )
+from pesquisa_precos.services.prompts import PromptInexistente
 from pesquisa_precos.web import auth
 from pesquisa_precos.web.estado import CLASSE_ETAPA, ICONE_ETAPA
 
@@ -252,3 +256,72 @@ def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
     if export is None or not caminho.exists():
         return RedirectResponse("/exports?erro=export%20n%C3%A3o%20encontrado", status_code=303)
     return FileResponse(caminho, filename=caminho.name)
+
+
+# ── Configuração (Fase 6) ────────────────────────────────────────────────────────────
+
+@app.get("/config")
+def tela_config(request: Request, usuario: str = Depends(auth.exigir_login)):
+    return _render(request, "config.html", {
+        "versoes": servico_config.listar_config_versoes(),
+        "schema": servico_config.schema_parametros(), "diff": None})
+
+
+@app.get("/config/diff")
+def diff_config(request: Request, a: int, b: int, usuario: str = Depends(auth.exigir_login)):
+    try:
+        diff = servico_config.diff_config_versoes(a, b)
+    except ConfigVersaoInexistente as exc:
+        return _redirecionar_com_erro("/config", exc)
+    return _render(request, "config.html", {
+        "versoes": servico_config.listar_config_versoes(),
+        "schema": servico_config.schema_parametros(), "diff": diff})
+
+
+@app.post("/config")
+async def criar_config(request: Request, rotulo: str = Form(...), notas: str = Form(""),
+                       usuario: str = Depends(auth.exigir_login)):
+    forma = await request.form()
+    valores = {}
+    for chave, valor in forma.multi_items():
+        if chave.startswith("campo__") and str(valor).strip():
+            valores[chave.removeprefix("campo__")] = str(valor).strip()
+    servico_config.criar_config_versao(rotulo, valores, criado_por=usuario, notas=notas or None)
+    return RedirectResponse("/config", status_code=303)
+
+
+# ── Prompts (Fase 6) ──────────────────────────────────────────────────────────────────
+
+@app.get("/prompts")
+def tela_prompts(request: Request, usuario: str = Depends(auth.exigir_login)):
+    return _render(request, "prompts.html", {
+        "prompts": servico_prompts.listar_prompts(), "diff": None, "aberto": None})
+
+
+@app.get("/prompts/{nome}/{versao}")
+def diff_prompt(request: Request, nome: str, versao: int, usuario: str = Depends(auth.exigir_login)):
+    try:
+        versoes = servico_prompts.versoes_prompt(nome)
+    except PromptInexistente as exc:
+        return _redirecionar_com_erro("/prompts", exc)
+    ativa = next((v["versao"] for v in versoes if v["ativa"]), versoes[0]["versao"])
+    diff = servico_prompts.diff_versoes(nome, ativa, versao) if ativa != versao else None
+    return _render(request, "prompts.html", {
+        "prompts": servico_prompts.listar_prompts(), "diff": diff, "aberto": nome})
+
+
+@app.post("/prompts/{nome}/versoes")
+def criar_versao_prompt(request: Request, nome: str, template: str = Form(...),
+                        notas: str = Form(""), usuario: str = Depends(auth.exigir_login)):
+    servico_prompts.criar_versao(nome, template, criado_por=usuario, notas=notas or None)
+    return RedirectResponse("/prompts", status_code=303)
+
+
+@app.post("/prompts/{nome}/{versao}/ativar")
+def ativar_versao_prompt(request: Request, nome: str, versao: int,
+                         usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_prompts.ativar_versao(nome, versao)
+    except PromptInexistente as exc:
+        return _redirecionar_com_erro("/prompts", exc)
+    return RedirectResponse("/prompts", status_code=303)

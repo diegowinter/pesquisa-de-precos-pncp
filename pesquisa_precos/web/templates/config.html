@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block titulo %}Configuração{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Versões de configuração</h2>
+  <p class="tag">Imutável: salvar sempre cria uma versão nova (ADR-014). Um <code>run</code> aponta para uma versão fixa.</p>
+  <table>
+    <thead><tr><th>id</th><th>rótulo</th><th>criado por</th><th>criado em</th><th>notas</th></tr></thead>
+    <tbody>
+      {% for v in versoes %}
+      <tr><td>#{{ v.id }}</td><td>{{ v.rotulo }}</td><td>{{ v.criado_por or "" }}</td>
+          <td>{{ v.criado_em }}</td><td>{{ v.notas or "" }}</td></tr>
+      {% else %}<tr><td colspan="5">nenhuma versão ainda</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Comparar duas versões</h3>
+  <form method="get" action="/config/diff" class="linha">
+    <label style="display:inline-block;">De
+      <select name="a">{% for v in versoes %}<option value="{{ v.id }}">#{{ v.id }} · {{ v.rotulo }}</option>{% endfor %}</select>
+    </label>
+    <label style="display:inline-block;">Para
+      <select name="b">{% for v in versoes %}<option value="{{ v.id }}">#{{ v.id }} · {{ v.rotulo }}</option>{% endfor %}</select>
+    </label>
+    <button type="submit">Ver diff</button>
+  </form>
+  {% if diff %}
+  <table style="margin-top:.75rem;">
+    <thead><tr><th>chave</th><th>#{{ diff.config_versao_a }}</th><th>#{{ diff.config_versao_b }}</th></tr></thead>
+    <tbody>
+      {% for d in diff.diferencas %}
+      <tr><td>{{ d.chave }}</td><td>{{ d.de | tojson }}</td><td>{{ d.para | tojson }}</td></tr>
+      {% else %}<tr><td colspan="3">sem diferenças</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="painel">
+  <h3>Nova versão de configuração</h3>
+  <p class="tag">Formulário gerado a partir dos <code>Params</code> Pydantic de cada etapa. Só entram no efetivo os campos que a etapa executada de fato declara.</p>
+  <form method="post" action="/config">
+    <label for="rotulo">Rótulo</label>
+    <input id="rotulo" name="rotulo" required placeholder="ex.: ajuste rejeitor agosto">
+    <label for="notas">Notas</label>
+    <input id="notas" name="notas" placeholder="por que esta versão existe">
+
+    {% for chave, bloco in schema.items() %}
+    <details style="margin-top:.75rem;">
+      <summary style="cursor:pointer;">{{ chave }} — {{ bloco.titulo }}</summary>
+      {% for campo, info in bloco.campos.items() %}
+      <label for="campo__{{ chave }}__{{ campo }}">{{ campo }} <span class="tag">default: {{ info.default }}</span></label>
+      <input id="campo__{{ chave }}__{{ campo }}" name="campo__{{ campo }}" placeholder="{{ info.descricao }}">
+      {% endfor %}
+    </details>
+    {% endfor %}
+
+    <p style="margin-top:.75rem;">
+      <button class="principal" type="submit">Salvar como versão nova</button>
+    </p>
+  </form>
+</div>
+{% endblock %}

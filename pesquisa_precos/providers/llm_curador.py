@@ -21,12 +21,16 @@ import unicodedata
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
+from pesquisa_precos.core import prompts_resolver
+from pesquisa_precos.core.prompts_resolver import PromptsAtivos
+
 # Prompts e categorias vivem em prompts.py — reexportados aqui (retrocompatível).
 from pesquisa_precos.core.prompts import (  # noqa: F401
     CATEGORIAS_MATERIAL,
     CATEGORIAS_SERVICO,
     CATEGORIA_MAP_MATERIAL,
     CATEGORIA_MAP_SERVICO,
+    _bloco_categorias_classificacao,
     montar_prompt_busca,
     montar_prompt_casar_item_tabela,
     montar_prompt_classificar_item,
@@ -94,7 +98,7 @@ class Curador:
 
     def __init__(self, model: str, base_url: str, api_key: str, temperature: float = 0.1,
                  timeout: int = 60, max_retries: int = 0, reasoning: dict | None = None,
-                 extra_body: dict | None = None):
+                 extra_body: dict | None = None, prompts_ativos: PromptsAtivos | None = None):
         # max_retries: retry NATIVO do cliente OpenAI (honra Retry-After em 429/5xx).
         #   0 (default) preserva o comportamento dos scripts existentes.
         #   O script paralelo passa um valor maior (ex.: 8) para 429 robusto.
@@ -114,6 +118,10 @@ class Curador:
         if corpo:
             kwargs["extra_body"] = corpo
         self.llm = ChatOpenAI(**kwargs).with_retry(stop_after_attempt=3)
+        # Prompts ativos resolvidos UMA vez, fora de qualquer pool de threads (ver
+        # `core.prompts_resolver`) — `None`/dict vazio preserva o comportamento antigo
+        # (texto hardcoded de `core/prompts.py`).
+        self._prompts_ativos = prompts_ativos
 
     @classmethod
     def from_provedor(cls, cfg: dict, provedor: str, forte: bool = False, **kwargs) -> "Curador":
@@ -140,36 +148,56 @@ class Curador:
     def classificar_categoria(self, descricao: str, unidade: str = "") -> dict:
         """
         Etapa 3 — classifica um item PNCP em 0+ categorias de conteúdo (multi-label).
-        Retorna {"categorias": [...], "confianca": "alta|media|baixa"}. Filtra ids inválidos.
-        Nunca levanta: em erro devolve {"categorias": [], "confianca": "erro", "_erro": msg}.
+        Retorna {"categorias": [...], "confianca": "alta|media|baixa", "_prompt_versao_id": ...}.
+        Filtra ids inválidos. Nunca levanta: em erro devolve
+        {"categorias": [], "confianca": "erro", "_erro": msg}.
+
+        O texto do prompt vem do banco (`prompt_versao` ativa de 'classificar_item') se houver
+        uma; senão cai no hardcoded de `core/prompts.py` (Fase 6, ver `prompts_resolver`). O
+        bloco de categorias é sempre renderizado em código a partir de `categorias.py` — é
+        dado de domínio, não texto de instrução (ADR-014).
         """
-        prompt = montar_prompt_classificar_item(descricao, unidade)
+        ctx_unidade = f"\n  Unidade: {unidade}" if unidade else ""
+        prompt, prompt_versao_id = prompts_resolver.resolver(
+            self._prompts_ativos, "classificar_item",
+            montar_prompt_classificar_item(descricao, unidade),
+            bloco_categorias=_bloco_categorias_classificacao(),
+            descricao=descricao, ctx_unidade=ctx_unidade)
         try:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
-            return {"categorias": [], "confianca": "erro", "_erro": str(e)[:200]}
+            return {"categorias": [], "confianca": "erro", "_erro": str(e)[:200],
+                    "_prompt_versao_id": prompt_versao_id}
         cats = data.get("categorias") or []
         if isinstance(cats, str):
             cats = [cats]
         validas = [c for c in (str(x).strip().lower() for x in cats) if c in _IDS_CONTEUDO]
-        return {"categorias": validas, "confianca": str(data.get("confianca", "")).lower()}
+        return {"categorias": validas, "confianca": str(data.get("confianca", "")).lower(),
+                "_prompt_versao_id": prompt_versao_id}
 
     def extrair_item_pdf(self, janela_texto: str, item_api: dict) -> dict:
         """
         Etapa 5.2 — extração guiada de UM item do texto do PDF.
-        Retorna {"descricao_completa","preco_unitario","quantidade","encontrado"}.
-        Nunca levanta: em erro devolve encontrado=False + "_erro".
+        Retorna {"descricao_completa","preco_unitario","quantidade","encontrado",
+        "_prompt_versao_id"}. Nunca levanta: em erro devolve encontrado=False + "_erro".
         """
-        prompt = montar_prompt_extrair_item_pdf(janela_texto, item_api)
+        numero = item_api.get("numeroItem", "")
+        descricao_api = item_api.get("descricao_api", "")
+        prompt, prompt_versao_id = prompts_resolver.resolver(
+            self._prompts_ativos, "extrair_item_pdf",
+            montar_prompt_extrair_item_pdf(janela_texto, item_api),
+            numero=numero, descricao_api=descricao_api, janela_texto=janela_texto)
         try:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
-            return {"encontrado": False, "_erro": str(e)[:200]}
+            return {"encontrado": False, "_erro": str(e)[:200],
+                    "_prompt_versao_id": prompt_versao_id}
         return {
             "descricao_completa": data.get("descricao_completa") or "",
             "preco_unitario": data.get("preco_unitario"),
             "quantidade": data.get("quantidade"),
             "encontrado": bool(data.get("encontrado")),
+            "_prompt_versao_id": prompt_versao_id,
         }
 
     def extrair_tabela_pdf(self, png_bytes: bytes) -> list[dict]:
@@ -224,17 +252,22 @@ class Curador:
     def comparar_par(self, texto_catalogo: str, texto_item: str) -> dict:
         """
         Etapa 6c — decide se catálogo e item PNCP são o mesmo item.
-        Retorna {"mesmo_item": "sim|nao", "justificativa": str}.
+        Retorna {"mesmo_item": "sim|nao", "justificativa": str, "_prompt_versao_id": ...}.
         Nunca levanta: em erro devolve {"mesmo_item":"erro","justificativa":msg}.
         """
-        prompt = montar_prompt_comparar_par(texto_catalogo, texto_item)
+        prompt, prompt_versao_id = prompts_resolver.resolver(
+            self._prompts_ativos, "comparar_par",
+            montar_prompt_comparar_par(texto_catalogo, texto_item),
+            texto_catalogo=texto_catalogo, texto_item=texto_item)
         try:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
-            return {"mesmo_item": "erro", "justificativa": str(e)[:200]}
+            return {"mesmo_item": "erro", "justificativa": str(e)[:200],
+                    "_prompt_versao_id": prompt_versao_id}
         mesmo = _sem_acento(str(data.get("mesmo_item", "")).strip().lower())
         mesmo = "sim" if mesmo.startswith("sim") else ("nao" if mesmo.startswith("nao") else "erro")
-        return {"mesmo_item": mesmo, "justificativa": str(data.get("justificativa", ""))[:200]}
+        return {"mesmo_item": mesmo, "justificativa": str(data.get("justificativa", ""))[:200],
+                "_prompt_versao_id": prompt_versao_id}
 
     def gerar_termos_item(self, nome: str, descricao: str, tipo: str = "material",
                           nome_grupo: str = "") -> list[str]:

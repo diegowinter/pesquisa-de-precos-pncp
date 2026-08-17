@@ -23,3 +23,16 @@ class ExecutarEtapaBody(BaseModel):
 class AprovarEtapaBody(BaseModel):
     aprovado_por: str
     params_override: dict[str, Any] = Field(default_factory=dict)
+
+
+class CriarConfigVersaoBody(BaseModel):
+    rotulo: str
+    valores: dict[str, Any] = Field(default_factory=dict)
+    notas: str | None = None
+    criado_por: str | None = None
+
+
+class CriarPromptVersaoBody(BaseModel):
+    template: str
+    notas: str | None = None
+    criado_por: str | None = None

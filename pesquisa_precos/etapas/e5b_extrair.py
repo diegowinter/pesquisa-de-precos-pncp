@@ -49,6 +49,8 @@ from pesquisa_precos.core.io_seguro import (
     ler_csv,
 )
 from pesquisa_precos.core.paralelo import executar_paralelo
+from pesquisa_precos.core import prompts_resolver
+from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
@@ -284,12 +286,20 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     ctx.log("info", f"[bold][5b] {len(pend)} itens a extrair[/] (já feitos: {len(feitas)}), "
                     f"provedor: {params.provedor}, concorrência: {params.concurrency}")
 
+    # Prompt 'extrair_item_pdf' resolvido UMA vez, fora dos workers (Fase 6, ver etapa 3).
+    try:
+        with db.sessao() as sessao:
+            prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["extrair_item_pdf"])
+    except Exception:  # noqa: BLE001 — sem banco configurado, cai no prompt hardcoded
+        prompts_ativos = {}
+
     # Um Curador por thread (compartilhar um cliente serializa as chamadas — ver etapa 3).
     _tls = threading.local()
 
     def _curador():
         if not hasattr(_tls, "c"):
-            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6)
+            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6,
+                                           prompts_ativos=prompts_ativos)
         return _tls.c
 
     def _linha(item, res):
