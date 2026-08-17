@@ -274,6 +274,30 @@ def marcar_aguardando_aprovacao(sessao: Session, run_etapa_id: int) -> None:
         {"id": run_etapa_id})
 
 
+def pular(sessao: Session, run_etapa_id: int, motivo: str | None = None) -> bool:
+    """Gate: `pular` (docs/06_API_E_WEB.md §3.2). Só tem efeito partindo de
+    `aguardando_aprovacao` — pular uma etapa já em outro estado não faz sentido e é ignorado
+    (devolve False) em vez de sobrescrever silenciosamente."""
+    linha = sessao.execute(
+        text("UPDATE run_etapa SET status = 'pulada', mensagem_erro = :m, concluida_em = now() "
+             "WHERE id = :id AND status = 'aguardando_aprovacao' RETURNING id"),
+        {"m": motivo, "id": run_etapa_id}).first()
+    return linha is not None
+
+
+def abortar_run(sessao: Session, run_id: int) -> bool:
+    """`abortar run` (ADR-005: gate não segura lock, run não avança sozinho). Marca o run
+    `abortado` e sinaliza cancelamento para a etapa que porventura esteja `executando` — o
+    mesmo mecanismo de `solicitar_cancelamento` (o subprocesso observa via `ctx.cancelado()`)."""
+    sessao.execute(
+        text("UPDATE run_etapa SET status = 'cancelada' "
+             "WHERE run_id = :r AND status = 'executando'"), {"r": run_id})
+    linha = sessao.execute(
+        text("UPDATE run SET status = 'abortado', concluido_em = now() "
+             "WHERE id = :r AND status = 'aberto' RETURNING id"), {"r": run_id}).first()
+    return linha is not None
+
+
 def aprovar(sessao: Session, run_etapa_id: int, aprovado_por: str) -> None:
     sessao.execute(
         text("UPDATE run_etapa SET aprovado_por = :p, aprovado_em = now(), "
@@ -437,6 +461,58 @@ def incrementar_custo(sessao: Session, run_etapa_id: int, run_id: int, usd: floa
 def custo_run(sessao: Session, run_id: int) -> Decimal:
     return sessao.execute(
         text("SELECT custo_usd FROM run WHERE id = :r"), {"r": run_id}).scalar_one()
+
+
+def custo_resumo(sessao: Session, *, de: str | None = None, ate: str | None = None) -> dict[str, Any]:
+    """Dashboard de custo (docs/06_API_E_WEB.md §4.4): por run, por etapa e acumulado no mês.
+    `de`/`ate` filtram por `run_etapa.concluida_em`; sem eles, olha o histórico inteiro."""
+    condicoes = "run_etapa.custo_usd > 0"
+    parametros: dict[str, Any] = {}
+    if de is not None:
+        condicoes += " AND (run_etapa.concluida_em IS NULL OR run_etapa.concluida_em >= :de)"
+        parametros["de"] = de
+    if ate is not None:
+        condicoes += " AND (run_etapa.concluida_em IS NULL OR run_etapa.concluida_em <= :ate)"
+        parametros["ate"] = ate
+    por_run = sessao.execute(
+        text("SELECT run.id AS run_id, run.rotulo, SUM(run_etapa.custo_usd) AS custo_usd "
+             f"FROM run_etapa JOIN run ON run.id = run_etapa.run_id WHERE {condicoes} "
+             "GROUP BY run.id, run.rotulo ORDER BY run.id DESC"), parametros).mappings().all()
+    por_etapa = sessao.execute(
+        text("SELECT etapa, SUM(run_etapa.custo_usd) AS custo_usd "
+             f"FROM run_etapa WHERE {condicoes} GROUP BY etapa ORDER BY etapa"),
+        parametros).mappings().all()
+    por_mes = sessao.execute(
+        text("SELECT to_char(date_trunc('month', COALESCE(run_etapa.concluida_em, "
+             "                                             run_etapa.iniciada_em)), "
+             "              'YYYY-MM') AS mes, SUM(run_etapa.custo_usd) AS custo_usd "
+             f"FROM run_etapa WHERE {condicoes} "
+             "  AND COALESCE(run_etapa.concluida_em, run_etapa.iniciada_em) IS NOT NULL "
+             "GROUP BY 1 ORDER BY 1 DESC"), parametros).mappings().all()
+    total = sessao.execute(
+        text(f"SELECT COALESCE(SUM(run_etapa.custo_usd), 0) FROM run_etapa WHERE {condicoes}"),
+        parametros).scalar_one()
+    return {"total_usd": total, "por_run": [dict(l) for l in por_run],
+            "por_etapa": [dict(l) for l in por_etapa], "por_mes": [dict(l) for l in por_mes]}
+
+
+def listar_exports(sessao: Session, *, run_id: int | None = None) -> list[dict[str, Any]]:
+    if run_id is None:
+        linhas = sessao.execute(
+            text("SELECT id, run_id, tipo, arquivo, n_linhas, n_codigos, criado_em "
+                 "FROM export ORDER BY id DESC")).mappings().all()
+    else:
+        linhas = sessao.execute(
+            text("SELECT id, run_id, tipo, arquivo, n_linhas, n_codigos, criado_em FROM export "
+                 "WHERE run_id = :r ORDER BY id DESC"), {"r": run_id}).mappings().all()
+    return [dict(l) for l in linhas]
+
+
+def export_por_id(sessao: Session, export_id: int) -> dict[str, Any] | None:
+    linha = sessao.execute(
+        text("SELECT id, run_id, tipo, arquivo, n_linhas, n_codigos, hash_arquivo, criado_em "
+             "FROM export WHERE id = :id"), {"id": export_id}).mappings().first()
+    return dict(linha) if linha else None
 
 
 def ultimo_fingerprint_concluido(sessao: Session, etapa: str) -> str | None:

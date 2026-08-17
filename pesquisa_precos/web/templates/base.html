@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Pesquisa de Preços PLASEG{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+</head>
+<body>
+  {% if usuario %}
+  <header class="topo">
+    <a class="marca" href="/runs">Pesquisa de Preços PLASEG</a>
+    <a href="/runs">Runs</a>
+    <a href="/custo">Custo</a>
+    <a href="/exports">Exports</a>
+    <span class="tag">{{ usuario }}</span>
+    <form class="linha" method="post" action="/logout">
+      <button type="submit">sair</button>
+    </form>
+  </header>
+  {% endif %}
+  <main>
+    {% if erro %}<div class="flash-erro">{{ erro }}</div>{% endif %}
+    {% block conteudo %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Run #{{ run.id }} — {{ run.rotulo }}{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <h2>Run #{{ run.id }} · "{{ run.rotulo }}"</h2>
+      <span class="tag">modo: {{ run.modo }}</span>
+      <span class="tag">status: {{ run.status }}</span>
+      <span class="tag">custo: US$ {{ "%.2f"|format(run.custo_usd or 0) }}{% if run.teto_custo_usd %} / US$ {{ "%.2f"|format(run.teto_custo_usd) }}{% endif %}</span>
+    </div>
+    {% if run.status == 'aberto' %}
+    <form method="post" action="/runs/{{ run.id }}/abortar"
+          onsubmit="return confirm('Abortar este run? A etapa em execução será cancelada.');">
+      <button class="perigo" type="submit">abortar run</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="painel">
+  {% include "_grafo.html" %}
+</div>
+{% endblock %}

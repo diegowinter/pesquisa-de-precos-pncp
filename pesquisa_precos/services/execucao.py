@@ -172,6 +172,22 @@ def aprovar_etapa(run_id: int, chave: str, *, aprovado_por: str,
     return {"run_etapa_id": run_etapa_id, "status": "nao_iniciada"}
 
 
+def pular_etapa(run_id: int, chave: str, *, motivo: str | None = None) -> bool:
+    registry.obter(chave)
+    with db.sessao() as sessao:
+        if repo.run_por_id(sessao, run_id) is None:
+            raise RunInexistente(f"run {run_id} não existe")
+        run_etapa_id = repo.obter_ou_criar_run_etapa(sessao, run_id, chave)
+        return repo.pular(sessao, run_etapa_id, motivo)
+
+
+def abortar_run(run_id: int) -> bool:
+    with db.sessao() as sessao:
+        if repo.run_por_id(sessao, run_id) is None:
+            raise RunInexistente(f"run {run_id} não existe")
+        return repo.abortar_run(sessao, run_id)
+
+
 def logs(run_id: int, *, etapa: str | None = None, limite: int = 200) -> list[dict[str, Any]]:
     with db.sessao() as sessao:
         return repo.logs_do_run(sessao, run_id, etapa=etapa, limite=limite)
@@ -197,3 +213,26 @@ def custo(run_id: int) -> dict[str, Any]:
 def listar_provedores() -> list[dict[str, Any]]:
     with db.sessao() as sessao:
         return repo.listar_provedores(sessao)
+
+
+def custo_resumo(*, de: str | None = None, ate: str | None = None) -> dict[str, Any]:
+    with db.sessao() as sessao:
+        return repo.custo_resumo(sessao, de=de, ate=ate)
+
+
+def listar_exports(*, run_id: int | None = None) -> list[dict[str, Any]]:
+    with db.sessao() as sessao:
+        return repo.listar_exports(sessao, run_id=run_id)
+
+
+def caminho_export(export_id: int):
+    """Caminho absoluto do arquivo de export, resolvido contra `paths.DATA` (`export.arquivo`
+    é relativo — docs/08_CONVENCOES.md: nunca hardcodar caminho de `data/`). `None` se o
+    registro não existe."""
+    from pesquisa_precos.config import paths
+
+    with db.sessao() as sessao:
+        export = repo.export_por_id(sessao, export_id)
+    if export is None:
+        return None, None
+    return export, paths.DATA / export["arquivo"]

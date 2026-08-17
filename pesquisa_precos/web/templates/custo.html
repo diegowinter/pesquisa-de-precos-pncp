@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titulo %}Dashboard de custo{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Custo total</h2>
+  <p style="font-size:1.6rem;">US$ {{ "%.2f"|format(resumo.total_usd or 0) }}</p>
+</div>
+
+<div class="painel">
+  <h3>Por run</h3>
+  <table>
+    <thead><tr><th>run</th><th>rótulo</th><th>custo</th></tr></thead>
+    <tbody>
+      {% for l in resumo.por_run %}
+      <tr onclick="location.href='/runs/{{ l.run_id }}'" style="cursor:pointer;">
+        <td>#{{ l.run_id }}</td><td>{{ l.rotulo }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td>
+      </tr>
+      {% else %}<tr><td colspan="3">sem custo registrado</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Por etapa</h3>
+  <table>
+    <thead><tr><th>etapa</th><th>custo</th></tr></thead>
+    <tbody>
+      {% for l in resumo.por_etapa %}
+      <tr><td>{{ l.etapa }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td></tr>
+      {% else %}<tr><td colspan="2">sem custo registrado</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Acumulado por mês</h3>
+  <table>
+    <thead><tr><th>mês</th><th>custo</th></tr></thead>
+    <tbody>
+      {% for l in resumo.por_mes %}
+      <tr><td>{{ l.mes }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td></tr>
+      {% else %}<tr><td colspan="2">sem custo registrado</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

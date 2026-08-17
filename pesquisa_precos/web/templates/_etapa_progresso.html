@@ -1,0 +1,24 @@
+{# Fragmento de progresso — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.2). #}
+<div id="cabecalho-etapa" hx-get="/runs/{{ run.id }}/etapas/{{ chave }}/fragmento"
+     hx-trigger="every 3s" hx-swap="outerHTML">
+  <h2>{{ icone_etapa[detalhe.status] }} Etapa {{ chave }} — {{ definicao.titulo }}</h2>
+  <span class="tag">{{ detalhe.status }}</span>
+  {% if detalhe.acao %}<span class="tag">ação: {{ detalhe.acao }}</span>{% endif %}
+  <span class="tag">custo: US$ {{ "%.2f"|format(detalhe.custo_usd or 0) }}</span>
+  {% if detalhe.fingerprint %}<span class="tag">fingerprint: {{ detalhe.fingerprint[:12] }}…</span>{% endif %}
+  {% if detalhe.iniciada_em %}<span class="tag">iniciada: {{ detalhe.iniciada_em }}</span>{% endif %}
+  {% if detalhe.concluida_em %}<span class="tag">concluída: {{ detalhe.concluida_em }}</span>{% endif %}
+
+  {% if detalhe.total %}
+  <div class="barra" style="margin-top:.75rem;">
+    <div style="width:{{ ((detalhe.processados or 0) / detalhe.total * 100) | round(1) }}%;"></div>
+  </div>
+  <p class="tag">{{ detalhe.processados or 0 }} / {{ detalhe.total }} · erros: {{ detalhe.erros or 0 }}</p>
+  {% elif detalhe.status == 'executando' %}
+  <p class="tag">{{ detalhe.processados or 0 }} processados</p>
+  {% endif %}
+
+  {% if detalhe.mensagem_erro %}
+  <p class="flash-erro">{{ detalhe.mensagem_erro }}</p>
+  {% endif %}
+</div>

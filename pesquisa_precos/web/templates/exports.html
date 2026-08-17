@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block titulo %}Exports{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Exports gerados</h2>
+  <table>
+    <thead><tr><th>id</th><th>run</th><th>tipo</th><th>linhas</th><th>códigos</th><th>criado</th><th></th></tr></thead>
+    <tbody>
+      {% for e in exports %}
+      <tr>
+        <td>#{{ e.id }}</td>
+        <td><a href="/runs/{{ e.run_id }}">#{{ e.run_id }}</a></td>
+        <td>{{ e.tipo }}</td>
+        <td>{{ e.n_linhas }}</td>
+        <td>{{ e.n_codigos }}</td>
+        <td>{{ e.criado_em }}</td>
+        <td><a href="/exports/{{ e.id }}/download"><button type="button">baixar</button></a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">Nenhum export gerado ainda (rode a etapa 8).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{# Fragmento do grafo — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.1). #}
+<div id="grafo" class="grafo" hx-get="/runs/{{ run.id }}/grafo" hx-trigger="every 3s" hx-swap="outerHTML">
+  {% for e in run.etapas %}
+  <a class="no-etapa {{ classe_etapa[e.status] }}" href="/runs/{{ run.id }}/etapas/{{ e.etapa }}">
+    <span class="icone">{{ icone_etapa[e.status] }}</span>
+    <span class="titulo">{{ e.etapa }}<br>{{ e.titulo }}</span>
+  </a>
+  {% if not loop.last %}<span class="seta">──►</span>{% endif %}
+  {% endfor %}
+</div>
