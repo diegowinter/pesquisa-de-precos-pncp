@@ -41,4 +41,3 @@ class CriarPromptVersaoBody(BaseModel):
 class DestinatarioBody(BaseModel):
     nome: str | None = None
     email: str | None = None
-    telegram_chat_id: str | None = None

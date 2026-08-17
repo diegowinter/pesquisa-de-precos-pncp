@@ -34,7 +34,7 @@ def obter_destinatario(destinatario_id: int):
 @router.post("/notificacoes/destinatarios", status_code=201)
 def criar_destinatario(body: DestinatarioBody):
     try:
-        destinatario_id = servico.criar_destinatario(body.nome, body.email, body.telegram_chat_id)
+        destinatario_id = servico.criar_destinatario(body.nome, body.email)
     except DestinatarioSemCanal as exc:
         raise HTTPException(422, str(exc)) from exc
     return servico.obter_destinatario(destinatario_id)
@@ -43,7 +43,7 @@ def criar_destinatario(body: DestinatarioBody):
 @router.put("/notificacoes/destinatarios/{destinatario_id}")
 def editar_destinatario(destinatario_id: int, body: DestinatarioBody):
     try:
-        servico.editar_destinatario(destinatario_id, body.nome, body.email, body.telegram_chat_id)
+        servico.editar_destinatario(destinatario_id, body.nome, body.email)
     except DestinatarioSemCanal as exc:
         raise HTTPException(422, str(exc)) from exc
     except DestinatarioInexistente as exc:

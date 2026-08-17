@@ -388,10 +388,9 @@ def editar_form_destinatario(request: Request, destinatario_id: int,
 
 @app.post("/notificacoes")
 def criar_destinatario(request: Request, nome: str = Form(""), email: str = Form(""),
-                       telegram_chat_id: str = Form(""), usuario: str = Depends(auth.exigir_login)):
+                       usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.criar_destinatario(
-            nome or None, email or None, telegram_chat_id or None)
+        servico_destinatarios.criar_destinatario(nome or None, email or None)
     except DestinatarioSemCanal as exc:
         return _redirecionar_com_erro("/notificacoes", exc)
     return RedirectResponse("/notificacoes", status_code=303)
@@ -399,11 +398,9 @@ def criar_destinatario(request: Request, nome: str = Form(""), email: str = Form
 
 @app.post("/notificacoes/{destinatario_id}")
 def editar_destinatario(request: Request, destinatario_id: int, nome: str = Form(""),
-                        email: str = Form(""), telegram_chat_id: str = Form(""),
-                        usuario: str = Depends(auth.exigir_login)):
+                        email: str = Form(""), usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.editar_destinatario(
-            destinatario_id, nome or None, email or None, telegram_chat_id or None)
+        servico_destinatarios.editar_destinatario(destinatario_id, nome or None, email or None)
     except (DestinatarioSemCanal, DestinatarioInexistente) as exc:
         return _redirecionar_com_erro("/notificacoes", exc)
     return RedirectResponse("/notificacoes", status_code=303)

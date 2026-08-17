@@ -100,14 +100,13 @@ class PromptVersao(Base):
 
 class NotificacaoDestinatario(Base):
     """Fase 9 (CRUD via interface web) — quem recebe notificação de etapa concluída/falhou/gate
-    aguardando. Credenciais dos canais (bot token, API key do Resend) ficam só no `.env`
-    (ADR-006); esta tabela guarda apenas QUEM recebe."""
+    aguardando. Credencial do canal (API key do Resend) fica só no `.env` (ADR-006); esta
+    tabela guarda apenas QUEM recebe."""
 
     __tablename__ = "notificacao_destinatario"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     nome: Mapped[str | None] = mapped_column(Text)
-    email: Mapped[str | None] = mapped_column(Text)
-    telegram_chat_id: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(Text, nullable=False)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     criado_em: Mapped[datetime] = _agora()
 

@@ -2,7 +2,7 @@
 CRUD de `notificacao_destinatario` (Fase 9, pedido do usuário em 2026-08-17) e canal de e-mail
 via Resend. Repositório/serviço seguem o mesmo padrão de `tests/test_config_prompts.py`: pulados
 sem Postgres disponível. O envio via Resend é mockado — nunca bate na rede de verdade, mesmo
-padrão de `tests/test_notificacoes.py` para o Telegram.
+padrão de `tests/test_notificacoes.py`.
 """
 
 from unittest.mock import patch
@@ -38,22 +38,22 @@ def _destinatarios_de_teste_limpos():
 
 # ── validação de canal (pura, sem banco) ─────────────────────────────────────────────
 
-def test_criar_sem_email_e_sem_telegram_levanta():
+def test_criar_sem_email_levanta():
     with pytest.raises(DestinatarioSemCanal):
-        servico.criar_destinatario("teste-fase9-sem-canal", None, None)
+        servico.criar_destinatario("teste-fase9-sem-canal", None)
 
 
-def test_criar_so_com_email_e_valido():
+def test_criar_com_email_e_valido():
     with pytest.raises(DestinatarioSemCanal):
-        servico._validar_canal(None, None)  # sanity: helper interno usado por criar/editar
-    servico._validar_canal("a@b.com", None)  # não levanta
+        servico._validar_canal(None)  # sanity: helper interno usado por criar/editar
+    servico._validar_canal("a@b.com")  # não levanta
 
 
 # ── CRUD completo (precisa de Postgres) ──────────────────────────────────────────────
 
 @pytestmark_db
 def test_criar_listar_e_obter_destinatario():
-    destinatario_id = servico.criar_destinatario("teste-fase9-crud", "a@b.com", None)
+    destinatario_id = servico.criar_destinatario("teste-fase9-crud", "a@b.com")
     destinatario = servico.obter_destinatario(destinatario_id)
     assert destinatario["nome"] == "teste-fase9-crud"
     assert destinatario["email"] == "a@b.com"
@@ -63,31 +63,30 @@ def test_criar_listar_e_obter_destinatario():
 
 @pytestmark_db
 def test_editar_destinatario_atualiza_campos():
-    destinatario_id = servico.criar_destinatario("teste-fase9-editar", "a@b.com", None)
-    servico.editar_destinatario(destinatario_id, "teste-fase9-editar-2", None, "12345")
+    destinatario_id = servico.criar_destinatario("teste-fase9-editar", "a@b.com")
+    servico.editar_destinatario(destinatario_id, "teste-fase9-editar-2", "c@d.com")
     destinatario = servico.obter_destinatario(destinatario_id)
     assert destinatario["nome"] == "teste-fase9-editar-2"
-    assert destinatario["email"] is None
-    assert destinatario["telegram_chat_id"] == "12345"
+    assert destinatario["email"] == "c@d.com"
 
 
 @pytestmark_db
 def test_editar_sem_canal_levanta_e_nao_altera_nada():
-    destinatario_id = servico.criar_destinatario("teste-fase9-editar-invalido", "a@b.com", None)
+    destinatario_id = servico.criar_destinatario("teste-fase9-editar-invalido", "a@b.com")
     with pytest.raises(DestinatarioSemCanal):
-        servico.editar_destinatario(destinatario_id, "x", None, None)
+        servico.editar_destinatario(destinatario_id, "x", None)
     assert servico.obter_destinatario(destinatario_id)["email"] == "a@b.com"
 
 
 @pytestmark_db
 def test_editar_id_inexistente_levanta():
     with pytest.raises(DestinatarioInexistente):
-        servico.editar_destinatario(999_999_999, "x", "a@b.com", None)
+        servico.editar_destinatario(999_999_999, "x", "a@b.com")
 
 
 @pytestmark_db
 def test_desativar_e_ativar_destinatario():
-    destinatario_id = servico.criar_destinatario("teste-fase9-toggle", "a@b.com", None)
+    destinatario_id = servico.criar_destinatario("teste-fase9-toggle", "a@b.com")
     servico.desativar_destinatario(destinatario_id)
     assert servico.obter_destinatario(destinatario_id)["ativo"] is False
     assert not any(d["id"] == destinatario_id
@@ -149,27 +148,21 @@ class TestEnvioResend:
 
 
 class TestNotificarEventoComDestinatarios:
-    def test_sem_destinatarios_cai_no_fallback_de_env(self, monkeypatch):
-        """Sem nenhum destinatário cadastrado (banco vazio/indisponível), o fallback é o
-        TELEGRAM_CHAT_ID do .env — compatibilidade com quem configurou antes do CRUD."""
+    def test_sem_destinatarios_nao_envia_e_nao_leva_excecao(self, monkeypatch):
         from pesquisa_precos.services import notificacoes
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
-        monkeypatch.setenv("TELEGRAM_CHAT_ID", "999")
+        monkeypatch.setenv("RESEND_API_KEY", "re_123")
+        monkeypatch.setenv("RESEND_FROM_EMAIL", "pesquisa-precos@dominio.com")
         with patch("pesquisa_precos.services.notificacoes._destinatarios_ativos",
                    return_value=[]):
-            with patch("pesquisa_precos.services.notificacoes.requests.post") as mock_post:
-                mock_post.return_value.status_code = 200
-                assert notificacoes.notificar_evento(1, "3", "concluida") is True
-                assert "999" in mock_post.call_args[1]["json"]["chat_id"]
+            assert notificacoes.notificar_evento(1, "3", "concluida") is False
 
-    def test_com_destinatarios_envia_para_cada_canal(self, monkeypatch):
+    def test_com_destinatarios_envia_para_cada_um(self, monkeypatch):
         from pesquisa_precos.services import notificacoes
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
         monkeypatch.setenv("RESEND_API_KEY", "re_123")
         monkeypatch.setenv("RESEND_FROM_EMAIL", "pesquisa-precos@dominio.com")
         destinatarios = [
-            {"id": 1, "nome": "A", "email": "a@b.com", "telegram_chat_id": None, "ativo": True},
-            {"id": 2, "nome": "B", "email": None, "telegram_chat_id": "777", "ativo": True},
+            {"id": 1, "nome": "A", "email": "a@b.com", "ativo": True},
+            {"id": 2, "nome": "B", "email": "b@b.com", "ativo": True},
         ]
         with patch("pesquisa_precos.services.notificacoes._destinatarios_ativos",
                    return_value=destinatarios):
