@@ -25,6 +25,8 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+import json
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -39,6 +41,13 @@ console = Console()
 app = typer.Typer(add_completion=False, help="Pipeline de pesquisa de preços PLASEG (PNCP).")
 etapa_app = typer.Typer(add_completion=False, help="Executa uma etapa.")
 app.add_typer(etapa_app, name="etapa")
+
+# Fase 3 (docs/04_FASES.md): "execução observável" — a mesma etapa, mas rodada via banco
+# (run/run_etapa/lock/heartbeat/custo) em vez do ContextoConsole direto. `etapa <chave>`
+# continua sendo o caminho do dia a dia (CLAUDE.md §"quem roda a pipeline é o usuário"); `run
+# *` é o que a Fase 4 (API) vai chamar por baixo, e que já dá pra testar hoje pela CLI.
+run_app = typer.Typer(add_completion=False, help="Executa uma etapa via banco (run/run_etapa).")
+app.add_typer(run_app, name="run")
 
 
 def _contexto(definicao: registry.DefinicaoEtapa, *, acao: str = "atualizar") -> ContextoConsole:
@@ -124,6 +133,152 @@ def cmd_grafo():
         deps = registry.dependentes(definicao.chave)
         if deps:
             console.print(f"  [dim]{definicao.chave:>2} → {', '.join(deps)}[/]")
+
+
+@run_app.command("criar")
+def cmd_run_criar(
+    rotulo: str = typer.Option(..., "--rotulo", help="Nome legível do run"),
+    modo: str = typer.Option("assistido", "--modo",
+                             help="assistido|sequencial|amostra|simulacao"),
+    teto_custo_usd: float | None = typer.Option(
+        None, "--teto-custo-usd", help="Aborta a etapa de forma limpa ao ultrapassar (ADR-004)"),
+    config_rotulo: str = typer.Option("default", "--config", help="Rótulo da config_versao"),
+):
+    """Cria um `run` novo, apontando para uma `config_versao` (cria 'default' se não existir)."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import execucao as repo
+
+    with db.sessao() as sessao:
+        cv = repo.config_versao_por_rotulo(sessao, config_rotulo)
+        if cv is None:
+            cv = repo.criar_config_versao(sessao, config_rotulo, notas="criada pela CLI")
+        run_id = repo.criar_run(sessao, rotulo, cv, modo=modo)
+        if teto_custo_usd is not None:
+            from sqlalchemy import text
+            sessao.execute(text("UPDATE run SET teto_custo_usd = :t WHERE id = :id"),
+                           {"t": teto_custo_usd, "id": run_id})
+    console.print(f"[bold green]run {run_id}[/] criado (rótulo={rotulo!r}, modo={modo}, "
+                  f"config={config_rotulo!r})")
+
+
+@run_app.command("etapa")
+def cmd_run_etapa(
+    run_id: int = typer.Argument(..., help="Id do run (ver `run criar`)"),
+    chave: str = typer.Argument(..., help="Chave da etapa (0a, 1, 2, 3, ...)"),
+    acao: str = typer.Option("atualizar", "--acao", help="atualizar|retomar|refazer"),
+    definir: list[str] = typer.Option(  # noqa: B008 — padrão do Typer, não mutável na prática
+        [], "--set", help="Override de param, 'chave=valor_json' (repetível)"),
+    background: bool = typer.Option(
+        False, "--background", help="Não espera o subprocesso terminar"),
+):
+    """Sobe a etapa como SUBPROCESSO (ADR-002), com lock, heartbeat, lease e custo no banco —
+    é o caminho que a API (Fase 4) vai chamar. Mate o processo (Ctrl+C ou `kill`) e rode de
+    novo com `--acao retomar` para conferir que nada se perde nem duplica."""
+    from pesquisa_precos.runner import executor, lock
+
+    override: dict = {}
+    for item in definir:
+        if "=" not in item:
+            raise typer.BadParameter(f"formato esperado 'chave=valor_json': {item!r}")
+        k, v = item.split("=", 1)
+        try:
+            override[k] = json.loads(v)
+        except json.JSONDecodeError:
+            override[k] = v
+
+    try:
+        run_etapa_id, processo = executor.tocar(run_id, chave, acao=acao,
+                                                params_override=override)
+    except lock.LockOcupado as exc:
+        console.print(f"[bold red]{exc}[/]")
+        raise typer.Exit(1) from None
+
+    console.print(f"[dim]run_etapa={run_etapa_id} pid={processo.pid} — "
+                  f"acompanhe com `run status {run_id} {chave}`[/]")
+    if background:
+        return
+    try:
+        codigo = processo.wait()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Ctrl+C — o subprocesso continua rodando em segundo plano "
+                      "(ele não recebe o sinal do terminal pai neste modo). Mate-o pelo pid "
+                      "acima se quiser testar a retomada.[/]")
+        raise typer.Exit(130) from None
+    resultado = executor.status(run_etapa_id)
+    cor = {"concluida": "green", "cancelada": "yellow"}.get(resultado["status"], "red")
+    console.print(f"[bold {cor}]run_etapa {run_etapa_id} → {resultado['status']}[/] "
+                  f"(processados={resultado['processados']}, erros={resultado['erros']}, "
+                  f"custo=US$ {resultado['custo_usd']})")
+    raise typer.Exit(codigo)
+
+
+@run_app.command("cancelar")
+def cmd_run_cancelar(run_id: int, chave: str):
+    """`UPDATE` que marca `cancelada` — o subprocesso em execução percebe no próprio
+    `ctx.cancelado()` (ADR-005: gate/cancelamento não segura lock, é só um UPDATE)."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import execucao as repo
+
+    with db.sessao() as sessao:
+        run_etapa_id = repo.obter_ou_criar_run_etapa(sessao, run_id, chave)
+        ok = repo.solicitar_cancelamento(sessao, run_etapa_id)
+    console.print("[yellow]cancelamento solicitado[/]" if ok
+                  else "[dim]nada a cancelar — a etapa não está executando[/]")
+
+
+@run_app.command("status")
+def cmd_run_status(run_id: int, chave: str | None = typer.Argument(None)):
+    """Mostra `run_etapa` (progresso, custo, status) — o que `SELECT * FROM run_etapa` daria."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import execucao as repo
+    from sqlalchemy import text
+
+    with db.sessao() as sessao:
+        if chave:
+            linhas = [repo.run_etapa_por_id(
+                sessao, repo.obter_ou_criar_run_etapa(sessao, run_id, chave))]
+        else:
+            linhas = [dict(r) for r in sessao.execute(
+                text("SELECT id, run_id, etapa, status, processados, erros, custo_usd, "
+                     "heartbeat_em, pid FROM run_etapa WHERE run_id = :r ORDER BY id"),
+                {"r": run_id}).mappings().all()]
+    tabela = Table(title=f"run {run_id}")
+    for coluna in ("etapa", "status", "processados", "erros", "custo_usd", "heartbeat_em", "pid"):
+        tabela.add_column(coluna)
+    for linha in linhas:
+        tabela.add_row(*(str(linha.get(c, "")) for c in
+                         ("etapa", "status", "processados", "erros", "custo_usd",
+                          "heartbeat_em", "pid")))
+    console.print(tabela)
+
+
+@run_app.command("custo")
+def cmd_run_custo(run_id: int):
+    """Custo acumulado do run — `run.custo_usd`, contra o qual `teto_custo_usd` é comparado."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import execucao as repo
+
+    with db.sessao() as sessao:
+        run = repo.run_por_id(sessao, run_id)
+        custo = repo.custo_run(sessao, run_id)
+    teto = "sem teto" if run["teto_custo_usd"] is None else f"US$ {run['teto_custo_usd']}"
+    console.print(f"run {run_id}: gasto US$ {custo} (teto: {teto})")
+
+
+@run_app.command("log")
+def cmd_run_log(run_id: int, etapa: str | None = typer.Option(None, "--etapa"),
+                n: int = typer.Option(50, "--n")):
+    """Últimas linhas de `run_log` — log estruturado (JSON em `contexto`, `run_id`/`etapa`
+    em toda linha por construção, não por convenção)."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import execucao as repo
+
+    with db.sessao() as sessao:
+        linhas = repo.logs_do_run(sessao, run_id, etapa=etapa, limite=n)
+    for linha in reversed(linhas):
+        sufixo = f" {linha['contexto']}" if linha["contexto"] else ""
+        console.print(f"[dim]{linha['criado_em']}[/] [{linha['etapa']}] {linha['mensagem']}"
+                      f"{sufixo}")
 
 
 def rodar_etapa_isolada(chave: str) -> None:
