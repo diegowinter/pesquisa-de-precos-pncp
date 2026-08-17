@@ -201,7 +201,8 @@ def run_etapa_por_id(sessao: Session, run_etapa_id: int) -> dict[str, Any] | Non
     linha = sessao.execute(
         text("SELECT id, run_id, etapa, status, acao, fingerprint, params_efetivos, "
              "       params_override, total, processados, erros, heartbeat_em, pid, "
-             "       custo_usd, metricas, mensagem_erro "
+             "       custo_usd, metricas, mensagem_erro, aprovado_por, aprovado_em, "
+             "       iniciada_em, concluida_em "
              "FROM run_etapa WHERE id = :id"), {"id": run_etapa_id}).mappings().first()
     return dict(linha) if linha else None
 
@@ -346,6 +347,37 @@ def logs_do_run(sessao: Session, run_id: int, *, etapa: str | None = None,
                  "WHERE run_id = :r AND etapa = :e ORDER BY id DESC LIMIT :n"),
             {"r": run_id, "e": etapa, "n": limite}).mappings().all()
     return [dict(linha) for linha in linhas]
+
+
+def erros_do_run(sessao: Session, run_id: int, *, etapa: str | None = None,
+                 apenas_pendentes: bool = True) -> list[dict[str, Any]]:
+    """`erro_item` do run — a Fase 4 expõe isto em `GET /api/runs/{id}/erros` para o gate/tela
+    de etapa mostrar "reprocessar pendentes" sem o operador abrir o banco."""
+    condicoes = "run_id = :r"
+    parametros: dict[str, Any] = {"r": run_id}
+    if etapa is not None:
+        condicoes += " AND etapa = :e"
+        parametros["e"] = etapa
+    if apenas_pendentes:
+        condicoes += " AND NOT resolvido"
+    linhas = sessao.execute(
+        text("SELECT id, etapa, chave, tipo_erro, mensagem, tentativas, resolvido, criado_em "
+             f"FROM erro_item WHERE {condicoes} ORDER BY id DESC"), parametros).mappings().all()
+    return [dict(linha) for linha in linhas]
+
+
+def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
+    """Registro estático de `provedor`/`capacidade_provedor` (ADR-006). Sem probe ao vivo —
+    health check de verdade é entrega da Fase 7; aqui é só "o que está configurado"."""
+    provedores = {p["nome"]: {**p, "capacidades_atendidas": []} for p in sessao.execute(
+        text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, "
+             "       atualizado_em FROM provedor ORDER BY nome")).mappings().all()}
+    for c in sessao.execute(
+            text("SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor")
+    ).mappings().all():
+        if c["provedor"] in provedores:
+            provedores[c["provedor"]]["capacidades_atendidas"].append(dict(c))
+    return list(provedores.values())
 
 
 def registrar_erro_item(sessao: Session, run_id: int, etapa: str, chave: str,

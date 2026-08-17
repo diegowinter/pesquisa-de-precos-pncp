@@ -31,6 +31,9 @@ dependencies = [
     "sqlalchemy>=2",
     "alembic>=1.19.1",
     "psycopg[binary]>=3",
+    # Fase 4: API — o processo web nunca executa etapa (ADR-002), só comanda/observa por HTTP.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
