@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pesquisa_precos.core.regressao import Rotulo, avaliar
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db.repos import par as repo_par
 
 
 class ConfigVersaoInexistente(RuntimeError):
@@ -65,3 +67,26 @@ def schema_parametros() -> dict[str, Any]:
             }
         saida[definicao.chave] = {"titulo": definicao.titulo, "campos": campos}
     return saida
+
+
+def recalibrar_threshold(t_aceita: float, t_rejeita: float, *,
+                         limite_amostra: int = 500) -> dict[str, Any]:
+    """Fase 9, item 6: precisão/recall de um par de thresholds CANDIDATOS, usando `rotulo`,
+    ANTES de gravar uma `config_versao` nova (a interface só grava depois de o operador olhar
+    este número — nada aqui persiste config). Mesma lógica de `core.regressao`, usada também
+    pela suite de regressão em `ferramentas/regressao.py`: uma verdade só sobre o que os
+    thresholds decidem."""
+    with db.sessao() as sessao:
+        linhas = repo_par.amostra_rotulos(sessao, limite_amostra)
+    rotulos = [Rotulo(par_key=l["par_key"], score_rerank=l["score_rerank"],
+                      decisao_final=l["decisao_final"]) for l in linhas]
+    resultado = avaliar(rotulos, t_aceita=t_aceita, t_rejeita=t_rejeita)
+    return {
+        "t_aceita": t_aceita, "t_rejeita": t_rejeita, "n_amostra": resultado.n_amostra,
+        "n_decididos": resultado.n_decididos, "n_ambiguos": resultado.n_ambiguos,
+        "precisao": resultado.precisao, "recall": resultado.recall,
+        "verdadeiros_positivos": resultado.verdadeiros_positivos,
+        "falsos_positivos": resultado.falsos_positivos,
+        "verdadeiros_negativos": resultado.verdadeiros_negativos,
+        "falsos_negativos": resultado.falsos_negativos,
+    }

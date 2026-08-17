@@ -22,6 +22,7 @@ from pesquisa_precos.db import sessao as db
 from pesquisa_precos.db.repos import execucao as repo
 from pesquisa_precos.etapas import registry
 from pesquisa_precos.runner import executor, lock
+from pesquisa_precos.services import notificacoes
 
 
 class RunInexistente(RuntimeError):
@@ -137,6 +138,10 @@ def executar_etapa(run_id: int, chave: str, *, acao: str = "atualizar",
                                params_efetivos=linha["params_efetivos"] or {},
                                params_override=params_override or {})
             repo.marcar_aguardando_aprovacao(sessao, run_etapa_id)
+            try:
+                notificacoes.notificar_evento(run_id, chave, "aguardando_aprovacao")
+            except Exception:  # noqa: BLE001 — best-effort (docs/04_FASES.md Fase 9 item 3)
+                pass
             return {"run_etapa_id": run_etapa_id, "status": "aguardando_aprovacao", "pid": None}
 
     try:

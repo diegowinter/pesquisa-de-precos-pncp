@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block titulo %}Diff entre runs{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Diff entre runs</h2>
+  <p class="tag">Compara o ranking (<code>grupo_item</code>) de dois runs: item novo, item sumiu, preço mudou (Fase 9). Os dois runs precisam ter passado pela etapa 7 com <code>--fonte banco</code>.</p>
+  <form method="get" action="/diff" class="linha">
+    <label style="display:inline-block;">Run "de" (mais antigo)
+      <select name="run_a">{% for r in runs %}<option value="{{ r.id }}" {% if run_a == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.rotulo or "" }}</option>{% endfor %}</select>
+    </label>
+    <label style="display:inline-block;">Run "para" (mais novo)
+      <select name="run_b">{% for r in runs %}<option value="{{ r.id }}" {% if run_b == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.rotulo or "" }}</option>{% endfor %}</select>
+    </label>
+    <button type="submit">Comparar</button>
+  </form>
+</div>
+
+{% if erro_diff %}
+<div class="painel"><p class="flash-erro">{{ erro_diff }}</p></div>
+{% endif %}
+
+{% if diff %}
+<div class="painel">
+  <h3>Resumo</h3>
+  <p>Run #{{ diff.run_a }}: {{ diff.total_run_a }} linhas · Run #{{ diff.run_b }}: {{ diff.total_run_b }} linhas</p>
+  <p><strong>{{ diff.n_novos }}</strong> itens novos · <strong>{{ diff.n_sumidos }}</strong> itens sumiram · <strong>{{ diff.n_preco_mudou }}</strong> preços mudaram</p>
+</div>
+
+<div class="painel">
+  <h3>Itens novos ({{ diff.n_novos }})</h3>
+  <table>
+    <thead><tr><th>código</th><th>nº controle PNCP</th><th>item</th><th>preço</th><th>descrição</th></tr></thead>
+    <tbody>
+      {% for l in diff.itens_novos %}
+      <tr><td>{{ l.codigo }}</td><td>{{ l.numero_controle_pncp }}</td><td>{{ l.numero_item }}</td><td>{{ l.preco_unitario }}</td><td>{{ l.descricao_final }}</td></tr>
+      {% else %}<tr><td colspan="5">nenhum</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Itens sumidos ({{ diff.n_sumidos }})</h3>
+  <table>
+    <thead><tr><th>código</th><th>nº controle PNCP</th><th>item</th><th>preço</th><th>descrição</th></tr></thead>
+    <tbody>
+      {% for l in diff.itens_sumidos %}
+      <tr><td>{{ l.codigo }}</td><td>{{ l.numero_controle_pncp }}</td><td>{{ l.numero_item }}</td><td>{{ l.preco_unitario }}</td><td>{{ l.descricao_final }}</td></tr>
+      {% else %}<tr><td colspan="5">nenhum</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Preço mudou ({{ diff.n_preco_mudou }})</h3>
+  <table>
+    <thead><tr><th>código</th><th>nº controle PNCP</th><th>item</th><th>antes</th><th>depois</th><th>variação</th></tr></thead>
+    <tbody>
+      {% for l in diff.precos_mudaram %}
+      <tr><td>{{ l.codigo }}</td><td>{{ l.numero_controle_pncp }}</td><td>{{ l.numero_item }}</td><td>{{ l.preco_antes }}</td><td>{{ l.preco_depois }}</td><td>{{ "%.1f"|format(l.variacao * 100) if l.variacao is not none else "" }}%</td></tr>
+      {% else %}<tr><td colspan="6">nenhum</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

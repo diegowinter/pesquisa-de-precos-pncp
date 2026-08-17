@@ -167,6 +167,17 @@ def ler_embeddings(sessao: Session, provedor: str, modelo: str,
     return {h: np.frombuffer(v, dtype="<f2").astype(np.float32) for h, v in linhas}
 
 
+def amostra_rotulos(sessao: Session, limite: int = 200) -> list[dict]:
+    """Amostra de `rotulo` para a suite de regressão (Fase 9) — os mais recentes primeiro
+    (`criado_em DESC`), até `limite` linhas. `rotulo` é append-only e cresce entre execuções
+    (docs/02_SCHEMA.md §7); os mais recentes refletem melhor o estado atual do reranker."""
+    linhas = sessao.execute(
+        text("SELECT par_key, score_rerank, decisao_final FROM rotulo "
+             "ORDER BY criado_em DESC LIMIT :n"), {"n": limite},
+    ).mappings().all()
+    return [dict(r) for r in linhas]
+
+
 def contar(sessao: Session) -> dict[str, int]:
     q = {
         "par": "SELECT count(*) FROM par",

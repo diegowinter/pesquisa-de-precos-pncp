@@ -18,7 +18,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from pesquisa_precos.api.schemas import AprovarEtapaBody, CriarRunBody, ExecutarEtapaBody
+from pesquisa_precos.services import diff as servico_diff
 from pesquisa_precos.services import execucao as servico
+from pesquisa_precos.services.diff import RunSemRankingError
 
 router = APIRouter(tags=["runs"])
 
@@ -26,6 +28,16 @@ router = APIRouter(tags=["runs"])
 @router.get("/runs")
 def listar_runs(limite: int = Query(50, le=200)):
     return servico.listar_runs(limite)
+
+
+@router.get("/runs/diff")
+def diff_runs(run_a: int, run_b: int, limiar_variacao: float = 0.0):
+    """Fase 9, item 2: "o que mudou do export de ontem para o de hoje" — generaliza o
+    `--novos` da etapa 8 para comparar dois runs quaisquer (não só run × snapshot)."""
+    try:
+        return servico_diff.diff_runs(run_a, run_b, limiar_variacao=limiar_variacao)
+    except RunSemRankingError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/runs", status_code=201)

@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from pesquisa_precos.api.auth import exigir_token
-from pesquisa_precos.api.routers import config, runs
+from pesquisa_precos.api.routers import config, notificacoes, runs
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.services import execucao as servico
 from pesquisa_precos.services.execucao import (
@@ -27,6 +27,7 @@ from pesquisa_precos.services.execucao import (
 app = FastAPI(title="Pesquisa de Preços PLASEG — API", version="0.1.0")
 app.include_router(runs.router, prefix="/api", dependencies=[Depends(exigir_token)])
 app.include_router(config.router, prefix="/api", dependencies=[Depends(exigir_token)])
+app.include_router(notificacoes.router, prefix="/api", dependencies=[Depends(exigir_token)])
 
 
 def _erro(codigo: str, mensagem: str, status_code: int) -> JSONResponse:

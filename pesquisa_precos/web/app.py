@@ -20,14 +20,21 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from pesquisa_precos.services import config as servico_config
+from pesquisa_precos.services import diff as servico_diff
 from pesquisa_precos.services import execucao as servico
+from pesquisa_precos.services import notificacao_destinatarios as servico_destinatarios
 from pesquisa_precos.services import prompts as servico_prompts
 from pesquisa_precos.services.config import ConfigVersaoInexistente
+from pesquisa_precos.services.diff import RunSemRankingError
 from pesquisa_precos.services.execucao import (
     DependenciaNaoSatisfeita,
     ExecucaoEmAndamento,
     RefazerSemConfirmacao,
     RunInexistente,
+)
+from pesquisa_precos.services.notificacao_destinatarios import (
+    DestinatarioInexistente,
+    DestinatarioSemCanal,
 )
 from pesquisa_precos.services.prompts import PromptInexistente
 from pesquisa_precos.web import auth
@@ -258,6 +265,37 @@ def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
     return FileResponse(caminho, filename=caminho.name)
 
 
+# ── Diff entre runs (Fase 9) ─────────────────────────────────────────────────────────
+
+@app.get("/diff")
+def tela_diff(request: Request, run_a: int | None = None, run_b: int | None = None,
+             usuario: str = Depends(auth.exigir_login)):
+    runs = servico.listar_runs()
+    ctx: dict[str, Any] = {"runs": runs, "run_a": run_a, "run_b": run_b, "diff": None}
+    if run_a is not None and run_b is not None:
+        try:
+            ctx["diff"] = servico_diff.diff_runs(run_a, run_b)
+        except RunSemRankingError as exc:
+            ctx["erro_diff"] = str(exc)
+    return _render(request, "diff.html", ctx)
+
+
+# ── Recalibração de thresholds (Fase 9) ─────────────────────────────────────────────
+
+@app.get("/recalibrar")
+def tela_recalibrar(request: Request, t_aceita: float | None = None,
+                    t_rejeita: float | None = None, usuario: str = Depends(auth.exigir_login)):
+    ctx: dict[str, Any] = {"t_aceita": t_aceita if t_aceita is not None else 0.80,
+                           "t_rejeita": t_rejeita if t_rejeita is not None else 0.30,
+                           "resultado": None, "resultado_erro": None}
+    if t_aceita is not None and t_rejeita is not None:
+        try:
+            ctx["resultado"] = servico_config.recalibrar_threshold(t_aceita, t_rejeita)
+        except Exception as exc:  # noqa: BLE001 — banco vazio/indisponível não pode derrubar a tela
+            ctx["resultado_erro"] = str(exc)
+    return _render(request, "recalibrar.html", ctx)
+
+
 # ── Configuração (Fase 6) ────────────────────────────────────────────────────────────
 
 @app.get("/config")
@@ -325,3 +363,67 @@ def ativar_versao_prompt(request: Request, nome: str, versao: int,
     except PromptInexistente as exc:
         return _redirecionar_com_erro("/prompts", exc)
     return RedirectResponse("/prompts", status_code=303)
+
+
+# ── Destinatários de notificação (Fase 9) ────────────────────────────────────────────
+
+@app.get("/notificacoes")
+def tela_notificacoes(request: Request, usuario: str = Depends(auth.exigir_login)):
+    return _render(request, "notificacoes.html", {
+        "destinatarios": servico_destinatarios.listar_destinatarios(),
+        "editando": None})
+
+
+@app.get("/notificacoes/{destinatario_id}/editar")
+def editar_form_destinatario(request: Request, destinatario_id: int,
+                             usuario: str = Depends(auth.exigir_login)):
+    destinatario = servico_destinatarios.obter_destinatario(destinatario_id)
+    if destinatario is None:
+        return _redirecionar_com_erro(
+            "/notificacoes", DestinatarioInexistente(f"destinatário {destinatario_id} não existe"))
+    return _render(request, "notificacoes.html", {
+        "destinatarios": servico_destinatarios.listar_destinatarios(),
+        "editando": destinatario})
+
+
+@app.post("/notificacoes")
+def criar_destinatario(request: Request, nome: str = Form(""), email: str = Form(""),
+                       telegram_chat_id: str = Form(""), usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_destinatarios.criar_destinatario(
+            nome or None, email or None, telegram_chat_id or None)
+    except DestinatarioSemCanal as exc:
+        return _redirecionar_com_erro("/notificacoes", exc)
+    return RedirectResponse("/notificacoes", status_code=303)
+
+
+@app.post("/notificacoes/{destinatario_id}")
+def editar_destinatario(request: Request, destinatario_id: int, nome: str = Form(""),
+                        email: str = Form(""), telegram_chat_id: str = Form(""),
+                        usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_destinatarios.editar_destinatario(
+            destinatario_id, nome or None, email or None, telegram_chat_id or None)
+    except (DestinatarioSemCanal, DestinatarioInexistente) as exc:
+        return _redirecionar_com_erro("/notificacoes", exc)
+    return RedirectResponse("/notificacoes", status_code=303)
+
+
+@app.post("/notificacoes/{destinatario_id}/desativar")
+def desativar_destinatario(request: Request, destinatario_id: int,
+                           usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_destinatarios.desativar_destinatario(destinatario_id)
+    except DestinatarioInexistente as exc:
+        return _redirecionar_com_erro("/notificacoes", exc)
+    return RedirectResponse("/notificacoes", status_code=303)
+
+
+@app.post("/notificacoes/{destinatario_id}/ativar")
+def ativar_destinatario(request: Request, destinatario_id: int,
+                        usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_destinatarios.ativar_destinatario(destinatario_id)
+    except DestinatarioInexistente as exc:
+        return _redirecionar_com_erro("/notificacoes", exc)
+    return RedirectResponse("/notificacoes", status_code=303)

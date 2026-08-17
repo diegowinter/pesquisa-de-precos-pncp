@@ -28,6 +28,19 @@ from pesquisa_precos.etapas import registry
 from pesquisa_precos.etapas.base import TetoDeCustoExcedido
 from pesquisa_precos.runner import fingerprint, lock
 from pesquisa_precos.runner.contexto_banco import ContextoBanco
+from pesquisa_precos.services import notificacoes
+
+
+def _notificar_best_effort(run_id: int, etapa: str, evento: str, detalhe: str = "") -> None:
+    """Fase 9, item 3: dispara logo após o `commit` de estado (nunca antes — a notificação não
+    pode fazer o `run_etapa` parecer concluído/falho antes de o banco de fato refletir isso).
+    Envolvida numa exceção genérica: `notificacoes.notificar_evento` já é best-effort por
+    dentro, mas esta é a segunda rede — nenhuma falha aqui pode propagar para o `except`
+    principal e mascarar o motivo real de uma etapa ter falhado."""
+    try:
+        notificacoes.notificar_evento(run_id, etapa, evento, detalhe=detalhe)
+    except Exception:  # noqa: BLE001 — ver docstring
+        pass
 
 
 def executar(run_etapa_id: int) -> int:
@@ -80,14 +93,20 @@ def executar(run_etapa_id: int) -> int:
                     sessao_execucao, run_etapa_id, processados=resultado.processados,
                     erros=resultado.erros, metricas=resultado.metricas, fingerprint=fp)
                 sessao_execucao.commit()
+                _notificar_best_effort(
+                    run_etapa["run_id"], run_etapa["etapa"], "concluida",
+                    f"{resultado.processados} processados, {resultado.erros} erros")
         except TetoDeCustoExcedido as exc:
             repo.marcar_falhou(sessao_execucao, run_etapa_id, str(exc))
             sessao_execucao.commit()
             codigo_saida = 2
+            _notificar_best_effort(run_etapa["run_id"], run_etapa["etapa"], "falhou", str(exc))
         except Exception:
-            repo.marcar_falhou(sessao_execucao, run_etapa_id, traceback.format_exc()[-4000:])
+            erro = traceback.format_exc()[-4000:]
+            repo.marcar_falhou(sessao_execucao, run_etapa_id, erro)
             sessao_execucao.commit()
             codigo_saida = 1
+            _notificar_best_effort(run_etapa["run_id"], run_etapa["etapa"], "falhou", erro)
         finally:
             db_etapa.close()
         return codigo_saida

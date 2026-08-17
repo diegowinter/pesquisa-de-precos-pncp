@@ -16,4 +16,8 @@ data/
 *.pdf
 *.json
 
+# Fixtures de teste são código, não dado gerado pela pipeline (docs/08_CONVENCOES.md §6:
+# "tests/fixtures/ com amostras reais e pequenas") — precisam ser versionadas.
+!tests/fixtures/**/*.csv
+
 .claude/

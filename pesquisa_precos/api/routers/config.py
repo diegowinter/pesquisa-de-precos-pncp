@@ -52,6 +52,13 @@ def schema_parametros():
     return servico_config.schema_parametros()
 
 
+@router.get("/config/recalibrar")
+def recalibrar_threshold(t_aceita: float, t_rejeita: float, limite_amostra: int = 500):
+    """Fase 9, item 6: precisão/recall de thresholds CANDIDATOS contra `rotulo`, antes de
+    o operador gravar uma `config_versao` nova com eles."""
+    return servico_config.recalibrar_threshold(t_aceita, t_rejeita, limite_amostra=limite_amostra)
+
+
 @router.get("/prompts")
 def listar_prompts():
     return servico_prompts.listar_prompts()

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}Notificações{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Destinatários de notificação</h2>
+  <p class="tag">Etapa concluída / falhou / gate aguardando disparam para todos os destinatários
+    ativos abaixo — Telegram e/ou e-mail (via Resend). Credenciais (bot token, chave do Resend)
+    ficam só no <code>.env</code>; aqui é só a lista de quem recebe.</p>
+  <table>
+    <thead><tr><th>id</th><th>nome</th><th>e-mail</th><th>telegram chat_id</th><th>status</th><th>ações</th></tr></thead>
+    <tbody>
+      {% for d in destinatarios %}
+      <tr>
+        <td>#{{ d.id }}</td>
+        <td>{{ d.nome or "" }}</td>
+        <td>{{ d.email or "" }}</td>
+        <td>{{ d.telegram_chat_id or "" }}</td>
+        <td>{{ "ativo" if d.ativo else "inativo" }}</td>
+        <td class="linha">
+          <a href="/notificacoes/{{ d.id }}/editar">editar</a>
+          {% if d.ativo %}
+          <form method="post" action="/notificacoes/{{ d.id }}/desativar">
+            <button type="submit">desativar</button>
+          </form>
+          {% else %}
+          <form method="post" action="/notificacoes/{{ d.id }}/ativar">
+            <button type="submit">ativar</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="6">nenhum destinatário cadastrado</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>{{ "Editar destinatário #" ~ editando.id if editando else "Novo destinatário" }}</h3>
+  <p class="tag">Pelo menos um canal (e-mail ou chat_id do Telegram) é obrigatório.</p>
+  <form method="post" action="{{ '/notificacoes/' ~ editando.id if editando else '/notificacoes' }}">
+    <label for="nome">Nome</label>
+    <input id="nome" name="nome" value="{{ editando.nome or '' if editando else '' }}" placeholder="ex.: Diego">
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" value="{{ editando.email or '' if editando else '' }}" placeholder="ex.: alguem@dominio.com">
+    <label for="telegram_chat_id">Telegram chat_id</label>
+    <input id="telegram_chat_id" name="telegram_chat_id" value="{{ editando.telegram_chat_id or '' if editando else '' }}" placeholder="ex.: 123456789">
+    <p style="margin-top:.75rem;">
+      <button class="principal" type="submit">{{ "Salvar" if editando else "Adicionar" }}</button>
+      {% if editando %}<a href="/notificacoes">cancelar</a>{% endif %}
+    </p>
+  </form>
+</div>
+{% endblock %}

@@ -36,3 +36,9 @@ class CriarPromptVersaoBody(BaseModel):
     template: str
     notas: str | None = None
     criado_por: str | None = None
+
+
+class DestinatarioBody(BaseModel):
+    nome: str | None = None
+    email: str | None = None
+    telegram_chat_id: str | None = None
