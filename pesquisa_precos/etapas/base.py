@@ -20,9 +20,12 @@ implementação, só o contrato.
 Ver docs/03_ETAPAS.md §1 (contrato) e §1.1 (regras invioláveis da implementação).
 """
 
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from pesquisa_precos.providers.resolver import Provedores
 
 # Sentinela de "não mexer neste valor" para as atualizações parciais de progresso.
 MANTER = ...
@@ -67,15 +70,19 @@ class ResultadoEtapa(BaseModel):
 class ContextoExecucao(Protocol):
     """Tudo que a etapa precisa do mundo externo. Injetado por quem executa.
 
-    Diferenças em relação ao contrato final de docs/03_ETAPAS.md §1: `db` e `provedores`
-    ainda não existem (Fases 2 e 7). `config` é, nesta fase, o dict de
-    `config.settings.carregar_config()` — na Fase 6 vira a `ConfigResolvida` da
-    `config_versao` do run, sem que a assinatura mude para a etapa.
+    Diferença em relação ao contrato final de docs/03_ETAPAS.md §1: `db` (sessão de domínio da
+    etapa, Fase 2/3) ainda não é injetado aqui — as etapas continuam abrindo sua própria sessão
+    via `db.sessao()`. `provedores` (Fase 7) já é injetado: `.chat`/`.embed`/`.rerank`/`.ocr`,
+    resolvidos do banco (`capacidade_provedor`) quando configurado, senão do `.env` — ver
+    `providers.resolver`. `config` é, nesta fase, o dict de `config.settings.carregar_config()`
+    — na Fase 6 vira a `ConfigResolvida` da `config_versao` do run, sem que a assinatura mude
+    para a etapa.
     """
 
     acao: Acao
     modo: Modo
     config: dict
+    provedores: "Provedores"
 
     def progresso(self, processados: int, total: int | None = None,
                   descricao: str | None = None) -> None:

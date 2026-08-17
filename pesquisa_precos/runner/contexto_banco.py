@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from pesquisa_precos.db.repos import execucao as repo
 from pesquisa_precos.etapas.base import Acao, Modo, TetoDeCustoExcedido
+from pesquisa_precos.providers.resolver import Provedores
 from pesquisa_precos.runner import lock
 
 
@@ -47,6 +48,9 @@ class ContextoBanco:
         self.acao = acao
         self.modo = modo
         self.config = config
+        # Sessão de DOMÍNIO da etapa (`self.db`), não a de execução — resolver via
+        # `capacidade_provedor` é leitura, cabe na mesma sessão que a etapa já usa (Fase 7).
+        self.provedores = Provedores(self.config, self.db)
 
         self._sessao_execucao = sessao_execucao
         self._teto_custo_usd = teto_custo_usd

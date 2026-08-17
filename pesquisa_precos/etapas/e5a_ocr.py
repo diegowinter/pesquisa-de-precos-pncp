@@ -55,9 +55,11 @@ class Params(BaseModel):
     limite_docs: int | None = Field(None, description="Teto de documentos (debug)")
 
 
-def parse_documento(pasta: str, pular_ocr: bool, cfg: dict) -> list[dict]:
+def parse_documento(pasta: str, pular_ocr: bool, provedor_ocr) -> list[dict]:
     """Devolve [{doc_key, arquivo, pagina, fonte, texto}] para todos os PDFs da pasta.
-    Página escaneada vai ao OCR remoto (uma imagem por chamada — nunca o doc inteiro)."""
+    Página escaneada vai ao OCR (uma imagem por chamada — nunca o doc inteiro). `provedor_ocr`
+    satisfaz `providers.protocolos.ProvedorOcr` (Fase 7: banco → `.env`, ver `ctx.provedores`).
+    """
     registros = []
     for pdf in sorted(glob.glob(os.path.join(pasta, "*.pdf")) + glob.glob(os.path.join(pasta, "*.PDF"))):
         try:
@@ -69,7 +71,7 @@ def parse_documento(pasta: str, pular_ocr: bool, cfg: dict) -> list[dict]:
             if ocr_pdf.pagina_escaneada(pg["densidade"]) and not pular_ocr:
                 try:
                     png = ocr_pdf.rasterizar(pdf, pg["_page_index"])
-                    ocr_txt = ocr_pdf.ocr_pagina(png, cfg["ocr_base_url"], cfg["ocr_model"], cfg["ocr_api_key"])
+                    ocr_txt = provedor_ocr.ocr_pagina(png)
                     if ocr_txt:
                         fonte, texto = "ocr", ocr_txt
                 except Exception:  # noqa: BLE001
@@ -105,9 +107,12 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     cfg = ctx.config
     if not params.pular_ocr:
-        msg = exigir(cfg, "ocr")
-        if msg:
-            raise SystemExit(msg)
+        # A validação legada de `.env` só se aplica quando a resolução caiu no `.env`
+        # (Fase 7 — banco configurado já traz tudo que precisa, ver e3_classificar).
+        if ctx.provedores.resolucao("ocr").origem == "env":
+            msg = exigir(cfg, "ocr")
+            if msg:
+                raise SystemExit(msg)
     if not SOBREVIVENTES.exists():
         raise SystemExit(f"{SOBREVIVENTES} ausente. Rode a etapa 4 antes.")
 
@@ -120,11 +125,15 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                     f"pendentes: {len(pend)}[/] — concorrência: {params.concurrency}"
                     f"{' (SEM OCR)' if params.pular_ocr else ''}")
 
+    # Fase 7 (ADR-006): provedor de OCR único por execução, reaproveitado entre documentos
+    # (o adapter é sem estado por chamada — diferente do chat, não precisa de um por thread).
+    provedor_ocr = None if params.pular_ocr else ctx.provedores.ocr
+
     n_ocr = [0]
     n_erros = [0]
     with EscritorSeguro(str(SAIDA), COLS) as w:
         def fn(pasta):
-            return parse_documento(pasta, params.pular_ocr, cfg)
+            return parse_documento(pasta, params.pular_ocr, provedor_ocr)
 
         def ok(_pasta, regs):
             for r in regs:

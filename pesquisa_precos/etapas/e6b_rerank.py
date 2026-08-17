@@ -102,12 +102,9 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
 
     ctx.log("info", f"[6b] Rerankeando {len(pares_txt)} pares"
                     f"{' (remoto)' if params.remoto else ''}...")
-    if params.remoto:
-        from pesquisa_precos.providers.gpu_remoto import RerankerRemoto
-        rer = RerankerRemoto(cfg["gpu_base_url"], cfg["gpu_api_key"], batch=params.batch)
-    else:
-        from pesquisa_precos.providers.reranker_local import RerankerLocal
-        rer = RerankerLocal(cfg["reranker_model"], batch=params.batch)
+    # Fase 7 (ADR-006): banco (`capacidade_provedor`) manda se configurado; `--remoto` continua
+    # valendo como override manual no caminho `.env`. Fallback é PERMITIDO em rerank.
+    rer = ctx.provedores.novo_rerank(remoto=params.remoto, batch=params.batch)
 
     # Processa em blocos para a barra de progresso avançar (local e remoto).
     passo = max(params.batch, 256)

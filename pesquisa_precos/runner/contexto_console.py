@@ -27,6 +27,7 @@ from rich.progress import (
 
 from pesquisa_precos.core import erros_log
 from pesquisa_precos.etapas.base import MANTER, TetoDeCustoExcedido
+from pesquisa_precos.providers.resolver import Provedores
 
 _ESTILO = {"aviso": "yellow", "erro": "bold red", "debug": "dim"}
 
@@ -37,7 +38,8 @@ class ContextoConsole:
     def __init__(self, etapa: str, *, console: Console | None = None,
                  config: dict | None = None, caminho_erros: Path | None = None,
                  acao: str = "atualizar", modo: str = "assistido",
-                 teto_custo_usd: float | None = None, mostrar_barra: bool = True):
+                 teto_custo_usd: float | None = None, mostrar_barra: bool = True,
+                 provedores_sessao=None):
         self.etapa = etapa
         self.acao = acao
         self.modo = modo
@@ -46,6 +48,10 @@ class ContextoConsole:
         self.caminho_erros = caminho_erros
         self.teto_custo_usd = teto_custo_usd
         self.mostrar_barra = mostrar_barra
+        # `None` por padrão (CLI direta, `python -m pesquisa_precos.etapas.e3_classificar`):
+        # resolução de provedor cai no `.env`, exatamente como antes da Fase 7 — só quem passa
+        # uma sessão de banco explicitamente ganha a resolução por `capacidade_provedor`.
+        self.provedores = Provedores(self.config, provedores_sessao)
 
         self.gasto_usd = 0.0
         self.n_erros = 0

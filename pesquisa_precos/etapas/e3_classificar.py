@@ -46,7 +46,6 @@ from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.core.textos import texto_hash
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
-from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "3"
 # 1.1.0 (Fase 2): o dedup passa a agrupar pelo `texto_hash` canônico de core.textos, que
@@ -62,7 +61,10 @@ COLS = ["item_key", "categorias", "confianca"]
 
 
 class Params(BaseModel):
-    provedor: str = Field("local", description="Provedor de LLM [local|openrouter]")
+    provedor: str | None = Field(
+        None, description="Override manual do provedor de chat [local|openrouter]. "
+        "Sem valor, usa o que estiver configurado em capacidade_provedor (Fase 7) — ou "
+        "'local' se o banco de provedores ainda não tiver sido configurado (ADR-014).")
     limite: int | None = Field(None, description="Teto de textos únicos a classificar (debug)")
     concurrency: int = Field(3, ge=1, le=32, description="Chamadas simultâneas ao LLM")
     entrada_legado: str | None = Field(None, description="CSV explodido da v1 (aceite fase 2)")
@@ -120,7 +122,10 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     pend = [r for _, r in df.iterrows() if r["item_key"] not in feitas]
     tarefas = agrupar_por_texto(pend)
     n = len(tarefas) if not params.limite else min(len(tarefas), params.limite)
-    preco = custo_por_chamada(ctx.config, params.provedor)
+    # `estimar()` nunca chama provedor pago (docs/03_ETAPAS.md §1.1 regra 5) — só lê qual
+    # provedor ATENDERIA a chamada (banco → `.env`, `providers.resolver`) para achar o preço.
+    nome_provedor = ctx.provedores.resolucao("chat", provedor=params.provedor).info.nome
+    preco = custo_por_chamada(ctx.config, nome_provedor)
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,
@@ -133,9 +138,15 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     cfg = ctx.config
-    msg = exigir(cfg, params.provedor)
-    if msg:
-        raise SystemExit(msg)
+    # Fase 7 (ADR-006/ADR-014): banco (`capacidade_provedor`) manda se estiver configurado;
+    # sem isso, cai no `.env` como sempre — e só nesse caso a validação legada de `.env` faz
+    # sentido (config via banco já traz tudo que precisa, ou falha alto e claro na chamada).
+    resolucao_chat = ctx.provedores.resolucao("chat", provedor=params.provedor)
+    nome_provedor = resolucao_chat.info.nome
+    if resolucao_chat.origem == "env":
+        msg = exigir(cfg, nome_provedor)
+        if msg:
+            raise SystemExit(msg)
 
     df = carregar_itens(params.entrada_legado)
     if params.retry_erros:
@@ -174,8 +185,9 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     reasoning_kw = {}
     if not params.reasoning:
         reasoning_kw = ({"extra_body": {"reasoning_effort": "none"}}
-                        if params.provedor == "local" else {"reasoning": {"enabled": False}})
-    ctx.log("debug", f"[dim][3] reasoning: "
+                        if nome_provedor == "local" else {"reasoning": {"enabled": False}})
+    ctx.log("debug", f"[dim][3] provedor de chat: {nome_provedor} (origem: "
+                     f"{resolucao_chat.origem}) · reasoning: "
                      f"{'ligado (default do modelo)' if params.reasoning else 'DESLIGADO'}[/]")
     # Prompt 'classificar_item' resolvido UMA vez, fora dos workers (Fase 6): compartilha um
     # dict imutável em vez de repassar `Session` para threads (não é thread-safe).
@@ -189,8 +201,9 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
 
     def _curador():
         if not hasattr(_tls, "c"):
-            _tls.c = Curador.from_provedor(cfg, params.provedor, max_retries=6,
-                                           prompts_ativos=prompts_ativos, **reasoning_kw)
+            _tls.c = ctx.provedores.novo_chat(
+                provedor=params.provedor,
+                curador_kwargs={"prompts_ativos": prompts_ativos, **reasoning_kw}).curador
         return _tls.c
 
     n_erros = [0]

@@ -210,8 +210,6 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         metricas = refiltar_streaming(str(SAIDA), params.top_k, params.piso, ctx)
         return ResultadoEtapa(processados=metricas["sobreviventes"], metricas=metricas)
 
-    cfg = ctx.config
-
     cod_cat = mapa_codigo_categoria()
     cat = pd.read_csv(CATALOGO, dtype=str, encoding="utf-8-sig").fillna("")
     cat["categoria"] = cat["codigo"].map(cod_cat).fillna("")
@@ -228,16 +226,15 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     # Cache de embeddings por texto (sha1): numa atualização, textos de catálogo/itens já vistos
     # vêm do cache e só os NOVOS vão à GPU. Exato (não sofre o drift do min-max do BM25, que é
     # recomputado fresco). Chave = texto, então código/item inalterado ⇒ acerto de cache.
+    # Fase 7 (ADR-006): resolve via `capacidade_provedor` (banco) quando configurado, senão
+    # `.env` como sempre — `--remoto` continua valendo como override manual só no caminho
+    # `.env`. FALLBACK PROIBIDO em embed: se o provedor resolvido falhar, a exceção sobe e a
+    # etapa para (nunca cai para outro provedor — trocar de espaço vetorial em silêncio é o
+    # bug que essa regra existe para evitar).
     embedder = None
     if not params.sem_embedding:
-        if params.remoto:
-            from pesquisa_precos.providers.gpu_remoto import EmbedderRemoto
-            embedder = EmbedderRemoto(cfg["gpu_base_url"], cfg["gpu_api_key"],
-                                      cache_path=str(EMB_CACHE))
-            ctx.log("info", f"[6a] embedder remoto: {cfg['gpu_base_url']}")
-        else:
-            from pesquisa_precos.providers.embedder_local import EmbedderLocal
-            embedder = EmbedderLocal(cfg["embedder_model"], cache_path=str(EMB_CACHE))
+        embedder = ctx.provedores.novo_embed(remoto=params.remoto, cache_path=str(EMB_CACHE))
+        ctx.log("info", f"[6a] embedder: {embedder.info.nome} ({embedder.info.modelo})")
 
     linhas = []
     total_pares = cort_piso = cort_topk = 0   # relatório do corte (streaming)

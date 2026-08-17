@@ -506,10 +506,11 @@ def erros_do_run(sessao: Session, run_id: int, *, etapa: str | None = None,
 
 
 def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
-    """Registro estático de `provedor`/`capacidade_provedor` (ADR-006). Sem probe ao vivo —
-    health check de verdade é entrega da Fase 7; aqui é só "o que está configurado"."""
+    """Registro de `provedor`/`capacidade_provedor` (ADR-006), sem probe ao vivo — para o
+    resultado da sondagem (`provedor_status`), ver `checar_todos_ativos`/`checar_capacidade`
+    em `providers.saude` (Fase 7)."""
     provedores = {p["nome"]: {**p, "capacidades_atendidas": []} for p in sessao.execute(
-        text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, "
+        text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, ativo, "
              "       atualizado_em FROM provedor ORDER BY nome")).mappings().all()}
     for c in sessao.execute(
             text("SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor")
@@ -517,6 +518,43 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
         if c["provedor"] in provedores:
             provedores[c["provedor"]]["capacidades_atendidas"].append(dict(c))
     return list(provedores.values())
+
+
+def capacidade_provedor_info(sessao: Session, capacidade: str) -> dict[str, Any] | None:
+    """Uma capacidade + o `provedor` que a atende, já com os campos do adapter (base_url,
+    batch_size, custo por Mtok, `api_key_ref`...). `None` quando `capacidade_provedor` ainda
+    não tem linha para esta capacidade — quem chama (`providers.resolver`) cai no `.env`.
+    """
+    linha = sessao.execute(
+        text("SELECT cp.capacidade, cp.provedor, cp.modelo, cp.fallback, "
+             "       p.base_url, p.api_key_ref, p.modelo_padrao, p.batch_size, p.rpm_limite, "
+             "       p.custo_in_por_mtok, p.custo_out_por_mtok, p.permite_fallback, p.ativo "
+             "FROM capacidade_provedor cp JOIN provedor p ON p.nome = cp.provedor "
+             "WHERE cp.capacidade = CAST(:c AS capacidade) AND p.ativo"),
+        {"c": capacidade}).mappings().first()
+    return dict(linha) if linha else None
+
+
+def atualizar_status_provedor(sessao: Session, provedor: str, saudavel: bool,
+                              latencia_ms: int | None, mensagem: str | None) -> None:
+    """Resultado de UMA sondagem (`providers.saude`) — `provedor_status` é sempre a última
+    leitura, não histórico (docs/02_SCHEMA.md §10: PK é só `provedor`)."""
+    sessao.execute(
+        text("INSERT INTO provedor_status (provedor, saudavel, latencia_ms, mensagem) "
+             "VALUES (:p, :s, :l, :m) "
+             "ON CONFLICT (provedor) DO UPDATE SET "
+             "  saudavel = EXCLUDED.saudavel, latencia_ms = EXCLUDED.latencia_ms, "
+             "  mensagem = EXCLUDED.mensagem, verificado_em = now()"),
+        {"p": provedor, "s": saudavel, "l": latencia_ms, "m": mensagem[:500] if mensagem else None})
+
+
+def status_provedores(sessao: Session) -> list[dict[str, Any]]:
+    """Última sondagem de cada provedor — o que a tela/CLI de saúde lê para não ter que
+    sondar de novo a cada refresh."""
+    linhas = sessao.execute(
+        text("SELECT provedor, saudavel, latencia_ms, mensagem, verificado_em "
+             "FROM provedor_status ORDER BY provedor")).mappings().all()
+    return [dict(l) for l in linhas]
 
 
 def registrar_erro_item(sessao: Session, run_id: int, etapa: str, chave: str,

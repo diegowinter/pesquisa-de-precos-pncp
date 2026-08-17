@@ -49,6 +49,39 @@ app.add_typer(etapa_app, name="etapa")
 run_app = typer.Typer(add_completion=False, help="Executa uma etapa via banco (run/run_etapa).")
 app.add_typer(run_app, name="run")
 
+# Fase 7 (ADR-006): diagnóstico de provedor — leitura/sondagem, nunca dispara etapa (CLAUDE.md
+# "Regra nº 1"). `providers saude` é o que um operador roda manualmente para ver o que está de
+# pé ANTES de dar play; `runner.executor` já faz a mesma sondagem automaticamente antes do play
+# quando a etapa declara capacidades no registry.
+providers_app = typer.Typer(add_completion=False, help="Diagnóstico de provedores (Fase 7).")
+app.add_typer(providers_app, name="providers")
+
+
+@providers_app.command("saude")
+def cmd_providers_saude():
+    """Sonda `chat`/`embed`/`rerank`/`ocr` (banco → `.env`) e mostra o resultado. Não gasta,
+    não roda etapa — é só uma sondagem HTTP leve contra cada `base_url`."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.providers import saude
+
+    cfg = carregar_config()
+    capacidades = ["chat", "embed", "rerank", "ocr"]
+    if db.esta_disponivel()[0]:
+        with db.sessao() as sessao:
+            resultados = saude.checar_capacidades(capacidades, cfg, sessao=sessao)
+    else:
+        resultados = saude.checar_capacidades(capacidades, cfg, sessao=None)
+
+    tabela = Table(title="Saúde dos provedores (Fase 7)")
+    for coluna in ("Capacidade", "Provedor", "Origem", "Saudável", "Latência (ms)", "Mensagem"):
+        tabela.add_column(coluna)
+    for r in resultados:
+        cor = "green" if r["saudavel"] else "bold red"
+        tabela.add_row(r["capacidade"], r["provedor"], r["origem"],
+                       f"[{cor}]{'sim' if r['saudavel'] else 'NÃO'}[/]",
+                       str(r["latencia_ms"]), r["mensagem"] or "—")
+    console.print(tabela)
+
 
 def _contexto(definicao: registry.DefinicaoEtapa, *, acao: str = "atualizar") -> ContextoConsole:
     return ContextoConsole(

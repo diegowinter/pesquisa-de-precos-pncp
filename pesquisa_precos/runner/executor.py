@@ -25,10 +25,18 @@ import subprocess
 import sys
 from typing import Any
 
+from pesquisa_precos.config.settings import carregar_config
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.db.repos import execucao as repo
 from pesquisa_precos.etapas import registry
+from pesquisa_precos.providers import saude
 from pesquisa_precos.runner import lock
+
+
+class ProvedorIndisponivel(RuntimeError):
+    """Health check pré-play (docs/04_FASES.md §Fase 7 item 6) achou um provedor fora do ar
+    para uma capacidade que a etapa precisa. Levantado ANTES de subir o subprocesso — é a
+    diferença entre saber agora e descobrir 40 minutos depois, no meio da 6a."""
 
 
 def recuperar_travados(timeout_s: int = lock.LEASE_PADRAO_S) -> list[int]:
@@ -68,11 +76,51 @@ def preparar(run_id: int, chave: str, *,
     return run_etapa_id
 
 
+def checar_saude_previa(chave: str) -> list[dict]:
+    """Sonda as capacidades que a etapa declara no registry (Fase 7) ANTES do play. Só sonda
+    capacidades que têm linha em `capacidade_provedor` — enquanto o banco de provedores está
+    vazio (estado de hoje, ver CLAUDE.md), a etapa resolve pelo `.env` como sempre resolveu, e
+    esta checagem fica muda: ela é uma feature de quem já configurou provedor pela interface,
+    não um bloqueio novo para quem nunca usou.
+
+    Devolve a lista de sondagens (mesmo formato de `providers.saude.checar_capacidade`).
+    """
+    definicao = registry.obter(chave)
+    if not definicao.capacidades:
+        return []
+    cfg = carregar_config()
+    with db.sessao() as sessao:
+        configuradas = [c for c in definicao.capacidades
+                        if repo.capacidade_provedor_info(sessao, c) is not None]
+        if not configuradas:
+            return []
+        return saude.checar_capacidades(configuradas, cfg, sessao=sessao)
+
+
 def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "atualizar",
-                        lease_timeout_s: int = lock.LEASE_PADRAO_S) -> subprocess.Popen:
+                        lease_timeout_s: int = lock.LEASE_PADRAO_S,
+                        pular_checagem_saude: bool = False) -> subprocess.Popen:
     """Adquire o lock e sobe `runner.processo` como subprocesso independente. Levanta
     `lock.LockOcupado` se já existe uma execução em andamento (lease ainda válida) — o
-    chamador (CLI/API) decide o que fazer com isso, não este módulo."""
+    chamador (CLI/API) decide o que fazer com isso, não este módulo.
+
+    Antes de subir o subprocesso, sonda a saúde dos provedores que a etapa vai usar
+    (`checar_saude_previa`) e levanta `ProvedorIndisponivel` com uma mensagem clara se algum
+    estiver fora do ar — em vez de deixar a etapa começar e falhar no meio (Fase 7, critério de
+    aceite "health check detecta o túnel caído antes do play, não 40 minutos depois").
+    """
+    if not pular_checagem_saude:
+        with db.sessao() as sessao_lookup:
+            run_etapa = repo.run_etapa_por_id(sessao_lookup, run_etapa_id)
+        if run_etapa is not None:
+            indisponiveis = [r for r in checar_saude_previa(run_etapa["etapa"])
+                             if not r["saudavel"]]
+            if indisponiveis:
+                detalhe = "; ".join(f"{r['capacidade']}/{r['provedor']}: {r['mensagem']}"
+                                    for r in indisponiveis)
+                raise ProvedorIndisponivel(
+                    f"provedor indisponível para a etapa {run_etapa['etapa']} — {detalhe}")
+
     with db.sessao() as sessao:
         if repo.run_etapa_por_id(sessao, run_etapa_id) is None:
             raise ValueError(f"run_etapa {run_etapa_id} não existe — chame preparar() primeiro")
@@ -94,12 +142,14 @@ def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "atualizar",
 
 def tocar(run_id: int, chave: str, *, acao: str = "atualizar",
          params_override: dict[str, Any] | None = None,
-         lease_timeout_s: int = lock.LEASE_PADRAO_S) -> tuple[int, subprocess.Popen]:
+         lease_timeout_s: int = lock.LEASE_PADRAO_S,
+         pular_checagem_saude: bool = False) -> tuple[int, subprocess.Popen]:
     """Atalho: recupera travados, prepara e inicia. Devolve `(run_etapa_id, processo)` — o
     chamador decide se espera (`processo.wait()`) ou deixa rodando em background."""
     recuperar_travados(lease_timeout_s)
     run_etapa_id = preparar(run_id, chave, params_override=params_override)
-    processo = iniciar_subprocesso(run_etapa_id, acao=acao, lease_timeout_s=lease_timeout_s)
+    processo = iniciar_subprocesso(run_etapa_id, acao=acao, lease_timeout_s=lease_timeout_s,
+                                   pular_checagem_saude=pular_checagem_saude)
     return run_etapa_id, processo
 
 

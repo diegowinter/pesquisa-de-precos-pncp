@@ -37,6 +37,11 @@ class DefinicaoEtapa:
     precisa_gate: bool               # padrão do modo assistido
     recomputa_corpus: bool           # True = sempre recalcula o corpus inteiro, não só o novo
     caminho_erros: Path | None = None
+    # Capacidades (Fase 7: 'chat'|'embed'|'rerank'|'ocr') que a etapa consome — é o que
+    # `runner.executor` sonda ANTES de subir o subprocesso (health check pré-play,
+    # docs/04_FASES.md §Fase 7 item 6). Etapa sem capacidade paga (custo='gratis') não tem
+    # nenhuma.
+    capacidades: tuple[str, ...] = ()
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def carregar(self) -> ModuleType:
@@ -64,23 +69,23 @@ ETAPAS: tuple[DefinicaoEtapa, ...] = (
     DefinicaoEtapa("0a", "Obter catálogo CATMAT/CATSER", "e0a_catalogo",
                    (), "gratis", False, True),
     DefinicaoEtapa("1", "Gerar termos de busca", "e1_termos",
-                   ("0a",), "pago", True, False, paths.ERROS_1),
+                   ("0a",), "pago", True, False, paths.ERROS_1, ("chat",)),
     DefinicaoEtapa("2", "Coletar no PNCP", "e2_coletar",
                    ("1",), "gratis", True, False, paths.ERROS_2),
     DefinicaoEtapa("3", "Classificar itens", "e3_classificar",
-                   ("2",), "pago", True, False, paths.ERROS_3),
+                   ("2",), "pago", True, False, paths.ERROS_3, ("chat",)),
     DefinicaoEtapa("4", "Cortar / definir escopo", "e4_cortar",
                    ("3",), "gratis", True, True),
     DefinicaoEtapa("5a", "Parse + OCR dos PDFs", "e5a_ocr",
-                   ("4",), "gpu", False, False),
+                   ("4",), "gpu", False, False, None, ("ocr",)),
     DefinicaoEtapa("5b", "Extrair e enriquecer itens", "e5b_extrair",
-                   ("5a",), "pago", False, False, paths.ERROS_5),
+                   ("5a",), "pago", False, False, paths.ERROS_5, ("chat",)),
     DefinicaoEtapa("6a", "Gerar pares + rejeitor híbrido", "e6a_pares",
-                   ("4", "5b"), "gpu", False, True),
+                   ("4", "5b"), "gpu", False, True, None, ("embed",)),
     DefinicaoEtapa("6b", "Rerankear pares", "e6b_rerank",
-                   ("6a",), "gpu", False, False),
+                   ("6a",), "gpu", False, False, None, ("rerank",)),
     DefinicaoEtapa("6c", "Validar ambíguos (LLM)", "e6c_validar",
-                   ("6b",), "pago", True, False, paths.ERROS_6C),
+                   ("6b",), "pago", True, False, paths.ERROS_6C, ("chat",)),
     DefinicaoEtapa("7", "Agrupar e ranquear", "e7_agrupar",
                    ("6c",), "gratis", False, True),
     DefinicaoEtapa("8", "Exportar XLSX PLASEG", "e8_exportar",
