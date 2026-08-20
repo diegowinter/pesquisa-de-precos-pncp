@@ -128,3 +128,50 @@ def extrair_documento(
                 "hash": _hash_arquivos(pasta, nomes), "arquivos": nomes}
     finally:
         shutil.rmtree(pasta, ignore_errors=True)   # ADR-012: o PDF vive minutos
+
+
+def rasterizar_documento(
+    url_pncp: str,
+    *,
+    numero_controle: str = "",
+    tipo_doc: str = "",
+    numero_sequencial: str | None = None,
+    numero_sequencial_ata: str | None = None,
+    orgao_cnpj: str | None = None,
+    ano: int | None = None,
+    max_paginas: int | None = None,
+) -> list[bytes]:
+    """Páginas do documento como PNG — o que a estratégia `visao` consome (ADR-010).
+
+    Separado de `extrair_documento` de propósito: a visão é ROTA DE EXCEÇÃO (documento
+    suspeito/ilegível com muitos itens), e devolver imagens de 200 DPI em toda extração
+    faria o caminho normal trafegar dezenas de MB por documento sem usar nada disso.
+
+    `max_paginas` é aplicado ANTES de rasterizar, não depois: rasterizar 300 páginas para
+    descartar 290 gastaria o tempo de CPU que o teto existe para evitar.
+    """
+    pasta = tempfile.mkdtemp(prefix="pdf_raster_")
+    imagens: list[bytes] = []
+    try:
+        nomes = baixar(url_pncp, numero_controle=numero_controle, tipo_doc=tipo_doc,
+                       numero_sequencial=numero_sequencial,
+                       numero_sequencial_ata=numero_sequencial_ata,
+                       orgao_cnpj=orgao_cnpj, ano=ano, destino=pasta)
+        for nome in nomes:
+            caminho = os.path.join(pasta, nome)
+            try:
+                paginas = ocr_pdf.extrair_paginas(caminho)
+            except Exception:  # noqa: BLE001
+                continue
+            if max_paginas:
+                paginas = paginas[: max(0, max_paginas - len(imagens))]
+            for pg in paginas:
+                try:
+                    imagens.append(ocr_pdf.rasterizar(caminho, pg["_page_index"]))
+                except Exception:  # noqa: BLE001
+                    continue
+            if max_paginas and len(imagens) >= max_paginas:
+                break
+        return imagens
+    finally:
+        shutil.rmtree(pasta, ignore_errors=True)   # ADR-012 vale aqui também

@@ -54,7 +54,9 @@ from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoE
 
 CHAVE = "8"
 # 1.1.0 (Fase 2): ganhou `--fonte banco`. O formato do XLSX não mudou.
-VERSAO_CODIGO = "1.1.0"
+# 1.2.0 (Fase 10): `banco` vira o DEFAULT da etapa. A pipeline inteira passa a gravar
+# no banco; `--fonte csv` fica como escape hatch para rodar fora do servidor.
+VERSAO_CODIGO = "1.2.0"
 
 ENTRADA = paths.E7_AGRUPADOS
 CATALOGO = paths.E0A_CATALOGO
@@ -81,8 +83,8 @@ class Params(BaseModel):
     novos: bool = Field(
         False, description="Exporta só os itens NOVOS desde o último export --novos "
                            "(compara com o snapshot anterior e o avança).")
-    fonte: Literal["csv", "banco"] = Field(
-        "csv", description="De onde vêm as linhas agrupadas e o snapshot do --novos")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm as linhas agrupadas e o snapshot do --novos")
     run_id: int | None = Field(
         None, description="Run a exportar (só com --fonte banco; default: o último com "
                           "ranking em grupo_item)")
@@ -272,15 +274,28 @@ def salvar_snapshot(chaves: set, params: Params | None = None,
     os.replace(tmp, SNAPSHOT)
 
 
-def escrever_export(linhas_csv: list, saida_xlsx: Path, saida_csv: Path) -> None:
-    """Grava a lista de linhas (dicts com as COLUNAS_PLASEG) em XLSX + CSV."""
+def montar_xlsx(linhas_csv: list) -> bytes:
+    """XLSX em MEMÓRIA (ADR-018): o export vive no banco, não em disco.
+
+    `openpyxl` escreve em qualquer file-like, então isto é o mesmo `wb.save()` de sempre com
+    um `BytesIO` no lugar do caminho — nenhuma mudança de formato.
+    """
+    import io
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Itens PLASEG"
     ws.append(COLUNAS_PLASEG)
     for linha in linhas_csv:
         ws.append([linha[c] for c in COLUNAS_PLASEG])
-    wb.save(saida_xlsx)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def escrever_export(linhas_csv: list, saida_xlsx: Path, saida_csv: Path) -> None:
+    """Grava a lista de linhas (dicts com as COLUNAS_PLASEG) em XLSX + CSV — caminho `csv`."""
+    saida_xlsx.write_bytes(montar_xlsx(linhas_csv))
     pd.DataFrame(linhas_csv, columns=COLUNAS_PLASEG).to_csv(saida_csv, index=False, encoding="utf-8-sig")
 
 
@@ -383,13 +398,33 @@ def registrar_export(params: Params, run_id: int | None, tipo: str, arquivo: Pat
     """
     if params.fonte != "banco" or run_id is None:
         return None
+    import hashlib
+
     from pesquisa_precos.db import sessao as db
     from pesquisa_precos.db.repos import grupo as repo_grupo
     codigos = {l["Codigo CATMAT/CATSER"] for l in linhas}
+    # ADR-018 §2: o XLSX vai para `export.conteudo`. `arquivo` fica NULL — no caminho banco
+    # não existe arquivo em disco para o caminho apontar.
+    conteudo = montar_xlsx(linhas)
     with db.sessao() as s:
         return repo_grupo.registrar_export(
-            s, run_id, tipo, str(arquivo.relative_to(paths.DATA.parent)),
-            len(linhas), len(codigos))
+            s, run_id, tipo, None, len(linhas), len(codigos),
+            hashlib.sha1(conteudo).hexdigest(),
+            conteudo=conteudo, nome_arquivo=arquivo.name)
+
+
+def _gravar_em_disco(params: Params, linhas: list, saida_xlsx: Path, saida_csv: Path,
+                     ctx: ContextoExecucao) -> None:
+    """Escreve XLSX+CSV — só no caminho `--fonte csv`.
+
+    ADR-018: com `--fonte banco` a etapa não toca em disco; o XLSX já foi para
+    `export.conteudo` em `registrar_export`, e é de lá que a interface serve o download.
+    """
+    if params.fonte == "banco":
+        ctx.log("debug", "[dim][8] --fonte banco: o XLSX vive em `export.conteudo` "
+                         "(nenhum arquivo gravado).[/]")
+        return
+    escrever_export(linhas, saida_xlsx, saida_csv)
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
@@ -400,7 +435,7 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     if params.novos:
         prev = carregar_snapshot(params)
         novos = [l for l in linhas_csv if _chave(l) not in prev]
-        escrever_export(novos, SAIDA_NOVOS, SAIDA_NOVOS_CSV)
+        _gravar_em_disco(params, novos, SAIDA_NOVOS, SAIDA_NOVOS_CSV, ctx)
         base = "primeira execução (sem snapshot) — tudo é novo" if not prev \
             else f"baseline anterior: {len(prev)} linhas"
         ctx.log("info", f"[8] NOVOS: {len(novos)} de {len(linhas_csv)} linhas ({base}) "
@@ -419,7 +454,7 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
             preview=novos[:50],
         )
 
-    escrever_export(linhas_csv, SAIDA, SAIDA_CSV)
+    _gravar_em_disco(params, linhas_csv, SAIDA, SAIDA_CSV, ctx)
     registrar_export(params, run_id, "completo", SAIDA, linhas_csv)
     ctx.log("info", f"[8] Exportadas {len(linhas_csv)} linhas → {SAIDA}")
     ctx.log("info", f"[8] CSV para a web → {SAIDA_CSV}")

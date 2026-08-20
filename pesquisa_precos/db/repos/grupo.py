@@ -99,14 +99,30 @@ def faixas(sessao: Session) -> dict[str, tuple[Decimal | None, Decimal | None]]:
 
 # ── Export e snapshot do `--novos` ──────────────────────────────────────────────────
 
-def registrar_export(sessao: Session, run_id: int, tipo: str, arquivo: str,
-                     n_linhas: int, n_codigos: int, hash_arquivo: str | None = None) -> int:
+def registrar_export(sessao: Session, run_id: int, tipo: str, arquivo: str | None,
+                     n_linhas: int, n_codigos: int, hash_arquivo: str | None = None,
+                     *, conteudo: bytes | None = None,
+                     nome_arquivo: str | None = None) -> int:
+    """Uma linha por export gerado. Com `conteudo`, o XLSX vive NO BANCO (ADR-018 §2).
+
+    `arquivo` (caminho relativo) continua aceito para o caminho `--fonte csv`, onde o arquivo
+    de fato existe em disco. No caminho banco ele é NULL e quem serve o download são os bytes.
+    """
     return sessao.execute(
-        text("INSERT INTO export (run_id, tipo, arquivo, n_linhas, n_codigos, hash_arquivo) "
-             "VALUES (:r, :t, :a, :nl, :nc, :h) RETURNING id"),
-        {"r": run_id, "t": tipo, "a": arquivo, "nl": n_linhas, "nc": n_codigos,
-         "h": hash_arquivo},
+        text("INSERT INTO export (run_id, tipo, arquivo, nome_arquivo, conteudo, "
+             "                    n_linhas, n_codigos, hash_arquivo) "
+             "VALUES (:r, :t, :a, :na, :co, :nl, :nc, :h) RETURNING id"),
+        {"r": run_id, "t": tipo, "a": arquivo, "na": nome_arquivo, "co": conteudo,
+         "nl": n_linhas, "nc": n_codigos, "h": hash_arquivo},
     ).scalar_one()
+
+
+def conteudo_export(sessao: Session, export_id: int) -> tuple[str, bytes] | None:
+    """(nome_arquivo, bytes) — o que a web serve no download quando o export vive no banco."""
+    linha = sessao.execute(
+        text("SELECT coalesce(nome_arquivo, 'export.xlsx'), conteudo FROM export "
+             " WHERE id = :i AND conteudo IS NOT NULL"), {"i": export_id}).first()
+    return (linha[0], bytes(linha[1])) if linha else None
 
 
 def snapshot(sessao: Session) -> set[tuple[str, str, str, int]]:

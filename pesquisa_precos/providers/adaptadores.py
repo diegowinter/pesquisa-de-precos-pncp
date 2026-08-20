@@ -198,6 +198,22 @@ class PdfRemotoAdapter:
         resp.raise_for_status()
         return resp.json()
 
+    def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None, **ids) -> list[bytes]:
+        import base64
+
+        import requests
+
+        resp = requests.post(
+            f"{self.info.base_url.rstrip('/')}/rasterizar",
+            json={"url_pncp": url_pncp, "max_paginas": max_paginas, **ids},
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            timeout=(30, self._timeout),
+        )
+        resp.raise_for_status()
+        # base64 e não multipart: são poucas páginas (a visão tem teto) e manter uma resposta
+        # JSON só simplifica o servidor, que já fala JSON em tudo.
+        return [base64.b64decode(b) for b in resp.json().get("paginas_png", [])]
+
 
 class PdfEmProcessoAdapter:
     """`pdf` em processo — o caminho pré-Fase-11, preservado para rodar sem serviço no ar.
@@ -224,6 +240,11 @@ class PdfEmProcessoAdapter:
                 png, self._cfg["ocr_base_url"], self._cfg["ocr_model"],
                 self._cfg["ocr_api_key"]),
         )
+
+    def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None, **ids) -> list[bytes]:
+        from pesquisa_precos.providers import pdf_pipeline
+
+        return pdf_pipeline.rasterizar_documento(url_pncp, max_paginas=max_paginas, **ids)
 
 
 class PareamentoRemotoAdapter:

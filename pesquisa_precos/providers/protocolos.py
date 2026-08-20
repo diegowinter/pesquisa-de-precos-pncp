@@ -115,6 +115,14 @@ class ProvedorPdf(Protocol):
         `listar_arquivos()` quando a `url_pncp` sozinha não resolve o arquivo (ADR-012).
         """
 
+    def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None,
+                   **ids) -> list[bytes]:
+        """Páginas como PNG, para a estratégia `visao` (ADR-010) — rota de EXCEÇÃO.
+
+        Separado de `extrair` porque devolver imagens de 200 DPI em toda extração faria o
+        caminho normal trafegar dezenas de MB por documento sem usar nada disso.
+        """
+
 
 @runtime_checkable
 class ProvedorPareamento(Protocol):

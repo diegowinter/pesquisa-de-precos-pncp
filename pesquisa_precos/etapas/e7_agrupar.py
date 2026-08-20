@@ -45,7 +45,9 @@ from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoE
 CHAVE = "7"
 # 1.1.0 (Fase 2): ganhou `--fonte banco`. A regra de agrupamento não mudou — o fingerprint
 # muda porque a origem dos dados passa a fazer parte dos params.
-VERSAO_CODIGO = "1.1.0"
+# 1.2.0 (Fase 10): `banco` vira o DEFAULT da etapa. A pipeline inteira passa a gravar
+# no banco; `--fonte csv` fica como escape hatch para rodar fora do servidor.
+VERSAO_CODIGO = "1.2.0"
 
 RERANK = paths.E6B_RERANKEADOS
 VALIDADOS = paths.E6C_VALIDADOS
@@ -72,8 +74,8 @@ class Params(BaseModel):
         None, ge=0, description="Máx. de itens por código; 0 = SEM TETO (default: config)")
     fator_iqr: float = Field(
         3.0, gt=0, description="Multiplicador do IQR na marcação de outlier de preço")
-    fonte: Literal["csv", "banco"] = Field(
-        "csv", description="De onde vêm os pares confirmados e para onde vai o resultado")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm os pares confirmados e para onde vai o resultado")
     run: str = Field(
         "corrente", description="Rótulo do run que carimba grupo_item (só com --fonte banco)")
 

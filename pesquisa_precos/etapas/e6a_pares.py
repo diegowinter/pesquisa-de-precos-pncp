@@ -23,6 +23,7 @@ Uso: python -m pesquisa_precos.etapas.e6a_pares [--sem-embedding] [--remoto] [--
 """
 
 import sys
+from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -32,6 +33,7 @@ for _s in (sys.stdout, sys.stderr):
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
@@ -62,6 +64,104 @@ class Params(BaseModel):
         description="Score efetivo mínimo (max bm25/cosseno) p/ o par sobreviver")
     refiltar: bool = Field(
         False, description="Reaplica top-K+piso no CSV já gerado (NÃO recomputa embeddings)")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm catálogo/itens e para onde vão os pares")
+
+
+# ── Caminho `--fonte banco` + capacidade `pareamento` (Fases 10 e 11) ───────────────
+#
+# Duas mudanças na mesma passada, porque tocam o mesmo corpo:
+#   Fase 10 — catálogo e itens vêm do banco; os pares vão para a tabela `par`;
+#   Fase 11 — BM25 + cosseno + corte saem do processo e viram a capacidade `pareamento`.
+#
+# O corte em streaming NÃO ficou para trás na mudança: ele agora vive em
+# `core/pareamento/motor.py`, que roda tanto no serviço quanto em processo. O aviso do
+# `MemoryError` de ~33M linhas vale igual dos dois lados.
+
+def _exigir_banco():
+    from pesquisa_precos.db import sessao as db
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+    return db
+
+
+def carregar_do_banco() -> tuple[list[dict], list[dict]]:
+    """(catálogo, itens) no formato que `motor.parear` consome.
+
+    O item entra com a `descricao_final` da etapa 5 quando existe, e com a descrição da API
+    quando não — mesma precedência do caminho CSV. Só entram itens `manter`: item marcado
+    `descartar` pela extração não deve ocupar espaço no produto cartesiano.
+    """
+    db = _exigir_banco()
+    with db.sessao() as s:
+        cat = [{"codigo": c, "texto": f"{n or ''} {d or ''}".strip(), "categoria": cat_}
+               for c, n, d, cat_ in s.execute(sa_text(
+                   "SELECT codigo, nome_pdm, descricao, categoria FROM catalogo_item "
+                   " WHERE ativo AND coalesce(categoria, '') <> ''")).all()]
+        itens = [{"item_key": k, "descricao_final": d, "categoria": cat_}
+                 for k, d, cat_ in s.execute(sa_text("""
+                     SELECT i.item_key,
+                            coalesce(NULLIF(e.descricao_final, ''), i.descricao_api),
+                            ic.categoria
+                       FROM item i
+                       JOIN item_categoria ic USING (item_key)
+                       LEFT JOIN item_enriquecido e USING (item_key)
+                      WHERE i.sobrevivente
+                        AND coalesce(e.destino::text, 'manter') <> 'descartar'
+                 """)).all()]
+    if not cat:
+        raise SystemExit("catalogo_item sem categoria — rode a etapa 1 antes.")
+    if not itens:
+        raise SystemExit("Nenhum item sobrevivente com categoria — rode as etapas 3 e 4 antes.")
+    return cat, itens
+
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    db = _exigir_banco()
+    from pesquisa_precos.db.repos import catalogo as repo_cat
+    from pesquisa_precos.db.repos import par as repo_par
+
+    catalogo, itens = carregar_do_banco()
+    ctx.log("info", f"[6a] {len(catalogo)} códigos × {len(itens)} itens-categoria "
+                    f"(produto restrito à mesma categoria)")
+
+    provedor = ctx.provedores.pareamento
+    onde = "serviço externo" if getattr(provedor.info, "base_url", "") else "em processo"
+    ctx.log("info", f"[6a] pareamento: {onde}")
+
+    pares = provedor.parear(catalogo, itens, piso=params.piso, top_k=params.top_k)
+    ctx.log("info", f"[6a] {len(pares)} pares sobreviventes (piso={params.piso}, "
+                    f"top_k={params.top_k})")
+
+    # `par.tipo` é parte da PK do catálogo (o código só é único DENTRO do tipo); o motor não
+    # conhece essa distinção, então o tipo é resolvido aqui, uma vez, para todos os pares.
+    with db.sessao() as s:
+        tipo_por_codigo, ambiguos = repo_cat.tipo_do_codigo(s)
+    if ambiguos:
+        ctx.log("aviso", f"[yellow][6a] {len(ambiguos)} códigos existem nos DOIS tipos — "
+                         f"o par vai para o primeiro encontrado.[/]")
+
+    lote = [(p["par_key"], tipo_por_codigo.get(p["codigo"], "material"), p["codigo"],
+             p["item_key"], p["categoria"], p["score_bm25"], p["score_cosseno"], True, None)
+            for p in pares]
+    with db.conexao_bruta() as conn:
+        gravados = repo_par.gravar_candidatos(conn, lote)
+        conn.commit()
+
+    with db.sessao() as s:
+        contagens = repo_par.contar(s)
+    ctx.log("info", f"[bold green][6a] Gravados {gravados} pares[/] → tabela `par` "
+                    f"({contagens})")
+
+    return ResultadoEtapa(
+        processados=len(pares), erros=0,
+        metricas={"sobreviventes": len(pares), "codigos": len(catalogo),
+                  "itens_categoria": len(itens), **contagens},
+        preview=pares[:50],
+    )
 
 
 def mapa_codigo_categoria() -> dict[str, str]:
@@ -179,6 +279,32 @@ def refiltar_streaming(caminho: str, top_k: int, piso: float, ctx: ContextoExecu
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Custo é GPU/CPU, não token. A unidade útil é o par candidato (produto por categoria)."""
+    if params.fonte == "banco":
+        from collections import Counter
+
+        from pesquisa_precos.db import sessao as db
+
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+        try:
+            catalogo, itens = carregar_do_banco()
+        except SystemExit as e:
+            return Estimativa(detalhes={"fonte": "banco", "aviso": str(e)})
+        # O produto é POR CATEGORIA: somar `len(cat) * len(itens)` daria um número
+        # astronomicamente maior que o real e assustaria à toa.
+        n_cod = Counter(c["categoria"] for c in catalogo)
+        n_itn = Counter(i["categoria"] for i in itens)
+        comuns = set(n_cod) & set(n_itn)
+        pares = sum(n_cod[c] * n_itn[c] for c in comuns)
+        return Estimativa(
+            unidades=pares, chamadas_llm=0, custo_usd=0.0,
+            detalhes={"fonte": "banco", "categorias": len(comuns),
+                      "codigos": sum(n_cod[c] for c in comuns),
+                      "itens_explodidos": sum(n_itn[c] for c in comuns),
+                      "teto_de_sobreviventes (top-K)": sum(n_cod[c] for c in comuns) * params.top_k},
+        )
+
     if not (SOBREVIVENTES.exists() and CATALOGO.exists() and CATEGORIA_POR_CODIGO.exists()):
         return Estimativa(detalhes={"aviso": "faltam entradas (rode 0a/1/4 antes)."})
     cod_cat = mapa_codigo_categoria()
@@ -204,6 +330,14 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    if params.fonte == "banco":
+        if params.refiltar:
+            # `--refiltar` reaplica o corte sobre um CSV já gerado; no banco o equivalente é
+            # simplesmente rodar a etapa de novo (o upsert por par_key absorve).
+            raise SystemExit("--refiltar só existe no caminho --fonte csv; no banco, "
+                             "rode a 6a de novo com o novo piso/top-k.")
+        return executar_no_banco(params, ctx)
+
     if params.refiltar:
         if not SAIDA.exists():
             raise SystemExit(f"{SAIDA} ausente — nada a refiltrar. Rode a 6a normal antes.")

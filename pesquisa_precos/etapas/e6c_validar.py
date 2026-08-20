@@ -23,6 +23,7 @@ Uso: python -m pesquisa_precos.etapas.e6c_validar [--provedor openrouter] [--lim
 """
 
 import sys
+from typing import Literal
 import time
 
 for _s in (sys.stdout, sys.stderr):
@@ -32,6 +33,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 import pandas as pd
+from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
@@ -68,6 +70,154 @@ class Params(BaseModel):
         False, description="Usa o modelo CARO (PASS2). Padrão é o barato — ver ADR-004.")
     fraco: bool = Field(
         False, description="(obsoleta) O modelo barato já é o padrão; a flag não faz nada.")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm os ambíguos e para onde vai o veredito")
+
+
+# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+#
+# O veredito volta para a MESMA linha de `par` (ADR-013) e `recomputar_decisao_final()` fecha
+# a decisão. `rotulo` continua sendo append-only: é o ativo de calibração do projeto e nunca
+# pode ser truncado.
+#
+# RESTRIÇÃO DE CUSTO Nº 1 (ADR-004) vale igual aqui: o modelo barato é o padrão, `--forte`
+# exige gesto explícito.
+
+def _exigir_banco():
+    from pesquisa_precos.db import sessao as db
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+    return db
+
+
+SQL_AMBIGUOS = """
+    SELECT p.par_key,
+           trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.descricao, '')),
+           coalesce(NULLIF(e.descricao_final, ''), i.descricao_api),
+           p.score_rerank
+      FROM par p
+      JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
+      JOIN item i ON i.item_key = p.item_key
+      LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+     WHERE p.decisao = 'ambiguo' AND p.veredito IS NULL
+     ORDER BY p.par_key
+"""
+
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    db = _exigir_banco()
+    from pesquisa_precos.db.repos import par as repo_par
+
+    cfg = ctx.config
+    forte = params.forte
+    if params.fraco:
+        ctx.log("debug", "[dim][6c] --fraco é obsoleta: o modelo barato já é o padrão.[/]")
+
+    sql = SQL_AMBIGUOS + (f" LIMIT {int(params.limite)}" if params.limite else "")
+    with db.sessao() as s:
+        pend = s.execute(sa_text(sql)).all()
+        contagens_antes = repo_par.contar(s)
+
+    ctx.log("info", f"[6c] Ambíguos a validar por LLM: {len(pend)}")
+    n_ok, n_erros = [0], [0]
+    vereditos: dict[str, int] = {"sim": 0, "nao": 0, "indeterminado": 0}
+
+    if pend:
+        modelo = cfg["model_pass2"] if forte else cfg["model_pass1"]
+        ctx.log("info" if not forte else "aviso",
+                f"[6c] modelo de validação: {modelo} "
+                f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
+        try:
+            with db.sessao() as sessao:
+                prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
+        except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
+            prompts_ativos = {}
+        curador = Curador.from_provedor(cfg, params.provedor, forte=forte, max_retries=6,
+                                        prompts_ativos=prompts_ativos)
+        lote: list[tuple] = []
+
+        def descarregar():
+            if not lote:
+                return
+            with db.sessao() as s:
+                repo_par.gravar_veredito(s, lote)
+                s.commit()
+            lote.clear()
+
+        def fn(linha):
+            return curador.comparar_par(linha[1] or "", linha[2] or "")
+
+        def ok(linha, res):
+            veredito = "sim" if res.get("mesmo_item") else "nao"
+            vereditos[veredito] += 1
+            n_ok[0] += 1
+            lote.append((linha[0], veredito, (res.get("justificativa") or "")[:500], modelo))
+            if len(lote) >= 200:
+                descarregar()
+
+        def err(linha, exc):
+            n_erros[0] += 1
+            ctx.erro_item(linha[0], exc)
+
+        ctx.progresso(0, len(pend), descricao="validando ambíguos")
+        try:
+            executar_paralelo(pend, fn, concurrency=params.concurrency, on_result=ok,
+                              on_error=err, on_progress=lambda f, t: ctx.progresso(f, t))
+        finally:
+            descarregar()   # o que já foi pago ao LLM é gravado mesmo se a etapa cair
+
+    with db.sessao() as s:
+        n_decisoes = repo_par.recomputar_decisao_final(s)
+        s.commit()
+        contagens = repo_par.contar(s)
+
+    # `rotulo` acumula TODA decisão final (aceites/rejeições extremas do 6b + vereditos do 6c).
+    # É o ativo de calibração do projeto — append-only, nunca truncado.
+    n_rotulos = _acumular_rotulos(db)
+
+    cor = "yellow" if n_erros[0] else "green"
+    ctx.log("info", f"[bold {cor}][6c] Concluído.[/] vereditos={vereditos}, "
+                    f"{n_erros[0]} erros · decisão final recomputada em {n_decisoes} pares · "
+                    f"+{n_rotulos} rótulos")
+    return ResultadoEtapa(
+        processados=n_ok[0], erros=n_erros[0],
+        metricas={**vereditos, "decisoes_finais": n_decisoes, "rotulos_novos": n_rotulos,
+                  "pares_antes": contagens_antes.get("par", 0), **contagens},
+    )
+
+
+SQL_ROTULOS_NOVOS = """
+    INSERT INTO rotulo (par_key, texto_catalogo, texto_item, score_rerank, decisao_final,
+                        origem, modelo)
+    SELECT p.par_key,
+           left(trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.descricao, '')), 500),
+           left(coalesce(NULLIF(e.descricao_final, ''), i.descricao_api), 500),
+           p.score_rerank, p.decisao_final::text,
+           CASE WHEN p.veredito IS NOT NULL THEN 'llm' ELSE 'rerank' END,
+           p.modelo_6c
+      FROM par p
+      JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
+      JOIN item i ON i.item_key = p.item_key
+      LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+     WHERE p.decisao_final IN ('confirmado', 'rejeitado')
+       AND NOT EXISTS (SELECT 1 FROM rotulo r WHERE r.par_key = p.par_key)
+"""
+
+
+def _acumular_rotulos(db) -> int:
+    """Registra em `rotulo` toda decisão final que ainda não estava lá.
+
+    `NOT EXISTS` em vez de `ON CONFLICT`: `rotulo` não tem `par_key` único (um par pode ser
+    rotulado de novo depois de uma recalibração), então a proteção contra duplicar tem que ser
+    explícita na consulta.
+    """
+    with db.sessao() as s:
+        n = s.execute(sa_text(SQL_ROTULOS_NOVOS)).rowcount
+        s.commit()
+    return n
 
 
 def _pendentes(params: Params) -> tuple[pd.DataFrame, list, set]:
@@ -83,6 +233,28 @@ def _pendentes(params: Params) -> tuple[pd.DataFrame, list, set]:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Uma chamada por par ambíguo ainda não validado."""
+    if params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+        with db.sessao() as s:
+            n = s.execute(sa_text(
+                "SELECT count(*) FROM par WHERE decisao = 'ambiguo' AND veredito IS NULL")
+            ).scalar_one()
+            ambiguos = s.execute(sa_text(
+                "SELECT count(*) FROM par WHERE decisao = 'ambiguo'")).scalar_one()
+        preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
+        modelo = ctx.config["model_pass2"] if params.forte else ctx.config["model_pass1"]
+        return Estimativa(
+            unidades=n, chamadas_llm=n,
+            custo_usd=None if preco is None else n * preco,
+            duracao_s=n / max(params.concurrency, 1) * 2,
+            detalhes={"fonte": "banco", "ambiguos": ambiguos, "já_validados": ambiguos - n,
+                      "modelo": f"{modelo} ({'CARO' if params.forte else 'barato'})"},
+        )
+
     if not RERANK.exists():
         return Estimativa(detalhes={"aviso": f"{RERANK} ausente — rode a etapa 6b antes."})
     df, pend, feitas = _pendentes(params)
@@ -101,6 +273,12 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    if params.fonte == "banco":
+        msg = exigir(ctx.config, params.provedor)
+        if msg:
+            raise SystemExit(msg)
+        return executar_no_banco(params, ctx)
+
     cfg = ctx.config
     forte = params.forte
     if params.fraco:

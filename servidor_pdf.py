@@ -99,6 +99,28 @@ async def extrair(request: Request, authorization: str | None = Header(default=N
     )
 
 
+@app.post("/rasterizar")
+async def rasterizar(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    """Páginas como PNG base64, para a estratégia `visao`. Rota de exceção — ver ADR-010."""
+    import base64
+
+    _conferir_chave(authorization)
+    corpo = await request.json()
+    imagens = await run_in_threadpool(
+        pdf_pipeline.rasterizar_documento,
+        corpo.get("url_pncp") or "",
+        numero_controle=corpo.get("numero_controle") or "",
+        tipo_doc=corpo.get("tipo_doc") or "",
+        numero_sequencial=corpo.get("numero_sequencial"),
+        numero_sequencial_ata=corpo.get("numero_sequencial_ata"),
+        orgao_cnpj=corpo.get("orgao_cnpj"),
+        ano=corpo.get("ano"),
+        max_paginas=corpo.get("max_paginas"),
+    )
+    return {"paginas_png": [base64.b64encode(i).decode("ascii") for i in imagens],
+            "n_paginas": len(imagens)}
+
+
 if __name__ == "__main__":
     import uvicorn
 

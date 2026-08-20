@@ -13,29 +13,24 @@ casamento por item (`estrategias.base.casar_itens_contra_tabela`) tenha o docume
 disponível, igual à `completa`.
 """
 
-import glob
-import os
-
-from pesquisa_precos.providers import ocr_pdf
+from collections.abc import Sequence
 
 
-def extrair_tabela(curador, pasta_pdfs: str, max_paginas: int | None = None) -> list[dict]:
-    """Rasteriza cada página dos PDFs em `pasta_pdfs` e extrai a tabela via visão (uma imagem
-    por chamada — nunca o documento inteiro numa chamada só)."""
+def extrair_tabela(curador, imagens: Sequence[bytes], max_paginas: int | None = None) -> list[dict]:
+    """Extrai a tabela via visão a partir das PÁGINAS JÁ RASTERIZADAS (uma imagem por chamada
+    — nunca o documento inteiro numa chamada só).
+
+    Fase 11 (ADR-019): antes esta função recebia a PASTA dos PDFs e rasterizava ela mesma, com
+    PyMuPDF. Rasterizar é justamente o que sai do container junto com o parse — quem entrega as
+    imagens agora é a capacidade `pdf` (local ou remota). A regra de negócio (uma imagem por
+    chamada, teto de páginas) não mudou de lugar: continua aqui.
+    """
     tabela: list[dict] = []
-    pdfs = sorted(glob.glob(os.path.join(pasta_pdfs, "*.pdf")) +
-                 glob.glob(os.path.join(pasta_pdfs, "*.PDF")))
-    for pdf in pdfs:
+    if max_paginas:
+        imagens = imagens[:max_paginas]
+    for png in imagens:
         try:
-            paginas = ocr_pdf.extrair_paginas(pdf)
-        except Exception:  # noqa: BLE001
+            tabela.extend(curador.extrair_tabela_pdf(png))
+        except Exception:  # noqa: BLE001 — página ruim não derruba o documento
             continue
-        if max_paginas:
-            paginas = paginas[:max_paginas]
-        for pg in paginas:
-            try:
-                png = ocr_pdf.rasterizar(pdf, pg["_page_index"])
-                tabela.extend(curador.extrair_tabela_pdf(png))
-            except Exception:  # noqa: BLE001
-                continue
     return tabela
