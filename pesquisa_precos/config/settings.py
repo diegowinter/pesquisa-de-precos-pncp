@@ -65,6 +65,13 @@ def carregar_config() -> dict:
         # Servidor de GPU (embedder 6a + reranker 6b) — opcional, via --remoto.
         "gpu_base_url": os.getenv("GPU_BASE_URL", "http://localhost:8100"),
         "gpu_api_key": os.getenv("GPU_API_KEY", "gpu"),
+        # Fase 11 (ADR-019): serviços que tiram o processamento pesado do processo da etapa.
+        # Vazio = roda EM PROCESSO (o comportamento de sempre), desde que as dependências
+        # opcionais (`pip install -e ".[localmente]"`) estejam instaladas.
+        "pdf_base_url": os.getenv("PDF_BASE_URL", ""),
+        "pdf_api_key": os.getenv("PDF_API_KEY", "pdf"),
+        "pareamento_base_url": os.getenv("PAREAMENTO_BASE_URL", ""),
+        "pareamento_api_key": os.getenv("PAREAMENTO_API_KEY", "pareamento"),
         # Modelos em processo (sentence-transformers)
         "embedder_model": os.getenv("EMBEDDER_MODEL", "BAAI/bge-m3"),
         "reranker_model": os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3"),

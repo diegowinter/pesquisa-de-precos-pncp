@@ -122,7 +122,17 @@ def _resolver_via_env(capacidade: str, cfg: dict, *, provedor: str | None, forte
                             modelo=cfg["ocr_model"])
         return ResolucaoCapacidade(info=info, api_key=cfg["ocr_api_key"], origem="env")
 
-    raise ValueError(f"capacidade desconhecida: {capacidade!r} (use chat/embed/rerank/ocr)")
+    if capacidade in ("pdf", "pareamento"):
+        # `base_url` vazio = roda em processo (comportamento pré-Fase-11). O adapter é quem
+        # decide, para que a etapa não precise saber onde o processamento acontece.
+        base = cfg[f"{capacidade}_base_url"]
+        info = InfoProvedor(nome="remoto" if base else "local", capacidade=capacidade,
+                            base_url=base, modelo="")
+        return ResolucaoCapacidade(info=info, api_key=cfg[f"{capacidade}_api_key"],
+                                   origem="env")
+
+    raise ValueError(f"capacidade desconhecida: {capacidade!r} "
+                     f"(use chat/embed/rerank/ocr/pdf/pareamento)")
 
 
 def criar_chat(cfg: dict, *, sessao: "Session | None" = None, provedor: str | None = None,
@@ -153,6 +163,30 @@ def criar_rerank(cfg: dict, *, sessao: "Session | None" = None, remoto: bool | N
     if r.info.nome == "local" or not r.info.base_url:
         return RerankProcessoAdapter(r.info)
     return RerankGpuCaseiraAdapter(r.info, api_key=r.api_key)
+
+
+def criar_pdf(cfg: dict, *, sessao: "Session | None" = None):
+    """Capacidade `pdf` (ADR-019). Sem `PDF_BASE_URL`, cai no adapter em processo — que é o
+    único que ainda importa PyMuPDF, e por isso vive atrás de um import tardio."""
+    from pesquisa_precos.providers.adaptadores import PdfEmProcessoAdapter, PdfRemotoAdapter
+
+    r = resolver_capacidade("pdf", cfg, sessao=sessao)
+    if not r.info.base_url:
+        return PdfEmProcessoAdapter(r.info, cfg=cfg)
+    return PdfRemotoAdapter(r.info, api_key=r.api_key)
+
+
+def criar_pareamento(cfg: dict, *, sessao: "Session | None" = None):
+    """Capacidade `pareamento` (ADR-019). Sem `PAREAMENTO_BASE_URL`, roda em processo."""
+    from pesquisa_precos.providers.adaptadores import (
+        PareamentoEmProcessoAdapter,
+        PareamentoRemotoAdapter,
+    )
+
+    r = resolver_capacidade("pareamento", cfg, sessao=sessao)
+    if not r.info.base_url:
+        return PareamentoEmProcessoAdapter(r.info, cfg=cfg)
+    return PareamentoRemotoAdapter(r.info, api_key=r.api_key)
 
 
 def criar_ocr(cfg: dict, *, sessao: "Session | None" = None):
@@ -202,6 +236,18 @@ class Provedores:
         if "ocr" not in self._cache:
             self._cache["ocr"] = criar_ocr(self._cfg, sessao=self._sessao)
         return self._cache["ocr"]
+
+    @property
+    def pdf(self):
+        if "pdf" not in self._cache:
+            self._cache["pdf"] = criar_pdf(self._cfg, sessao=self._sessao)
+        return self._cache["pdf"]
+
+    @property
+    def pareamento(self):
+        if "pareamento" not in self._cache:
+            self._cache["pareamento"] = criar_pareamento(self._cfg, sessao=self._sessao)
+        return self._cache["pareamento"]
 
     # ── instâncias NÃO cacheadas ──────────────────────────────────────────────
     # Etapas com concorrência (3, 1) precisam de um cliente HTTP por thread — compartilhar

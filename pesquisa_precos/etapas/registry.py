@@ -76,10 +76,14 @@ ETAPAS: tuple[DefinicaoEtapa, ...] = (
                    ("2",), "pago", True, False, paths.ERROS_3, ("chat",)),
     DefinicaoEtapa("4", "Cortar / definir escopo", "e4_cortar",
                    ("3",), "gratis", True, True),
+    # Fase 11 (ADR-019): `pdf` e `pareamento` entram como capacidades de primeira classe —
+    # é o que faz o health check pré-play reprovar a etapa ANTES de começar quando o serviço
+    # externo está fora do ar. `ocr` continua listado na 5 porque o provedor `pdf` em processo
+    # ainda o consome; com o `pdf` remoto, quem chama o OCR é o serviço.
     DefinicaoEtapa("5", "Extrair e enriquecer itens (download + OCR + LLM)", "e5_extrair",
-                   ("4",), "pago", False, False, paths.ERROS_5, ("ocr", "chat")),
+                   ("4",), "pago", False, False, paths.ERROS_5, ("pdf", "ocr", "chat")),
     DefinicaoEtapa("6a", "Gerar pares + rejeitor híbrido", "e6a_pares",
-                   ("4", "5"), "gpu", False, True, None, ("embed",)),
+                   ("4", "5"), "gpu", False, True, None, ("pareamento", "embed")),
     DefinicaoEtapa("6b", "Rerankear pares", "e6b_rerank",
                    ("6a",), "gpu", False, False, None, ("rerank",)),
     DefinicaoEtapa("6c", "Validar ambíguos (LLM)", "e6c_validar",

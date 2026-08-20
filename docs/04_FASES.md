@@ -20,11 +20,11 @@ F0 Fundação ──► F1 Núcleo ──► F2 Banco ──► F3 Execução �
                                                                       │
                                     F10 Banco total ──┬──► F12 Deploy em servidor
                                                       │
-                                    F11 Cômputo externo
+                                    F11 Processamento externo
 ```
 
 As fases 0-9 assumem execução na máquina do usuário. As fases 10-12 mudam essa premissa: o
-banco passa a ser o único meio de persistência (ADR-018), todo cômputo pesado vira serviço
+banco passa a ser o único meio de persistência (ADR-018), todo processamento pesado vira serviço
 externo (ADR-019) e a pipeline roda em servidor. F10 e F11 são independentes entre si e podem
 ser feitas em paralelo; F12 depende das duas.
 
@@ -355,9 +355,9 @@ bloco, como na Fase 2.
 
 ---
 
-## Fase 11 — Externalização total do cômputo
+## Fase 11 — Externalização total do processamento
 
-**Objetivo:** o container fica com orquestração e estado; todo cômputo pesado vira serviço
+**Objetivo:** o container fica com orquestração e estado; todo processamento pesado vira serviço
 externo (ADR-019). É o que permite a máquina do servidor ser pequena.
 
 > Pré-requisito do Bloco D da Fase 10 no que toca a etapa 5 — mas independente dos blocos
@@ -375,7 +375,7 @@ externo (ADR-019). É o que permite a máquina do servidor ser pequena.
    check pré-play do executor as cubra.
 5. **Remover do container:** `pymupdf`, `rank-bm25`, `sentence-transformers`, `numpy`,
    `pandas`. O que restar de uso local vai para um extra opcional do `pyproject.toml`
-   (`[project.optional-dependencies] computo`), para o desenvolvimento local continuar
+   (`[project.optional-dependencies] localmente`), para o desenvolvimento local continuar
    funcionando.
 
 ### Critério de aceite
@@ -433,7 +433,7 @@ paralelismo entre runs · auto-avanço de etapas.
   continua fora é **Kubernetes** e qualquer orquestração de containers.
 - *Microserviços* — os serviços da F11 (`pdf`, `pareamento`, e os já existentes de LLM/embed/
   rerank/OCR) **não** são microserviços no sentido proibido: não têm estado, não têm banco
-  próprio, não se chamam entre si e não participam do domínio. São executores de cômputo
+  próprio, não se chamam entre si e não participam do domínio. São executores de processamento
   stateless atrás de HTTP. O estado e a orquestração continuam num processo só (ADR-001).
 
 ## Resumo de esforço relativo
@@ -451,5 +451,5 @@ paralelismo entre runs · auto-avanço de etapas.
 | F8 Etapa 5 dupla | ▪▪▪▪ | **alto (dados)** | com amostra |
 | F9 Qualidade | ▪▪ | baixo | sim |
 | F10 Banco total | ▪▪▪▪▪ | **alto** | via `--fonte csv` |
-| F11 Cômputo externo | ▪▪▪ | médio | sim |
+| F11 Processamento externo | ▪▪▪ | médio | sim |
 | F12 Deploy | ▪▪ | médio | sim |

@@ -1266,13 +1266,10 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
     { name = "pydantic" },
-    { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
-    { name = "rank-bm25" },
     { name = "requests" },
     { name = "rich" },
-    { name = "sentence-transformers" },
     { name = "sqlalchemy" },
     { name = "typer" },
     { name = "unidecode" },
@@ -1283,6 +1280,11 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "ruff" },
+]
+localmente = [
+    { name = "pymupdf" },
+    { name = "rank-bm25" },
+    { name = "sentence-transformers" },
 ]
 
 [package.metadata]
@@ -1298,21 +1300,21 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3" },
     { name = "pyarrow" },
     { name = "pydantic", specifier = ">=2" },
-    { name = "pymupdf" },
+    { name = "pymupdf", marker = "extra == 'localmente'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv" },
     { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "rank-bm25" },
+    { name = "rank-bm25", marker = "extra == 'localmente'" },
     { name = "requests" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "sentence-transformers" },
+    { name = "sentence-transformers", marker = "extra == 'localmente'" },
     { name = "sqlalchemy", specifier = ">=2" },
     { name = "typer", specifier = ">=0.12" },
     { name = "unidecode" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "localmente"]
 
 [[package]]
 name = "pluggy"

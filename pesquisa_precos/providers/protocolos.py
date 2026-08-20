@@ -91,3 +91,43 @@ class ProvedorOcr(Protocol):
 
     def ocr_pagina(self, png_bytes: bytes) -> str:
         """Markdown da página, ou '' em falha persistente (o adapter já fez seu retry)."""
+
+
+@runtime_checkable
+class ProvedorPdf(Protocol):
+    """Capacidade `pdf` (Fase 11, ADR-019) — documento inteiro → texto por página.
+
+    O provedor BAIXA o PDF ele mesmo e, quando a página é escaneada, chama o OCR por dentro.
+    O container nunca vê um byte de PDF: recebe só texto. Isso é deliberado — `ocr_pdf` fazia
+    o parse E a rasterização com PyMuPDF, então tirar o fitz do processo sem mover o OCR
+    junto quebraria o OCR (ADR-019).
+    """
+
+    info: InfoProvedor
+
+    def extrair(self, url_pncp: str, *, numero_controle: str = "",
+                tipo_doc: str = "", numero_sequencial: str | None = None,
+                numero_sequencial_ata: str | None = None,
+                orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
+        """`{paginas: [{pagina, texto, densidade, escaneada}], n_paginas, hash, custo_usd}`.
+
+        Os identificadores existem porque o serviço pode precisar refazer
+        `listar_arquivos()` quando a `url_pncp` sozinha não resolve o arquivo (ADR-012).
+        """
+
+
+@runtime_checkable
+class ProvedorPareamento(Protocol):
+    """Capacidade `pareamento` (Fase 11, ADR-019) — catálogo × itens → pares sobreviventes.
+
+    Recebe os textos, calcula BM25 e cosseno, aplica o corte top-K + piso EM STREAMING e
+    devolve só o que sobreviveu. O corte continua sendo em streaming — mudou de lado, não
+    desapareceu: materializar o produto cartesiano num DataFrame já causou `MemoryError` real
+    com ~33M linhas, e isso vale igual dentro do serviço.
+    """
+
+    info: InfoProvedor
+
+    def parear(self, catalogo: list[dict], itens: list[dict], *,
+               piso: float, top_k: int | None = None) -> list[dict]:
+        """`[{codigo, item_key, categoria, score_bm25, score_cosseno}]` — só sobreviventes."""

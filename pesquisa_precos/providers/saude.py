@@ -23,6 +23,30 @@ if TYPE_CHECKING:
 _TIMEOUT_S = 5
 
 
+# Capacidades da Fase 11 que podem rodar EM PROCESSO (ADR-019). Para elas, `base_url` vazio
+# não é "mal configurado": é "roda aqui mesmo" — e sondar rede seria reprovar a etapa por um
+# serviço que ela não vai usar. Elas também expõem `/health`, não o `/models` da convenção
+# OpenAI-compatible.
+_CAPACIDADES_EM_PROCESSO = ("pdf", "pareamento")
+
+
+def sondar_health(base_url: str, timeout_s: int = _TIMEOUT_S) -> dict[str, Any]:
+    """GET em `base_url + /health` — o endpoint que `servidor_pdf.py` e
+    `servidor_pareamento.py` expõem. Mesma regra de `sondar_url`: responder já basta."""
+    inicio = time.monotonic()
+    try:
+        resp = requests.get(base_url.rstrip("/") + "/health", timeout=timeout_s)
+        latencia_ms = int((time.monotonic() - inicio) * 1000)
+        if resp.status_code >= 500:
+            return {"saudavel": False, "latencia_ms": latencia_ms,
+                    "mensagem": f"HTTP {resp.status_code} em /health"}
+        return {"saudavel": True, "latencia_ms": latencia_ms, "mensagem": None}
+    except requests.RequestException as exc:
+        return {"saudavel": False,
+                "latencia_ms": int((time.monotonic() - inicio) * 1000),
+                "mensagem": f"{type(exc).__name__}: {exc}"[:300]}
+
+
 def sondar_url(base_url: str, timeout_s: int = _TIMEOUT_S) -> dict[str, Any]:
     """GET simples em `base_url` (ou `base_url + /models`, que todo servidor OpenAI-compatible
     responde). Não precisa de credencial válida — só precisa RESPONDER; 401/404 ainda provam
@@ -52,7 +76,16 @@ def checar_capacidade(capacidade: str, cfg: dict, *,
     """Resolve + sonda UMA capacidade. Grava em `provedor_status` quando há `sessao` (senão só
     devolve o resultado — é o caso do `estimar()`/CLI sem banco configurado)."""
     resolucao = resolver_capacidade(capacidade, cfg, sessao=sessao)
-    resultado = sondar_url(resolucao.info.base_url)
+    if capacidade in _CAPACIDADES_EM_PROCESSO:
+        if not resolucao.info.base_url:
+            # Em processo: não há serviço para estar fora do ar. Reprovar aqui impediria a
+            # etapa 5 de rodar na máquina do usuário, que é o modo de sempre.
+            resultado = {"saudavel": True, "latencia_ms": None,
+                         "mensagem": "em processo (sem serviço externo configurado)"}
+        else:
+            resultado = sondar_health(resolucao.info.base_url)
+    else:
+        resultado = sondar_url(resolucao.info.base_url)
     resultado.update(capacidade=capacidade, provedor=resolucao.info.nome,
                      base_url=resolucao.info.base_url, origem=resolucao.origem)
     if sessao is not None:

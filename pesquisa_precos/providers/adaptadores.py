@@ -160,6 +160,108 @@ class OcrLocalAdapter:
         return ocr_pdf.ocr_pagina(png_bytes, self.info.base_url, self.info.modelo, self._api_key)
 
 
+# ── Fase 11 (ADR-019): o processamento pesado vira serviço ────────────────────────────────
+#
+# Cada capacidade tem DOIS adapters com a mesma interface: `...RemotoAdapter` (HTTP) e
+# `...EmProcessoAdapter` (o código de sempre, rodando aqui). A etapa não sabe qual está em uso
+# — é o que permite o servidor rodar sem torch/pymupdf enquanto o laptop continua funcionando
+# sem serviço nenhum no ar.
+
+class PdfRemotoAdapter:
+    """`pdf` remoto — o serviço baixa o PDF, extrai texto e chama o OCR por dentro.
+
+    O container nunca recebe o PDF: só o texto por página. É o que tira `pymupdf` (e a banda
+    de download) do processo da etapa.
+    """
+
+    def __init__(self, info: InfoProvedor, *, api_key: str, timeout_s: int = 600):
+        self.info = info
+        self._api_key = api_key
+        self._timeout = timeout_s
+
+    def extrair(self, url_pncp: str, *, numero_controle: str = "", tipo_doc: str = "",
+                numero_sequencial: str | None = None, numero_sequencial_ata: str | None = None,
+                orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
+        import requests
+
+        # Timeout generoso: um documento de 300 páginas com OCR leva minutos. Curto demais
+        # transformaria trabalho de GPU já feito em erro de rede.
+        resp = requests.post(
+            f"{self.info.base_url.rstrip('/')}/extrair",
+            json={"url_pncp": url_pncp, "numero_controle": numero_controle,
+                  "tipo_doc": tipo_doc, "numero_sequencial": numero_sequencial,
+                  "numero_sequencial_ata": numero_sequencial_ata,
+                  "orgao_cnpj": orgao_cnpj, "ano": ano},
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            timeout=(30, self._timeout),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+class PdfEmProcessoAdapter:
+    """`pdf` em processo — o caminho pré-Fase-11, preservado para rodar sem serviço no ar.
+
+    É o ÚNICO lugar que ainda importa PyMuPDF, e o import é tardio de propósito: num ambiente
+    sem as dependências opcionais (`.[localmente]`), instanciar este adapter não pode estourar —
+    só usá-lo.
+    """
+
+    def __init__(self, info: InfoProvedor, *, cfg: dict):
+        self.info = info
+        self._cfg = cfg
+
+    def extrair(self, url_pncp: str, *, numero_controle: str = "", tipo_doc: str = "",
+                numero_sequencial: str | None = None, numero_sequencial_ata: str | None = None,
+                orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
+        from pesquisa_precos.providers import ocr_pdf, pdf_pipeline
+
+        return pdf_pipeline.extrair_documento(
+            url_pncp, numero_controle=numero_controle, tipo_doc=tipo_doc,
+            numero_sequencial=numero_sequencial,
+            numero_sequencial_ata=numero_sequencial_ata, orgao_cnpj=orgao_cnpj, ano=ano,
+            ocr=lambda png: ocr_pdf.ocr_pagina(
+                png, self._cfg["ocr_base_url"], self._cfg["ocr_model"],
+                self._cfg["ocr_api_key"]),
+        )
+
+
+class PareamentoRemotoAdapter:
+    """`pareamento` remoto — BM25 + cosseno + corte, do outro lado de um HTTP."""
+
+    def __init__(self, info: InfoProvedor, *, api_key: str, timeout_s: int = 1800):
+        self.info = info
+        self._api_key = api_key
+        self._timeout = timeout_s
+
+    def parear(self, catalogo: list[dict], itens: list[dict], *,
+               piso: float, top_k: int | None = None) -> list[dict]:
+        import requests
+
+        resp = requests.post(
+            f"{self.info.base_url.rstrip('/')}/parear",
+            json={"catalogo": catalogo, "itens": itens, "piso": piso, "top_k": top_k},
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            timeout=(30, self._timeout),
+        )
+        resp.raise_for_status()
+        return resp.json()["pares"]
+
+
+class PareamentoEmProcessoAdapter:
+    """`pareamento` em processo — BM25 + embedding local, o caminho de sempre."""
+
+    def __init__(self, info: InfoProvedor, *, cfg: dict):
+        self.info = info
+        self._cfg = cfg
+
+    def parear(self, catalogo: list[dict], itens: list[dict], *,
+               piso: float, top_k: int | None = None) -> list[dict]:
+        from pesquisa_precos.core.pareamento import motor
+
+        return motor.parear(catalogo, itens, piso=piso, top_k=top_k, cfg=self._cfg)
+
+
 def custo_estimado_generico(info: InfoProvedor, tokens_in: int, tokens_out: int) -> float:
     """Mesma fórmula de `ChatAdapter.custo_estimado`, exposta solta p/ `estimar()` de etapas
     que não têm (e não precisam) instanciar o adapter de verdade (docs/03_ETAPAS.md §1.1

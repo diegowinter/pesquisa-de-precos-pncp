@@ -113,6 +113,9 @@ class Capacidade(_Valor):
     embed = "embed"
     rerank = "rerank"
     ocr = "ocr"
+    # Fase 11 (ADR-019): o processamento pesado que ainda rodava em processo vira serviço.
+    pdf = "pdf"                  # baixa o PDF, extrai texto por página, chama o OCR por dentro
+    pareamento = "pareamento"    # BM25 + cosseno + corte em streaming
 
 
 # Nome do tipo no PostgreSQL → classe Python. A ordem é a de criação em 02_SCHEMA.md §2.

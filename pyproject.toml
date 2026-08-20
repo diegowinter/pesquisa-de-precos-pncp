@@ -20,11 +20,11 @@ dependencies = [
     "langchain-openai",
     "langchain-core",
     "unidecode",
-    # Etapa 5 (PDF/OCR)
-    "pymupdf",
-    # Etapas 6a/6b — rodam na GPU (local ou via servidor remoto)
-    "rank-bm25",
-    "sentence-transformers",
+    # Fase 11 (ADR-019): `pymupdf`, `rank-bm25` e `sentence-transformers` SAÍRAM daqui e
+    # viraram o extra `localmente`. O processo que orquestra (API/web/runner no servidor) não
+    # precisa de nenhum deles: parse de PDF e pareamento são serviços externos, e o container
+    # cai de ~3 GB para poucas centenas de MB. Quem roda tudo na própria máquina instala com
+    # `uv sync --extra localmente` (ou `pip install -e ".[localmente]"`).
     # Fase 2: o banco vira a fonte da verdade. `psycopg` 3 (não 2) porque a migração depende
     # de `cursor.copy()` — `COPY` é o que faz 1,6 milhão de itens entrarem em minutos em vez
     # de horas. O extra `[binary]` evita exigir libpq instalada no Windows.
@@ -42,6 +42,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "pytest"]
+# Processamento pesado NA PRÓPRIA MÁQUINA. Necessário em dois casos: rodar a pipeline sem os
+# serviços da Fase 11 no ar (`PDF_BASE_URL`/`PAREAMENTO_BASE_URL` vazios), e hospedar esses
+# mesmos serviços (`servidor_pdf.py`, `servidor_pareamento.py`). O container que só orquestra
+# não instala nada disto — é o que o mantém em poucas centenas de MB.
+localmente = ["pymupdf", "rank-bm25", "sentence-transformers"]
 
 [tool.setuptools.packages.find]
 # Só o pacote da aplicação. `ferramentas/`, `migracao/` e os servidores de GPU/OCR são

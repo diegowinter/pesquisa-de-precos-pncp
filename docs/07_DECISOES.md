@@ -451,7 +451,7 @@ Três consequências que não são óbvias e precisam ser tratadas nominalmente:
 
 ---
 
-## ADR-019 — Todo cômputo pesado é serviço externo; o servidor só orquestra
+## ADR-019 — Todo processamento pesado é serviço externo; o servidor só orquestra
 
 **Status:** aceita · 2026-08-19
 
@@ -497,6 +497,6 @@ responsabilidade de quem tem o documento em mãos, e o servidor deixa de trafega
   fora do ar reprova a etapa **antes** de ela começar.
 - **Custo:** o sistema deixa de funcionar sem os serviços externos no ar. É a troca consciente
   do ADR-001 (monolito) sendo parcialmente revista — o monolito continua valendo para
-  *orquestração e estado*; só o cômputo sai.
+  *orquestração e estado*; só o processamento sai.
 - Os serviços externos precisam de endereço estável. O túnel ngrok da máquina do usuário
   serve para desenvolvimento, **não** para o servidor em produção.
