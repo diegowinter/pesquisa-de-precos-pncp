@@ -17,7 +17,16 @@ F0 Fundação ──► F1 Núcleo ──► F2 Banco ──► F3 Execução �
                                               F7 Provedores ──► F8 Etapa 5 dupla
                                                                       │
                                                                 F9 Qualidade e operação
+                                                                      │
+                                    F10 Banco total ──┬──► F12 Deploy em servidor
+                                                      │
+                                    F11 Cômputo externo
 ```
+
+As fases 0-9 assumem execução na máquina do usuário. As fases 10-12 mudam essa premissa: o
+banco passa a ser o único meio de persistência (ADR-018), todo cômputo pesado vira serviço
+externo (ADR-019) e a pipeline roda em servidor. F10 e F11 são independentes entre si e podem
+ser feitas em paralelo; F12 depende das duas.
 
 ---
 
@@ -283,13 +292,149 @@ Baixo. Tudo aditivo.
 
 ---
 
+---
+
+## Fase 10 — Banco como fonte da verdade nas etapas 0a–6c
+
+**Objetivo:** eliminar o CSV como meio de persistência das etapas. É o pré-requisito de
+qualquer execução em servidor (ADR-018).
+
+> As etapas 7 e 8 já fizeram esse caminho na Fase 2 e servem de referência viva. O pacote
+> `migracao/` (17 passos CSV → Postgres) documenta o mapeamento de cada CSV para cada tabela —
+> é a especificação que já existe, escrita e validada.
+
+**Padrão:** `--fonte banco|csv` como nas etapas 7/8, com **`banco` como default** (a web só
+chama por ele). O `csv` permanece como escape hatch para rodar fora do servidor, e como
+rollback se uma etapa der problema no meio de uma execução real.
+
+### Entrega
+
+**Bloco A — schema (o único desenho novo)**
+1. `catalogo_raw` — CATMAT/CATSER completos (ADR-017). Hoje só existe em parquet.
+2. `pdm_permitido` — allow-list saindo de `core/catalogo/local.py` (ADR-017).
+3. `catalogo_item` passa a ser **derivado** de `catalogo_raw ∩ pdm_permitido` por SQL.
+4. `export.arquivo` (caminho) → `export.conteudo` (`bytea`) (ADR-018 §2).
+5. **Escritor de banco comum** (`db/repos/escrita.py`) — o equivalente SQL do
+   `core.io_seguro.EscritorSeguro`: inserção em lote com `ON CONFLICT`, contadores e commit
+   por lote. Feito **antes** do Bloco B, para não ser reinventado dez vezes.
+
+**Bloco B — etapas 0a e 1** (volume pequeno; fixa o padrão)
+6. 0a grava `catalogo_raw`, aplica `pdm_permitido`, deriva `catalogo_item`; o delta vira
+   comparação com `catalogo_snapshot`.
+7. 1 grava `termo` + `termo_codigo` (tabelas já existentes). Checkpoint = `SELECT` dos códigos
+   já processados.
+
+**Bloco C — etapas 2, 3 e 4** (o grosso do volume)
+8. 2 grava `documento`, `item` e `documento_termo` — este último elimina a gambiarra do
+   `2_conceitos_extra.csv`. Watermark sai de CSV e vira `coleta_watermark`.
+9. 3 grava `texto_classificacao` (o cache caro, por `texto_hash`) e `item_categoria`.
+   **Ganho estrutural:** o dedup de ~5x deixa de ser intra-execução e vira permanente.
+10. 4 vira `UPDATE item SET sobrevivente = true WHERE ...`. Não há tabela de sobreviventes:
+    "sobrevivente" é atributo, não conjunto. Some um CSV de 182 MB.
+
+**Bloco D — etapas 5 e 6**
+11. 5 grava `documento_pagina`, `item_enriquecido`, `documento_extracao`; checkpoint =
+    `documento.estado`.
+12. 6a/6b/6c gravam na tabela `par` única (ADR-013) e em `rotulo`. `embedding_cache` substitui
+    o parquet — que é justamente o arquivo que obrigaria um volume persistente.
+13. 8 gera o XLSX em `BytesIO` e grava em `export.conteudo`; a web serve os bytes.
+
+### Critério de aceite
+- Uma execução completa 0a → 8 com `--fonte banco` **não cria nenhum arquivo** em `data/`.
+- Export produzido pelos dois caminhos (`csv` e `banco`) é idêntico célula a célula, salvo a
+  divergência já conhecida e documentada da coluna `Unidade`.
+- Matar o processo no meio de cada etapa e retomar não reprocessa o que já foi concluído nem
+  duplica linha — o checkpoint por consulta é o que está sendo testado aqui.
+- `pytest` e `ruff check pesquisa_precos` limpos.
+
+### Risco
+**Alto.** É a fase que mexe em todas as etapas do pipeline de uma vez. Mitigações: `--fonte
+csv` preservado o tempo todo; ordem do grafo (A→B→C→D), nunca fora dela — fazer a 3 antes da 2
+exigiria um adaptador temporário lendo CSV para alimentar tabela; `pg_dump` antes de cada
+bloco, como na Fase 2.
+
+---
+
+## Fase 11 — Externalização total do cômputo
+
+**Objetivo:** o container fica com orquestração e estado; todo cômputo pesado vira serviço
+externo (ADR-019). É o que permite a máquina do servidor ser pequena.
+
+> Pré-requisito do Bloco D da Fase 10 no que toca a etapa 5 — mas independente dos blocos
+> A-C, e pode ser feita em paralelo.
+
+### Entrega
+1. **Capacidade `pdf`** — `ProvedorPdf` em `providers/protocolos.py`, ao lado de `ProvedorOcr`;
+   entrada no enum `capacidade` e em `providers/resolver.py`.
+2. **`servidor_pdf.py`** no padrão de `servidor_ocr.py`: baixa o PDF, extrai texto nativo por
+   página, detecta escaneada (limiar de 100 chars), rasteriza a 200 DPI e chama o OCR
+   internamente. Devolve `{paginas: [{pagina, texto, densidade, escaneada}], n_paginas, hash}`.
+3. **Capacidade `pareamento`** — recebe catálogo + itens, calcula BM25 e cosseno, aplica o
+   corte top-K + piso **em streaming** e devolve só os sobreviventes.
+4. Registrar as capacidades novas nas etapas 5 e 6a em `etapas/registry.py`, para que o health
+   check pré-play do executor as cubra.
+5. **Remover do container:** `pymupdf`, `rank-bm25`, `sentence-transformers`, `numpy`,
+   `pandas`. O que restar de uso local vai para um extra opcional do `pyproject.toml`
+   (`[project.optional-dependencies] computo`), para o desenvolvimento local continuar
+   funcionando.
+
+### Critério de aceite
+- A etapa 5 processa uma amostra de documentos com o `pymupdf` **desinstalado** do ambiente.
+- A 6a produz os mesmos pares sobreviventes que o caminho local, sobre a mesma entrada.
+- Serviço externo derrubado de propósito reprova a etapa no health check, **antes** de começar.
+
+### Risco
+Médio. A qualidade da extração e do pareamento não muda — é o mesmo código, do outro lado de
+um HTTP. O risco real é operacional: dependência de disponibilidade e de endereço estável.
+
+---
+
+## Fase 12 — Deploy em servidor (Railway)
+
+**Objetivo:** a pipeline inteira rodando em nuvem, operada pela web, sem a máquina do usuário.
+
+> Depende das Fases 10 e 11. Tentar antes exigiria volume persistente e uma imagem com torch —
+> exatamente o que as duas fases anteriores eliminam.
+
+### Entrega
+1. **Dockerfile explícito** (não Nixpacks, que erra com `uv` + `pyproject`) instalando só as
+   dependências de orquestração.
+2. `alembic upgrade head` como release command — **schema sim, dados não**: a execução em
+   nuvem começa do zero, sem migrar o acervo local.
+3. Bind em `$PORT` (hoje `web/__main__.py` fixa `WEB_PORT=8001`).
+4. Normalização do `DATABASE_URL`: o provedor entrega `postgresql://`, o código exige
+   `postgresql+psycopg://`.
+5. **Segurança não-opcional em produção:** `WEB_SENHA` obrigatório (vazio desliga o login,
+   ver `web/auth.py`) e `SECRET_KEY` próprio para o `SessionMiddleware`.
+6. Segredos como variáveis de ambiente: `OPENAI_API_KEY`, `RESEND_API_KEY` e as URLs das
+   capacidades externas.
+7. Retomada após restart: `recuperar_travados()` devolve à fila o `run_etapa` cuja lease
+   expirou, e o checkpoint por consulta (Fase 10) garante que ele retome de onde parou.
+
+### Critério de aceite
+- Redeploy no meio de uma etapa em execução: ao voltar, a etapa retoma sem reprocessar o
+  concluído e sem duplicar linha.
+- Nenhum arquivo escrito no container durante uma execução completa.
+- Login exigido; nenhuma rota de comando acessível sem sessão.
+
+### Risco
+Médio. Reversível — o fluxo local por `--fonte csv` continua existindo o tempo todo.
+
 ## Fora de escopo (todas as fases)
 
 Registrado para que ninguém "melhore" o projeto nessa direção:
 
-autenticação complexa / SSO · multi-tenant · Docker/Kubernetes obrigatório · fila de mensagens ·
-microserviços · internacionalização · aplicativo móvel · front-end SPA separado ·
+autenticação complexa / SSO · multi-tenant · Kubernetes · fila de mensagens ·
+internacionalização · aplicativo móvel · front-end SPA separado ·
 paralelismo entre runs · auto-avanço de etapas.
+
+**Revisto nas fases 10-12** (o que estava nesta lista e deixou de estar):
+- *Docker* deixa de ser "obrigatório" proibido e passa a ser o meio de deploy da F12. O que
+  continua fora é **Kubernetes** e qualquer orquestração de containers.
+- *Microserviços* — os serviços da F11 (`pdf`, `pareamento`, e os já existentes de LLM/embed/
+  rerank/OCR) **não** são microserviços no sentido proibido: não têm estado, não têm banco
+  próprio, não se chamam entre si e não participam do domínio. São executores de cômputo
+  stateless atrás de HTTP. O estado e a orquestração continuam num processo só (ADR-001).
 
 ## Resumo de esforço relativo
 
@@ -305,3 +450,6 @@ paralelismo entre runs · auto-avanço de etapas.
 | F7 Provedores | ▪▪ | médio | sim |
 | F8 Etapa 5 dupla | ▪▪▪▪ | **alto (dados)** | com amostra |
 | F9 Qualidade | ▪▪ | baixo | sim |
+| F10 Banco total | ▪▪▪▪▪ | **alto** | via `--fonte csv` |
+| F11 Cômputo externo | ▪▪▪ | médio | sim |
+| F12 Deploy | ▪▪ | médio | sim |

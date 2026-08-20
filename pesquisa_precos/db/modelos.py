@@ -260,6 +260,51 @@ class LlmChamada(Base):
 
 # ── Catálogo e termos (02_SCHEMA.md §3) ─────────────────────────────────────────────
 
+class CatalogoRaw(Base):
+    """CATMAT/CATSER **completo**, sem allow-list (ADR-017) — o universo de onde se cura.
+
+    "raw" = completo, não "formato bruto da API": material e serviço chegam com nomes de campo
+    diferentes (`descricaoItem`/`nomePdm` vs. `nomeServico`), e a normalização acontece na
+    ingestão. É o que permite derivar `catalogo_item` por SQL puro.
+
+    Sem esta tabela não há como escolher PDM pela interface — a tela precisa listar o que
+    EXISTE, não só o que já foi curado.
+    """
+
+    __tablename__ = "catalogo_raw"
+    tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
+    codigo: Mapped[str] = mapped_column(Text, primary_key=True)
+    codigo_pdm: Mapped[str | None] = mapped_column(Text)
+    nome_pdm: Mapped[str | None] = mapped_column(Text)
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    codigo_grupo: Mapped[str | None] = mapped_column(Text)
+    nome_grupo: Mapped[str | None] = mapped_column(Text)
+    nome_classe: Mapped[str | None] = mapped_column(Text)
+    baixado_em: Mapped[datetime] = _agora()
+
+
+class PdmPermitido(Base):
+    """Allow-list curada (ADR-017) — o que era `PDMS_MATERIAIS`/`CODIGOS_SERVICOS` no código.
+
+    `codigo` muda de significado com o tipo, herdando `catalogo.local.filtrar_curado()`:
+    material → `codigoPdm`; servico → `codigoServico`. É por isso que a PK é composta e o
+    join da derivação é diferente por tipo.
+
+    `ativo = false` não é o mesmo que ausente: guarda a exclusão DELIBERADA com o motivo
+    (`observacao`), para que a decisão não pareça esquecimento na próxima leitura.
+    """
+
+    __tablename__ = "pdm_permitido"
+    tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
+    codigo: Mapped[str] = mapped_column(Text, primary_key=True)
+    nome: Mapped[str | None] = mapped_column(Text)
+    observacao: Mapped[str | None] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    criado_por: Mapped[str | None] = mapped_column(Text)
+    criado_em: Mapped[datetime] = _agora()
+    atualizado_em: Mapped[datetime] = _agora()
+
+
 class CatalogoItem(Base):
     __tablename__ = "catalogo_item"
     # PK composta: o código só é único DENTRO do tipo (um CATMAT e um CATSER podem colidir).
@@ -570,7 +615,11 @@ class Export(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("run.id"), nullable=False)
     tipo: Mapped[str] = mapped_column(Text, nullable=False)     # 'completo' | 'novos'
-    arquivo: Mapped[str] = mapped_column(Text, nullable=False)  # caminho relativo
+    # ADR-018 §2: o XLSX vive no banco. `arquivo` (caminho relativo) sobrevive nullable só
+    # pelas linhas geradas antes da Fase 10 — export novo preenche `conteudo`+`nome_arquivo`.
+    arquivo: Mapped[str | None] = mapped_column(Text)
+    nome_arquivo: Mapped[str | None] = mapped_column(Text)
+    conteudo: Mapped[bytes | None] = mapped_column(LargeBinary)
     n_linhas: Mapped[int] = mapped_column(Integer, nullable=False)
     n_codigos: Mapped[int] = mapped_column(Integer, nullable=False)
     hash_arquivo: Mapped[str | None] = mapped_column(Text)

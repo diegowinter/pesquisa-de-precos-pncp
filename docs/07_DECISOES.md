@@ -360,3 +360,136 @@ as referências confirmadas não sinalizadas por código).
 
 **Consequência.** Mais de 5 itens por código é **comportamento esperado, não bug**. Isso já foi
 investigado à toa em uma sessão anterior — o registro existe para não acontecer de novo.
+
+---
+
+## ADR-017 — Allow-list de PDMs sai do código e vira dado
+
+**Status:** aceita · 2026-08-19
+
+**Contexto.** A curadoria que define o escopo inteiro do projeto — quais PDMs de material e
+quais códigos de serviço interessam à segurança pública — vive hardcoded em
+`core/catalogo/local.py` (`PDMS_MATERIAIS`, `CODIGOS_SERVICOS`). Mudar o escopo da pesquisa
+exige editar Python. Enquanto a pipeline rodava no laptop do usuário isso era apenas
+incômodo; com a execução em servidor, passa a exigir **deploy para mudar curadoria**, o que
+é inaceitável.
+
+Isso sempre foi a exceção ao ADR-014 ("config no banco, método no código"): a allow-list é
+config pura — uma lista de códigos, sem nenhuma lógica.
+
+**Decisão.** Duas tabelas novas:
+
+- `catalogo_raw` — CATMAT/CATSER **completos**, como vêm da API de Dados Abertos. Hoje esse
+  dado só existe em parquet e nunca entra no banco.
+- `pdm_permitido` — a allow-list curada, com `ativo`/`criado_por`/`criado_em`, no mesmo padrão
+  de auditoria de `termo`.
+
+`catalogo_item` deixa de ser carregado de um CSV já filtrado e passa a ser **derivado**:
+`catalogo_raw ∩ pdm_permitido`, recomputável por SQL sempre que a curadoria mudar.
+
+**Alternativas descartadas**
+- *Manter no código e expor só leitura na web*: não resolve o problema real (mudar escopo sem
+  deploy) e cria a ilusão de configurabilidade.
+- *Arquivo de config versionado (YAML/JSON)*: continua sendo arquivo em disco, o que a Fase 12
+  proíbe, e não tem auditoria de quem mudou o quê.
+
+**Consequências**
+- Escolher PDM pela interface exige o catálogo completo consultável — é o que justifica
+  `catalogo_raw`, que de outro modo seria peso morto no banco.
+- Mudar a curadoria passa a ter efeito rastreável: dá para saber quando um código entrou no
+  escopo e quem o colocou.
+- A allow-list vira parte do fingerprint da etapa 0a (ADR-009): mudar curadoria invalida o
+  catálogo derivado, como deve ser.
+- `core/catalogo/local.py` mantém o **método** (a função de filtro); perde os **dados**.
+
+---
+
+## ADR-018 — Nenhuma etapa escreve em disco
+
+**Status:** aceita · 2026-08-19
+
+**Contexto.** As etapas 0a–6c gravam toda a cadeia intermediária como arquivo em `data/`
+(21 GB hoje). Isso é viável num laptop e inviável num servidor com filesystem efêmero, onde
+um redeploy no meio de uma execução apaga o progresso. As etapas 7 e 8 já provaram o caminho
+alternativo com `--fonte banco`.
+
+**Decisão.** O banco é o único meio de persistência. Nenhuma etapa lê ou escreve arquivo —
+nem de saída, nem de checkpoint, nem temporário.
+
+Três consequências que não são óbvias e precisam ser tratadas nominalmente:
+
+1. **Checkpoint deixa de ser arquivo e vira consulta sobre o próprio dado.** Não se cria
+   tabela de checkpoint: "o que já processei" é derivável do resultado
+   (`SELECT texto_hash FROM texto_classificacao`, `documento.estado`,
+   `par.decisao_final IS NOT NULL`). Isso é mais correto que o CSV atual, que pode divergir do
+   dado real quando o processo morre entre gravar o checkpoint e gravar o resultado.
+2. **`export.arquivo` (caminho relativo) vira `export.conteudo` (`bytea`).** O XLSX é gerado
+   em `BytesIO` e servido pela web a partir do banco.
+3. **O PDF nunca chega ao container** — resolvido pelo ADR-019, não por buffer em memória.
+
+**Alternativas descartadas**
+- *Volume persistente no servidor*: resolveria a perda por redeploy, mas mantém duas fontes de
+  verdade (banco + disco), impede escalar o processo horizontalmente e deixa o backup pela
+  metade (`pg_dump` não cobre o volume).
+- *Object storage (S3/R2)*: continua sendo um segundo sistema de persistência a operar,
+  versionar e limpar, para dados que são naturalmente relacionais.
+
+**Consequências**
+- Uma execução sobrevive a restart do container: o progresso está no Postgres, não no disco.
+- O backup do ADR/Fase 9 (`pg_dump`) passa a cobrir **tudo**, sem exceção.
+- `PESQUISA_PRECOS_DATA` e boa parte de `config/paths.py` perdem função nas etapas migradas.
+  Os caminhos permanecem enquanto `--fonte csv` existir (ver Fase 10).
+- O dedup da etapa 3 deixa de ser intra-execução e vira permanente entre runs (ADR-007),
+  porque `texto_classificacao` sobrevive onde o CSV era reescrito.
+
+---
+
+## ADR-019 — Todo cômputo pesado é serviço externo; o servidor só orquestra
+
+**Status:** aceita · 2026-08-19
+
+**Contexto.** A Fase 7 já tratou LLM, embedding, rerank e OCR como capacidades resolvíveis por
+provedor. Mas três cargas pesadas continuaram dentro do processo da etapa:
+
+- **parse de PDF** (PyMuPDF): abre o documento e rasteriza páginas a 200 DPI;
+- **BM25 + corte de pares** (etapa 6a): `rank-bm25` mais matrizes numpy sobre o produto
+  catálogo × item — a carga que já causou um `MemoryError` real com ~33M linhas;
+- **download do PDF**: banda e memória no container.
+
+Com a execução em servidor, isso define o dimensionamento da máquina inteira: seria preciso
+pagar por RAM que fica ociosa em 90% do tempo, para um pico que ocorre em duas etapas.
+
+Um detalhe descoberto ao analisar a extração: **o caminho de OCR também depende do PyMuPDF**.
+`ocr_pdf.rasterizar()` gera o PNG localmente e envia só a imagem — tirar o fitz do container
+quebraria o OCR junto. Não é possível externalizar metade.
+
+**Decisão.** Duas capacidades novas, no mesmo mecanismo de `providers/resolver.py`:
+
+- **`pdf`** — recebe a referência do documento, **baixa o PDF ele mesmo**, extrai texto nativo
+  por página, detecta páginas escaneadas, rasteriza e **chama o OCR internamente**. Devolve ao
+  container apenas texto por página. O container nunca vê um byte de PDF.
+- **`pareamento`** — recebe catálogo e itens, calcula BM25 e cosseno, aplica o corte top-K +
+  piso em streaming e devolve **apenas os pares sobreviventes**.
+
+O `pdf` absorver o OCR (em vez de devolver PNGs para o container repassar) é deliberado: a
+regra crítica "nunca enviar o documento inteiro ao OCR, uma página por chamada" passa a ser
+responsabilidade de quem tem o documento em mãos, e o servidor deixa de trafegar imagens.
+
+**Alternativas descartadas**
+- *`pdf` e `ocr` separados, com o container intermediando*: mantém a separação atual mas faz o
+  servidor trafegar PNGs de 200 DPI sem nenhum uso próprio para eles.
+- *Manter a 6a local por ser "só CPU"*: é justamente a etapa com histórico de estouro de
+  memória; deixá-la dentro define o plano da máquina pelo seu pico.
+
+**Consequências**
+- O container perde `pymupdf`, `rank-bm25`, `sentence-transformers`/torch, `numpy` e `pandas`.
+  Sobram FastAPI, SQLAlchemy/psycopg, Jinja2, requests e openpyxl.
+- O corte em streaming da 6a continua existindo — muda de lado, não desaparece. O aviso de
+  não reintroduzir um `aplicar_corte` pós-hoc passa a valer para o serviço externo.
+- O health check pré-play do `runner.executor` passa a cobrir `pdf` e `pareamento`: serviço
+  fora do ar reprova a etapa **antes** de ela começar.
+- **Custo:** o sistema deixa de funcionar sem os serviços externos no ar. É a troca consciente
+  do ADR-001 (monolito) sendo parcialmente revista — o monolito continua valendo para
+  *orquestração e estado*; só o cômputo sai.
+- Os serviços externos precisam de endereço estável. O túnel ngrok da máquina do usuário
+  serve para desenvolvimento, **não** para o servidor em produção.
