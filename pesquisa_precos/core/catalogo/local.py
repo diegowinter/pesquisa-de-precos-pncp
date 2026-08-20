@@ -25,12 +25,17 @@ import pandas as pd
 from pesquisa_precos.config import paths
 
 # ── Grupos de segurança pública (allow-list de codigoGrupo) ─────────────────────
+# LEGADO desde a Fase 10 (ADR-017): a fonte da verdade é a tabela `grupo_permitido`, editável
+# pela interface. Estas constantes só alimentam o caminho `--fonte csv` e o seed da migration
+# 0006 — mudá-las aqui NÃO muda o que a 0a baixa com `--fonte banco` (o default).
 # Copiados de itens-cat-v3/4_classificar_itens_llm.py (GRUPOS_MATERIAIS/SERVICOS).
 # Grupo 25 entrou junto com o PDM 1665 (ACESSÓRIO CARRO BLINDADO), que vive na classe 2590.
 GRUPOS_MATERIAIS = {10, 12, 13, 15, 23, 25, 42, 58, 62, 67, 68, 70, 74, 84}
 GRUPOS_SERVICOS = {841, 851, 852, 929, 931, 965}
 
 # ── Allow-list curada do catálogo (substitui a curadoria por LLM) ────────────────
+# LEGADO desde a Fase 10 (ADR-017): a fonte da verdade é a tabela `pdm_permitido`. Ver o aviso
+# dos grupos acima — vale igual aqui.
 # Em vez de curar o catálogo com LLM, filtramos direto por códigos escolhidos a dedo:
 #   - materiais: por codigoPdm
 #   - serviços:  por codigoServico

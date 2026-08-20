@@ -81,6 +81,68 @@ def gravar_watermark(sessao: Session, termo_id: int, tipo_doc: str, watermark) -
     )
 
 
+# ── Etapa 1 no banco (Fase 10) ──────────────────────────────────────────────────────
+
+def geracoes(sessao: Session) -> dict[tuple[str, str], dict]:
+    """`(tipo, codigo) → {'termos': [...], 'categoria': str}` — o `_ler_checkpoint()` da
+    etapa 1, em SQL. Formato idêntico ao do CSV para que a agregação e a cascata de categoria
+    rodem sem saber de onde vieram."""
+    return {
+        (tipo, codigo): {"termos": list(termos or []), "categoria": categoria or ""}
+        for tipo, codigo, termos, categoria in sessao.execute(text(
+            "SELECT tipo::text, codigo, termos, categoria_llm FROM termo_geracao")).all()
+    }
+
+
+def gravar_geracao(sessao: Session, tipo: str, codigo: str, termos: Sequence[str],
+                   categoria_llm: str | None, *, modelo: str | None = None,
+                   provedor: str | None = None, run_id: int | None = None) -> None:
+    """Cache da chamada de LLM de UM item do catálogo. É a marca de resumo da etapa 1:
+    item presente aqui não volta ao modelo."""
+    sessao.execute(text("""
+        INSERT INTO termo_geracao (tipo, codigo, termos, categoria_llm, modelo, provedor, run_id)
+        VALUES (CAST(:t AS tipo_catalogo), :c, :termos, :cat, :modelo, :prov, :run)
+        ON CONFLICT (tipo, codigo) DO UPDATE
+           SET termos = EXCLUDED.termos, categoria_llm = EXCLUDED.categoria_llm,
+               modelo = EXCLUDED.modelo, provedor = EXCLUDED.provedor,
+               run_id = EXCLUDED.run_id, criado_em = now()
+    """), {"t": tipo, "c": codigo, "termos": list(termos), "cat": categoria_llm or None,
+           "modelo": modelo, "prov": provedor, "run": run_id})
+
+
+def codigos_ja_gerados(sessao: Session) -> set[tuple[str, str]]:
+    """Chave de resumo da etapa 1 — o que `ler_chaves_concluidas()` fazia sobre o CSV."""
+    return {(t, c) for t, c in sessao.execute(
+        text("SELECT tipo::text, codigo FROM termo_geracao")).all()}
+
+
+def gravar_categorias(sessao: Session, categorias: dict[str, str]) -> int:
+    """Categoria final (pós-cascata) em `catalogo_item` — o que era
+    `1_categoria_por_codigo.csv`, a fonte canônica por item do pareamento da 6a."""
+    n = 0
+    for codigo, categoria in categorias.items():
+        n += sessao.execute(
+            text("UPDATE catalogo_item SET categoria = :cat, atualizado_em = now() "
+                 "WHERE codigo = :cod AND categoria IS DISTINCT FROM :cat"),
+            {"cat": categoria, "cod": codigo}).rowcount
+    return n
+
+
+def desativar_llm_ausentes(sessao: Session, termos_norm: Sequence[str]) -> int:
+    """Reconstrói o conjunto `origem='llm'`: o que não foi gerado desta vez sai de cena.
+
+    Espelha o `mesclar_preservando_manual()` do caminho CSV, que reescreve as linhas de LLM e
+    preserva as manuais. Aqui DESATIVA em vez de apagar — `termo_codigo` e `coleta_watermark`
+    pendem do id, e apagar o termo levaria junto o watermark da coleta (re-varredura completa
+    do PNCP na próxima atualização, que é caro e silencioso).
+    """
+    return sessao.execute(text("""
+        UPDATE termo SET ativo = false, excluido_por = 'etapa1', excluido_em = now()
+         WHERE ativo AND coalesce(origem, 'llm') <> 'manual'
+           AND NOT (termo_norm = ANY(:norms))
+    """), {"norms": list(termos_norm)}).rowcount
+
+
 def contar(sessao: Session) -> tuple[int, int, int]:
     """(termos, ligações termo×código, watermarks)."""
     return (

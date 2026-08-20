@@ -63,8 +63,8 @@ SQL_LISTAR = """
                AND (CASE WHEN p.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END)
                    = p.codigo) AS n_itens
       FROM pdm_permitido p
-     WHERE (:tipo IS NULL OR p.tipo = CAST(:tipo AS tipo_catalogo))
-       AND (:todos OR p.ativo)
+     WHERE (CAST(:tipo AS text) IS NULL OR p.tipo::text = CAST(:tipo AS text))
+       AND (CAST(:todos AS boolean) OR p.ativo)
      ORDER BY p.tipo, p.ativo DESC, n_itens DESC, p.codigo
 """
 
@@ -72,7 +72,12 @@ SQL_LISTAR = """
 def listar_permitidos(sessao: Session, tipo: str | None = None,
                       incluir_inativos: bool = False) -> list[dict]:
     """A allow-list como a tela de curadoria a mostra, já com quantos itens do catálogo
-    completo cada código traz. A contagem é o número que torna a decisão informada: um PDM
+    completo cada código traz.
+
+    Os `CAST(:param AS tipo)` no WHERE não são decoração: com `tipo=None` (listar os dois
+    tipos), o Postgres não consegue inferir o tipo do parâmetro e levanta `AmbiguousParameter`.
+
+    A contagem por código A contagem é o número que torna a decisão informada: um PDM
     que casa 0 itens é curadoria morta, e hoje não há como perceber isso sem rodar a 0a."""
     linhas = sessao.execute(text(SQL_LISTAR), {"tipo": tipo, "todos": incluir_inativos}).all()
     return [
@@ -124,6 +129,74 @@ def codigos_ativos(sessao: Session, tipo: str) -> set[str]:
         text("SELECT codigo FROM pdm_permitido "
              "WHERE tipo = CAST(:t AS tipo_catalogo) AND ativo"),
         {"t": tipo}).all())
+
+
+# ── Grupos de segurança (recorte do download, não do escopo) ────────────────────────
+#
+# Cuidado ao ler junto com `pdm_permitido`: as duas são curadoria, mas de coisas diferentes.
+# `grupo_permitido` só é consultada quando a 0a roda com `--so-grupos-seguranca`, e serve para
+# baixar menos catálogo. Quem decide o que entra na pesquisa continua sendo `pdm_permitido`.
+
+def grupos_ativos(sessao: Session, tipo: str) -> list[str]:
+    """`codigoGrupo` a paginar no download recortado. Ordenado para o log ficar estável."""
+    return list(sessao.scalars(
+        text("SELECT codigo FROM grupo_permitido "
+             "WHERE tipo = CAST(:t AS tipo_catalogo) AND ativo "
+             "ORDER BY length(codigo), codigo"),
+        {"t": tipo}).all())
+
+
+SQL_LISTAR_GRUPOS = """
+    SELECT g.tipo::text, g.codigo, g.nome, g.observacao, g.ativo, g.criado_por, g.criado_em,
+           (SELECT count(*) FROM catalogo_raw r
+             WHERE r.tipo = g.tipo AND r.codigo_grupo = g.codigo) AS n_itens
+      FROM grupo_permitido g
+     WHERE (CAST(:tipo AS text) IS NULL OR g.tipo::text = CAST(:tipo AS text))
+       AND (CAST(:todos AS boolean) OR g.ativo)
+     ORDER BY g.tipo, g.ativo DESC, length(g.codigo), g.codigo
+"""
+
+
+def listar_grupos(sessao: Session, tipo: str | None = None,
+                  incluir_inativos: bool = False) -> list[dict]:
+    """Os grupos como a tela de curadoria os mostra, com quantos itens do catálogo completo
+    cada um traz. Os `CAST` existem pelo mesmo motivo de `listar_permitidos`: parâmetro NULL
+    sem tipo faz o Postgres levantar `AmbiguousParameter`."""
+    linhas = sessao.execute(text(SQL_LISTAR_GRUPOS),
+                            {"tipo": tipo, "todos": incluir_inativos}).all()
+    return [
+        {"tipo": t, "codigo": c, "nome": n, "observacao": o, "ativo": a,
+         "criado_por": por, "criado_em": em, "n_itens": qtd}
+        for t, c, n, o, a, por, em, qtd in linhas
+    ]
+
+
+def permitir_grupo(sessao: Session, tipo: str, codigo: str, *, nome: str | None = None,
+                   observacao: str | None = None, criado_por: str | None = None) -> None:
+    sessao.execute(text("""
+        INSERT INTO grupo_permitido (tipo, codigo, nome, observacao, ativo, criado_por)
+        VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :nome, :obs, true, :por)
+        ON CONFLICT (tipo, codigo) DO UPDATE
+           SET ativo = true,
+               nome = COALESCE(EXCLUDED.nome, grupo_permitido.nome),
+               observacao = COALESCE(EXCLUDED.observacao, grupo_permitido.observacao),
+               atualizado_em = now()
+    """), {"tipo": tipo, "codigo": str(codigo), "nome": nome,
+           "obs": observacao, "por": criado_por})
+
+
+def revogar_grupo(sessao: Session, tipo: str, codigo: str, *,
+                  motivo: str | None = None) -> int:
+    """Desativa, nunca apaga — mesmo princípio do resto da curadoria.
+
+    Revogar um grupo NÃO tira do escopo os itens já baixados: `catalogo_item` continua vindo
+    de `pdm_permitido`. O efeito é só no próximo download recortado.
+    """
+    return sessao.execute(text("""
+        UPDATE grupo_permitido
+           SET ativo = false, observacao = COALESCE(:motivo, observacao), atualizado_em = now()
+         WHERE tipo = CAST(:tipo AS tipo_catalogo) AND codigo = :codigo AND ativo
+    """), {"tipo": tipo, "codigo": str(codigo), "motivo": motivo}).rowcount
 
 
 # ── Derivação: catalogo_raw ∩ pdm_permitido → catalogo_item ─────────────────────────
@@ -182,3 +255,74 @@ def derivar_catalogo_item(sessao: Session) -> dict[str, int]:
     total = sessao.execute(
         text("SELECT count(*) FROM catalogo_item WHERE ativo")).scalar_one()
     return {"derivados": inseridos, "desativados": desativados, "ativos": total}
+
+
+# ── Checkpoint de download (o que era checkpoints/0a_parts_<tipo>/) ─────────────────
+
+def paginas_baixadas(sessao: Session, tipo: str, prefixo: str) -> set[int]:
+    """Páginas já gravadas — o `if parte.exists()` do caminho em disco, em SQL."""
+    return set(sessao.scalars(
+        text("SELECT pagina FROM catalogo_download "
+             "WHERE tipo = CAST(:t AS tipo_catalogo) AND prefixo = :p"),
+        {"t": tipo, "p": prefixo}).all())
+
+
+def marcar_pagina(sessao: Session, tipo: str, prefixo: str, pagina: int,
+                  n_linhas: int) -> None:
+    """Registra a página DEPOIS de gravar suas linhas em `catalogo_raw`.
+
+    A ordem importa e é a mesma do caminho em disco: marcar antes faria uma queda no meio
+    pular uma página que nunca foi gravada. Como ambas as escritas caem na mesma transação,
+    ou as duas valem ou nenhuma vale.
+    """
+    sessao.execute(text("""
+        INSERT INTO catalogo_download (tipo, prefixo, pagina, n_linhas)
+        VALUES (CAST(:t AS tipo_catalogo), :p, :pag, :n)
+        ON CONFLICT (tipo, prefixo, pagina) DO UPDATE
+           SET n_linhas = EXCLUDED.n_linhas, baixado_em = now()
+    """), {"t": tipo, "p": prefixo, "pag": pagina, "n": n_linhas})
+
+
+def limpar_download(sessao: Session, tipo: str) -> int:
+    """`--forcar`: descarta o checkpoint para rebaixar do zero. `catalogo_raw` NÃO é apagado —
+    o upsert reescreve o que voltar, e apagar deixaria o catálogo vazio no meio do download."""
+    return sessao.execute(
+        text("DELETE FROM catalogo_download WHERE tipo = CAST(:t AS tipo_catalogo)"),
+        {"t": tipo}).rowcount
+
+
+# ── Snapshot e delta (o que eram 0a_catalogo_snapshot.csv / 0a_catalogo_delta.csv) ──
+
+SQL_SNAPSHOT_ANTERIOR = """
+    SELECT tipo::text, codigo FROM catalogo_snapshot
+     WHERE capturado_em = (SELECT max(capturado_em) FROM catalogo_snapshot)
+"""
+
+SQL_GRAVAR_SNAPSHOT = """
+    INSERT INTO catalogo_snapshot (capturado_em, tipo, codigo, hash_linha)
+    SELECT :agora, tipo, codigo, md5(coalesce(descricao, '') || coalesce(nome_pdm, ''))
+      FROM catalogo_item WHERE ativo
+"""
+
+
+def delta_catalogo(sessao: Session) -> dict[str, int]:
+    """Compara `catalogo_item` ativo com o último snapshot e captura um novo. Substitui
+    `gerar_delta_catalogo()` — mesma semântica, sem CSV.
+
+    Primeira execução (sem snapshot anterior): estabelece a linha de base e devolve delta
+    ZERO. Isso é deliberado e igual ao caminho em disco — marcar um catálogo inteiro já
+    coletado como "novo" é a armadilha que o comentário original da etapa já registrava.
+    """
+    from datetime import UTC, datetime
+
+    anterior = {(t, c) for t, c in sessao.execute(text(SQL_SNAPSHOT_ANTERIOR)).all()}
+    atual = {(t, c) for t, c in sessao.execute(text(
+        "SELECT tipo::text, codigo FROM catalogo_item WHERE ativo")).all()}
+
+    primeira = not anterior
+    novos = set() if primeira else atual - anterior
+    removidos = set() if primeira else anterior - atual
+
+    sessao.execute(text(SQL_GRAVAR_SNAPSHOT), {"agora": datetime.now(UTC)})
+    return {"codigos_novos": len(novos), "codigos_removidos": len(removidos),
+            "baseline": int(primeira)}

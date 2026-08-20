@@ -305,6 +305,25 @@ class PdmPermitido(Base):
     atualizado_em: Mapped[datetime] = _agora()
 
 
+class GrupoPermitido(Base):
+    """Grupos de segurança pública (ADR-017) — o que era `GRUPOS_MATERIAIS`/`GRUPOS_SERVICOS`.
+
+    Separada de `pdm_permitido` de propósito: esta define o RECORTE DO DOWNLOAD (quais
+    `codigoGrupo` a 0a pagina com `--so-grupos-seguranca`), não o ESCOPO da pesquisa. Sem a
+    flag, a etapa baixa o catálogo inteiro e esta tabela nem é consultada.
+    """
+
+    __tablename__ = "grupo_permitido"
+    tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
+    codigo: Mapped[str] = mapped_column(Text, primary_key=True)
+    nome: Mapped[str | None] = mapped_column(Text)
+    observacao: Mapped[str | None] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    criado_por: Mapped[str | None] = mapped_column(Text)
+    criado_em: Mapped[datetime] = _agora()
+    atualizado_em: Mapped[datetime] = _agora()
+
+
 class CatalogoItem(Base):
     __tablename__ = "catalogo_item"
     # PK composta: o código só é único DENTRO do tipo (um CATMAT e um CATSER podem colidir).
@@ -320,6 +339,21 @@ class CatalogoItem(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     criado_em: Mapped[datetime] = _agora()
     atualizado_em: Mapped[datetime] = _agora()
+
+
+class CatalogoDownload(Base):
+    """Checkpoint de página do download da 0a — o que era `checkpoints/0a_parts_<tipo>/`.
+
+    `prefixo` é `full` ou `g<codigoGrupo>`: o modo `--so-grupos-seguranca` pagina cada grupo
+    separadamente, e sem o prefixo as páginas de dois grupos colidiriam na PK.
+    """
+
+    __tablename__ = "catalogo_download"
+    tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
+    prefixo: Mapped[str] = mapped_column(Text, primary_key=True)
+    pagina: Mapped[int] = mapped_column(Integer, primary_key=True)
+    n_linhas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    baixado_em: Mapped[datetime] = _agora()
 
 
 class CatalogoSnapshot(Base):
@@ -345,6 +379,36 @@ class Termo(Base):
         BigInteger, ForeignKey("config_versao.id"))
     criado_em: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("termo_norm"),)
+
+
+class TermoGeracao(Base):
+    """Saída BRUTA do LLM por item do catálogo (etapa 1) — o que era `1_termos_item.csv`.
+
+    Não é derivável de `termo`/`termo_codigo`: aquelas guardam o termo já expandido (variações
+    de grafia + cópia sem acento) e já agregado por termo. `resolver_categorias()` usa o
+    conjunto CRU como chave de desempate — com o expandido, a categoria de alguns códigos
+    mudaria em silêncio.
+
+    `categoria_llm` é a SUGESTÃO do modelo; a categoria final (pós-cascata) vive em
+    `catalogo_item.categoria`. Guardar as duas permite recomputar a cascata sem rechamar o LLM.
+    """
+
+    __tablename__ = "termo_geracao"
+    tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
+    codigo: Mapped[str] = mapped_column(Text, primary_key=True)
+    termos: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+    categoria_llm: Mapped[str | None] = mapped_column(Text)
+    modelo: Mapped[str | None] = mapped_column(Text)
+    provedor: Mapped[str | None] = mapped_column(Text)
+    prompt_versao_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("prompt_versao.id"))
+    run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
+    criado_em: Mapped[datetime] = _agora()
+    __table_args__ = (
+        ForeignKeyConstraint(["tipo", "codigo"],
+                             ["catalogo_item.tipo", "catalogo_item.codigo"],
+                             ondelete="CASCADE"),
+    )
 
 
 class TermoCodigo(Base):

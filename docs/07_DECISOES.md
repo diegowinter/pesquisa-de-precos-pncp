@@ -401,6 +401,13 @@ config pura — uma lista de códigos, sem nenhuma lógica.
 - A allow-list vira parte do fingerprint da etapa 0a (ADR-009): mudar curadoria invalida o
   catálogo derivado, como deve ser.
 - `core/catalogo/local.py` mantém o **método** (a função de filtro); perde os **dados**.
+- **Complemento (2026-08-20, migration 0006):** `GRUPOS_MATERIAIS`/`GRUPOS_SERVICOS` seguem o
+  mesmo caminho, em `grupo_permitido` — tabela SEPARADA, não uma coluna `especie` na mesma.
+  As duas curadorias respondem a perguntas diferentes: `pdm_permitido` define o **escopo** (o
+  que entra na pesquisa, aplicado sempre na derivação de `catalogo_item`); `grupo_permitido`
+  define o **recorte do download** (quais `codigoGrupo` a 0a pagina com
+  `--so-grupos-seguranca`, ignorado sem a flag). Fundi-las faria a tela misturar "o que eu
+  pesquiso" com "o que eu baixo para poder escolher".
 
 ---
 

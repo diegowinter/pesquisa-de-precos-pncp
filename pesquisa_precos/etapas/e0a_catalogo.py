@@ -1,16 +1,24 @@
 """
 Etapa 0a — Catálogos CATMAT (materiais) e CATSER (serviços) da API de Dados Abertos.
 
-Baixa os catálogos do Compras.gov.br e grava em Parquet (via Pandas), para recarga rápida na
-curadoria. Mantida como etapa separada porque o download é pesado e roda esporadicamente.
+Baixa os catálogos do Compras.gov.br e aplica a allow-list curada. Mantida como etapa
+separada porque o download é pesado e roda esporadicamente.
 
-RESUMÍVEL / à prova de queda: cada página é gravada em disco assim que chega, como um
-parquet-parte em data/checkpoints/0a_parts_<tipo>/. Se o processo cair (ou a pasta sumir),
-basta rodar de novo — ele pula as páginas já baixadas e continua de onde parou. As partes
-só são apagadas DEPOIS que o parquet final é gravado com sucesso.
+FASE 10 — `--fonte banco` (DEFAULT) não escreve NADA em disco (ADR-018):
+    catalogo_raw     ← catálogo completo, uma página por transação
+    catalogo_download← checkpoint de página (o que era a pasta de parquet-partes)
+    catalogo_item    ← DERIVADO por SQL de `catalogo_raw ∩ pdm_permitido` (ADR-017)
+    catalogo_snapshot← baseline do delta
+A allow-list não vive mais no código: `pdm_permitido` é editável pela interface, e
+`core/catalogo/local.py` guarda só o método de filtro. Mudar a curadoria e rederivar não
+exige rebaixar a API.
+
+RESUMÍVEL / à prova de queda nos dois caminhos: cada página é persistida assim que chega
+(linha em `catalogo_download` ou parquet-parte em data/checkpoints/0a_parts_<tipo>/) e um
+novo run pula o que já entrou. No pior caso perde-se a última página.
 
 Entradas: nenhuma (é a raiz do grafo).
-Saídas (nomes canônicos em config/paths.py):
+Saídas do caminho legado `--fonte csv` (nomes canônicos em config/paths.py):
     data/0a_catalogo_materiais.parquet
     data/0a_catalogo_servicos.parquet
     data/0a_catalogo_meta.json          (data do download e contagens)
@@ -24,7 +32,8 @@ NÃO fazer: apagar as partes antes do parquet final existir; tratar a primeira e
 snapshot como "tudo novo" (ver `gerar_delta_catalogo`).
 
 Uso:
-    python -m pesquisa_precos.etapas.e0a_catalogo                        # baixa o que faltar
+    python -m pesquisa_precos.etapas.e0a_catalogo                        # banco (default)
+    python -m pesquisa_precos.etapas.e0a_catalogo --fonte csv            # caminho legado
     python -m pesquisa_precos.etapas.e0a_catalogo --so-grupos-seguranca  # só grupos de segurança
     python -m pesquisa_precos.etapas.e0a_catalogo --forcar               # re-baixa mesmo se existir
     python -m pesquisa_precos.etapas.e0a_catalogo --tipo material        # só materiais
@@ -46,6 +55,8 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from pesquisa_precos.config import paths
@@ -53,7 +64,9 @@ from pesquisa_precos.core.catalogo.local import GRUPOS_MATERIAIS, GRUPOS_SERVICO
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 
 CHAVE = "0a"
-VERSAO_CODIGO = "1.0.0"
+# 1.1.0 (Fase 10): ganhou `--fonte banco` — catalogo_raw + derivação da allow-list.
+# A regra de curadoria não mudou: o banco reproduz `filtrar_curado()` código a código.
+VERSAO_CODIGO = "1.1.0"
 
 DATA_DIR = paths.DATA
 # Checkpoints de páginas ficam em data/checkpoints/0a_parts_<tipo>/ (não são saída de etapa).
@@ -102,6 +115,8 @@ class Params(BaseModel):
     so_grupos_seguranca: bool = Field(
         False, description="Baixar só os grupos de segurança pública (rápido)")
     forcar: bool = Field(False, description="Re-baixar mesmo se o parquet já existir")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="Onde gravar o catálogo (banco = sem arquivo em disco)")
 
     def tipos(self) -> list[str]:
         return [self.tipo] if self.tipo else ["material", "servico"]
@@ -294,8 +309,196 @@ def gerar_delta_catalogo(combinado: pd.DataFrame, ctx: ContextoExecucao) -> dict
     return {"codigos_novos": len(novos), "codigos_removidos": len(removidos)}
 
 
+# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+#
+# Mesma paginação e mesmo resume do caminho em disco; muda ONDE cada página cai. Em vez de
+# um parquet-parte por página + consolidação no fim, cada página é gravada direto em
+# `catalogo_raw` (upsert) e a página é marcada em `catalogo_download`. Não há consolidação:
+# a deduplicação por `(tipo, codigo)` é a PK da tabela, não um `drop_duplicates` no fim.
+
+def _texto(valor: object) -> str | None:
+    """Campo da API → text do Postgres. Número vira string (o catálogo mistura int e str no
+    mesmo campo entre endpoints); vazio vira NULL, nunca string vazia — `''` e `NULL` casariam
+    diferente no join da derivação."""
+    if valor is None:
+        return None
+    s = str(valor).strip()
+    return s or None
+
+
+def _linha_raw(tipo: str, reg: dict) -> tuple | None:
+    """Registro da API → tupla na ordem de `curadoria.COLUNAS_RAW`.
+
+    O mapeamento é o MESMO de `gerar_catalogo_filtrado()` — material e serviço têm nomes de
+    campo diferentes na origem, e é aqui que eles viram um formato só. Manter os dois lugares
+    em sincronia é o preço de ter dois caminhos; quando `--fonte csv` sair, sobra este.
+    """
+    if tipo == "material":
+        codigo = _texto(reg.get("codigoItem"))
+        if not codigo:
+            return None
+        return ("material", codigo, _texto(reg.get("codigoPdm")), _texto(reg.get("nomePdm")),
+                _texto(reg.get("descricaoItem")) or "", _texto(reg.get("codigoGrupo")),
+                _texto(reg.get("nomeGrupo")), _texto(reg.get("nomeClasse")))
+    codigo = _texto(reg.get("codigoServico"))
+    if not codigo:
+        return None
+    return ("servico", codigo, None, None,
+            _texto(reg.get("nomeServico")) or "", _texto(reg.get("codigoGrupo")),
+            _texto(reg.get("nomeGrupo")), _texto(reg.get("nomeClasse")))
+
+
+def coletar_para_banco(tipo: str, base_url: str, params_extra: dict, prefixo: str,
+                       ctx: ContextoExecucao, estado: dict) -> int:
+    """Pagina gravando cada página em `catalogo_raw`. Devolve quantas linhas entraram."""
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import curadoria as repo
+
+    params = {"pagina": 1, "tamanhoPagina": TAM_PAGINA, **params_extra}
+    first = fetch_page(base_url, params, ctx)
+    total_paginas = first.get("totalPaginas", 1) or 1
+    estado["total"] += first.get("totalRegistros", 0) or 0
+    ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
+
+    with db.sessao() as s:
+        ja_feitas = repo.paginas_baixadas(s, tipo, prefixo)
+
+    gravadas = 0
+    for pagina in range(1, total_paginas + 1):
+        if ctx.cancelado():
+            break
+        if pagina in ja_feitas:
+            ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
+            continue
+        data = first if pagina == 1 else fetch_page(base_url, {**params, "pagina": pagina}, ctx)
+        linhas = [ln for ln in (_linha_raw(tipo, r) for r in data.get("resultado", []))
+                  if ln is not None]
+        # Uma transação por página: a gravação das linhas e a marca da página vivem ou morrem
+        # juntas. `conexao_bruta` (COPY) e `sessao` (ORM) são conexões distintas, então o
+        # commit do COPY vem primeiro — se o processo cair entre os dois, a página é
+        # rebaixada e o upsert absorve a repetição.
+        if linhas:
+            with db.conexao_bruta() as conn:
+                repo.gravar_raw(conn, linhas)
+        with db.sessao() as s:
+            repo.marcar_pagina(s, tipo, prefixo, pagina, len(linhas))
+            s.commit()
+        gravadas += len(linhas)
+        estado["feitos"] += len(linhas)
+        ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
+        if pagina < total_paginas:
+            time.sleep(0.3)
+    return gravadas
+
+
+def baixar_tipo_para_banco(tipo: str, so_grupos: bool, forcar: bool,
+                           ctx: ContextoExecucao, estado: dict) -> int:
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import curadoria as repo
+
+    fonte = FONTES[tipo]
+    if forcar:
+        with db.sessao() as s:
+            repo.limpar_download(s, tipo)
+            s.commit()
+
+    estado["descricao"] = f"[cyan]{tipo}[/]"
+    if so_grupos:
+        # Os grupos vêm de `grupo_permitido` (ADR-017), não mais das constantes do módulo.
+        # Lista vazia é erro explícito: baixar o catálogo inteiro "para compensar" seria
+        # ignorar em silêncio a flag que o operador digitou justamente para baixar menos.
+        with db.sessao() as s:
+            grupos = repo.grupos_ativos(s, tipo)
+        if not grupos:
+            raise SystemExit(
+                f"Nenhum grupo ativo para {tipo} em grupo_permitido — cadastre pela interface "
+                f"ou rode sem --so-grupos-seguranca para baixar o catálogo inteiro.")
+        ctx.log("debug", f"[dim][0a] {tipo}: {len(grupos)} grupos de segurança "
+                         f"({', '.join(grupos)})[/]")
+        total = 0
+        for codigo in grupos:
+            total += coletar_para_banco(
+                tipo, fonte["base_url"], {**fonte["params_extra"], "codigoGrupo": codigo},
+                f"g{codigo}", ctx, estado)
+        return total
+    return coletar_para_banco(tipo, fonte["base_url"], fonte["params_extra"], "full",
+                              ctx, estado)
+
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    """0a inteira sem tocar em disco (ADR-018): baixa → `catalogo_raw` → deriva
+    `catalogo_item` pela allow-list → delta por snapshot no banco."""
+    from sqlalchemy import text as text_sql
+
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import curadoria as repo
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+
+    tipos = params.tipos()
+    ctx.log("info", f"[bold]Download do catálogo (CATMAT/CATSER) → banco[/] · grupos: "
+                    f"[cyan]{'só segurança pública' if params.so_grupos_seguranca else 'todos'}[/]")
+
+    estado = {"feitos": 0, "total": 0, "descricao": "catálogo"}
+    por_tipo: dict[str, int] = {}
+    for tipo in tipos:
+        if ctx.cancelado():
+            break
+        n = baixar_tipo_para_banco(tipo, params.so_grupos_seguranca, params.forcar, ctx, estado)
+        por_tipo[f"{tipo}_baixados"] = n
+        ctx.log("info", f"[green]{tipo}: {n:,} linhas em catalogo_raw[/]")
+
+    with db.sessao() as s:
+        total_raw = repo.contar_raw(s)
+        derivacao = repo.derivar_catalogo_item(s)
+        delta = repo.delta_catalogo(s)
+        s.commit()
+        preview = [
+            {"tipo": t, "codigo": c, "descricao": (d or "")[:80]}
+            for t, c, d in s.execute(text_sql(
+                "SELECT tipo::text, codigo, descricao FROM catalogo_item "
+                "WHERE ativo ORDER BY tipo, codigo LIMIT 20")).all()
+        ]
+
+    ctx.log("info", f"[bold]Catálogo completo:[/] {total_raw:,} · "
+                    f"[bold green]curado: {derivacao['ativos']:,}[/] "
+                    f"({derivacao['desativados']} desativados)")
+    if delta.get("baseline"):
+        ctx.log("info", "[dim]Primeiro snapshot no banco — delta zerado por definição.[/]")
+    else:
+        ctx.log("info", f"[bold]Delta:[/] {delta['codigos_novos']} novos, "
+                        f"{delta['codigos_removidos']} removidos")
+
+    return ResultadoEtapa(
+        processados=derivacao["ativos"], erros=0,
+        metricas={"itens_no_catalogo_raw": total_raw, **por_tipo, **derivacao, **delta},
+        preview=preview,
+    )
+
+
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Quantos catálogos serão baixados. Sem LLM: o custo é tempo de HTTP, não dinheiro."""
+    if params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+        from pesquisa_precos.db.repos import curadoria as repo
+
+        detalhes = {"fonte": "banco",
+                    "grupos": "só segurança pública" if params.so_grupos_seguranca else "todos"}
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={**detalhes, "aviso": f"banco indisponível: {detalhe}"})
+        with db.sessao() as s:
+            for tipo in params.tipos():
+                # A unidade útil aqui é "quanto já está no banco": o resume é por página, então
+                # o que falta baixar só se sabe consultando a API — que é justamente o que uma
+                # estimativa não pode fazer (ela não gasta nada, nem tempo de rede).
+                detalhes[tipo] = f"{repo.contar_raw(s, tipo):,} linhas já em catalogo_raw"
+            detalhes["curados_hoje"] = len(repo.listar_permitidos(s))
+        return Estimativa(unidades=len(params.tipos()), chamadas_llm=0, detalhes=detalhes)
+
     a_baixar = [t for t in params.tipos()
                 if params.forcar or not FONTES[t]["parquet"].exists()]
     detalhes = {t: ("re-baixa" if params.forcar else
@@ -306,6 +509,9 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    if params.fonte == "banco":
+        return executar_no_banco(params, ctx)
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tipos = params.tipos()
 
