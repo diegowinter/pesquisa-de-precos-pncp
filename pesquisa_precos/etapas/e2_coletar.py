@@ -39,6 +39,7 @@ Uso: python -m pesquisa_precos.etapas.e2_coletar [--conceitos c1,c2] [--ignorar-
 import json
 import os
 import sys
+from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -48,6 +49,7 @@ for _s in (sys.stdout, sys.stderr):
 
 import pandas as pd
 from pydantic import BaseModel, Field
+from sqlalchemy import text as sa_text
 
 from pesquisa_precos.config import paths
 from pesquisa_precos.core.coleta import coleta_pncp
@@ -61,7 +63,10 @@ from pesquisa_precos.etapas.base import (
 )
 
 CHAVE = "2"
-VERSAO_CODIGO = "2.0.0"  # Fase 8/ADR-011: parou de baixar PDF (ver docstring do módulo)
+# 2.1.0 (Fase 10): ganhou `--fonte banco`. A coleta é a mesma (dedup por documento,
+# parada por watermark); muda o destino — documento/item/documento_termo e os três
+# checkpoints viram tabelas.
+VERSAO_CODIGO = "2.1.0"  # Fase 8/ADR-011: parou de baixar PDF (ver docstring do módulo)
 
 CONCEITOS = paths.E1_TERMOS
 SAIDA = paths.E2_ITENS
@@ -81,6 +86,8 @@ class Params(BaseModel):
                            "paginar ao cruzar o watermark. Coleta só o novo.")
     limite_termos: int | None = Field(None, description="Máx. de termos por conceito (teste)")
     tam_pagina: int | None = Field(None, description="Tamanho da página da busca do PNCP")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="Destino da coleta (banco = sem arquivo em disco)")
 
 
 def carregar_watermark() -> dict[tuple[str, str], str]:
@@ -183,8 +190,330 @@ def _montar_tarefas(params: Params) -> tuple[list[tuple[str, str, str]], set]:
     return tarefas, feitas
 
 
+# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+#
+# A lógica de coleta é a MESMA (mesmo `coleta_pncp`, mesmo dedup por documento, mesma parada
+# por watermark). O que muda é o destino de cada peça:
+#
+#   2_itens_coletados.csv       → documento + item        (duas tabelas, não uma linha larga)
+#   2_conceitos_extra.csv       → documento_termo         (por documento, não por item)
+#   checkpoints/2_progresso.csv → coleta_progresso
+#   checkpoints/2_watermark.csv → coleta_watermark
+#   checkpoints/2_pendentes.csv → coleta_pendente
+#
+# O documento é gravado com TODOS os seus itens na mesma transação: um documento pela metade
+# faria a etapa 4 cortar sobre um universo incompleto, e nada no schema denunciaria isso.
+
+def _exigir_banco():
+    from pesquisa_precos.db import sessao as db
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+    return db
+
+
+def termos_do_banco(filtro: set[str] | None, limite: int | None) -> list[dict]:
+    """Termos ativos + o id de cada um. Substitui a leitura de `1_conceitos_termos.csv`.
+
+    Devolve `{'termo': str, 'termo_id': int, 'categoria': str}` — uma linha por termo, que é o
+    formato que a etapa 1 já produzia ("um termo por linha"); o campo `conceito` do CSV era o
+    próprio termo desde a reescrita da etapa 1.
+    """
+    db = _exigir_banco()
+    with db.sessao() as s:
+        linhas = s.execute(sa_text(
+            "SELECT id, termo, coalesce(categoria, '') FROM termo "
+            " WHERE ativo ORDER BY id")).all()
+    termos = [{"termo_id": i, "termo": t, "categoria": c} for i, t, c in linhas]
+    if filtro:
+        termos = [t for t in termos if t["termo"] in filtro]
+    if limite:
+        termos = termos[:limite]
+    if not termos:
+        raise SystemExit("Nenhum termo ativo no banco — rode a etapa 1 antes.")
+    return termos
+
+
+def _linha_documento(linha: dict, data_atualizacao: str | None, n_itens: int) -> tuple:
+    """Linha na ordem de `repo_documento.COLUNAS_DOC`, montada a partir de uma LINHA DE ITEM.
+
+    Por que da linha de item e não do `identificar()` da busca: `COLUNAS_ITENS` já carrega
+    todos os campos do documento (é uma tabela desnormalizada — foi assim que o CSV único
+    funcionou até aqui), incluindo `url_pncp` e os dois sequenciais, que `identificar()` NÃO
+    devolve (ele expõe o sequencial da ata como `_seq_ata`, chave privada). Usar a linha é o
+    mesmo caminho que a migração `m07` faz sobre o CSV — uma fonte só, já validada.
+
+    `data_atualizacao_pncp` é a exceção: não está na linha de item, vem do resultado da busca.
+    É o campo do watermark, então perdê-lo silenciosamente custaria uma re-varredura completa
+    na próxima atualização.
+    """
+    return (
+        linha.get("numeroControlePNCP"), linha.get("tipo_doc"),
+        linha.get("orgao") or None, linha.get("orgao_cnpj") or None,
+        linha.get("uf") or None, _inteiro(linha.get("ano")),
+        _data(linha.get("data")), _data(linha.get("data_assinatura")),
+        _data(linha.get("data_fim_vigencia")), data_atualizacao or None,
+        linha.get("url_pncp") or None,
+        # ADR-012: sem estes dois a etapa 5 não refaz `listar_arquivos()` e o documento só
+        # pode ser rebaixado pela url pública.
+        linha.get("numero_sequencial") or None, linha.get("numero_sequencial_ata") or None,
+        n_itens,
+    )
+
+
+def _linha_item(linha: dict) -> tuple:
+    """Linha na ordem de `repo_documento.COLUNAS_ITEM`, a partir de uma linha da etapa 2.
+
+    `texto_hash` é calculado NA INGESTÃO (docs/02_SCHEMA.md §5) — nunca na hora de classificar.
+    É ele que faz o dedup da etapa 3 ser uma consulta em vez de um agrupamento em memória.
+    """
+    from pesquisa_precos.core.textos import texto_hash
+
+    descricao = linha.get("descricao_api") or ""
+    unidade = linha.get("unidade") or None
+    return (
+        linha.get("item_key"), linha.get("numeroControlePNCP"),
+        _inteiro(linha.get("numeroItem")), descricao, unidade,
+        _decimal(linha.get("quantidade")), _decimal(linha.get("preco_unitario")),
+        _decimal(linha.get("preco_estimado")), linha.get("fornecedor") or None,
+        _data(linha.get("data_resultado")), texto_hash(descricao, unidade),
+    )
+
+
+def _inteiro(v):
+    try:
+        return int(str(v).strip()) if str(v or "").strip() else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _decimal(v):
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        return Decimal(str(v).strip()) if str(v or "").strip() else None
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+
+
+def _data(v):
+    """`YYYY-MM-DD` (aceita ISO com hora). Valor fora do formato vira NULL em vez de derrubar
+    o lote inteiro — data ruim num documento não pode custar a coleta de outros mil."""
+    from datetime import date
+
+    s = str(v or "").strip()[:10]
+    if len(s) != 10:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def gravar_documento_no_banco(db, linhas: list[dict], data_atualizacao: str | None,
+                              termo_id: int | None) -> int:
+    """Documento + seus itens + a ligação com o termo, numa transação só.
+
+    Atômico de propósito: um documento gravado pela metade faria a etapa 4 cortar sobre um
+    universo incompleto, e nada no schema denunciaria isso — `n_itens` bateria com o que
+    entrou, não com o que existe no PNCP.
+    """
+    from pesquisa_precos.db.repos import documento as repo
+
+    if not linhas:
+        return 0
+    nc = linhas[0].get("numeroControlePNCP")
+    with db.conexao_bruta() as conn:
+        repo.gravar_documentos(conn, [_linha_documento(linhas[0], data_atualizacao,
+                                                       len(linhas))])
+        repo.gravar_itens(conn, [_linha_item(x) for x in linhas])
+        if termo_id is not None:
+            repo.ligar_termos(conn, [(nc, termo_id)])
+        conn.commit()
+    return len(linhas)
+
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    """Etapa 2 sem tocar em disco (ADR-018). Estrutura idêntica à do caminho CSV."""
+    db = _exigir_banco()
+    from pesquisa_precos.db.repos import documento as repo
+    from pesquisa_precos.db.repos import termo as repo_termo
+
+    filtro = set(c.strip() for c in params.conceitos.split(",")) if params.conceitos else None
+    termos = termos_do_banco(filtro, params.limite_termos)
+    tarefas = [(t["termo"], fonte, t["termo_id"]) for t in termos for fonte in FONTES]
+
+    with db.sessao() as s:
+        # No --atualizar revisitamos TODOS os (termo, fonte): a parada por watermark é que
+        # evita o retrabalho. Mesma decisão do caminho CSV.
+        feitas = set() if (params.ignorar_cache or params.atualizar) \
+            else repo.buscas_concluidas(s)
+        if params.ignorar_cache:
+            repo.limpar_progresso(s)
+            s.commit()
+        conhecidos = set() if params.ignorar_cache else repo.controles_conhecidos(s)
+        watermark = repo_termo.watermarks(s)
+        pendentes_docs = {} if params.ignorar_cache else repo.pendentes(s)
+
+    pendentes = [t for t in tarefas if (t[2], t[1]) not in feitas]
+    _modo = "[yellow]atualização (para no watermark)[/]" if params.atualizar else "completa"
+    ctx.log("info", f"[bold][2] Coleta no PNCP → banco ({_modo}):[/] {len(pendentes)} buscas "
+                    f"(termo×fonte) a fazer (já feitas: {len(tarefas) - len(pendentes)}, "
+                    f"fontes: {', '.join(FONTES)})")
+
+    total_itens = total_docs = total_erros = resolvidos = 0
+    tam_pagina_kw = {"tam_pagina": params.tam_pagina} if params.tam_pagina else {}
+
+    # Revisita de pendentes (só no --atualizar), igual ao caminho CSV.
+    if params.atualizar and pendentes_docs:
+        ctx.log("info", f"[2] Revisitando [bold]{len(pendentes_docs)}[/] pendentes "
+                        f"(sem_homologado)…")
+        feitos_rev = 0
+        ctx.progresso(0, len(pendentes_docs), descricao="pendentes · [green]0 resolvidos[/]")
+        for ctrl, rec in list(pendentes_docs.items()):
+            if ctx.cancelado():
+                break
+            try:
+                linhas, status = coleta_pncp.revisitar_pendente(
+                    rec["base"], rec["tipo_doc"], "")
+            except Exception as exc:  # noqa: BLE001
+                ctx.erro_item(ctrl, exc, tipo=rec["tipo_doc"], nome="revisita")
+                feitos_rev += 1
+                ctx.progresso(feitos_rev)
+                continue
+            if status == "ok":
+                total_itens += gravar_documento_no_banco(
+                    db, linhas, rec["base"].get("data_atualizacao_pncp"),
+                    rec.get("termo_id"))
+                with db.sessao() as s:
+                    repo.remover_pendente(s, ctrl)
+                    s.commit()
+                conhecidos.add(ctrl)
+                resolvidos += 1
+                del pendentes_docs[ctrl]
+            feitos_rev += 1
+            ctx.progresso(feitos_rev,
+                          descricao=f"pendentes · [green]{resolvidos} resolvidos[/]")
+        ctx.log("info", f"[2] Pendentes resolvidos: [green]{resolvidos}[/]; "
+                        f"ainda pendentes: {len(pendentes_docs)}")
+
+    feitas_buscas = 0
+    ctx.progresso(0, len(pendentes), descricao="buscas · [green]0 itens[/]")
+    for termo, fonte, termo_id in pendentes:
+        if ctx.cancelado():
+            break
+        subprogresso(ctx, processados=0, total=None,
+                     descricao=f"[cyan]{termo[:24]}[/] ({fonte})")
+        n_docs_busca = n_itens_busca = 0
+        wm = watermark.get((termo_id, fonte))
+        max_atu = wm or ""
+        try:
+            for r in coleta_pncp.iter_resultados(
+                    termo, fonte, on_total=lambda n: subprogresso(ctx, total=n),
+                    **tam_pagina_kw):
+                n_docs_busca += 1
+                subprogresso(ctx, processados=n_docs_busca)
+                atu = r.get("data_atualizacao_pncp") or ""
+                if atu > max_atu:
+                    max_atu = atu
+                if params.atualizar and wm and atu and atu < wm:
+                    break
+                ctrl = r.get("numero_controle_pncp")
+                if not ctrl:
+                    continue
+                if ctrl in conhecidos:
+                    # Documento já coletado: só registra que ESTE termo também o encontrou.
+                    with db.conexao_bruta() as conn:
+                        repo.ligar_termos(conn, [(ctrl, termo_id)])
+                        conn.commit()
+                    continue
+                linhas, status = coleta_pncp.coletar_documento(r, fonte, termo)
+                if status != "ok":
+                    if status == "erro":
+                        total_erros += 1
+                        ctx.erro_item(ctrl, status, tipo=fonte, nome=termo)
+                    elif status == "sem_homologado":
+                        base = coleta_pncp.identificar(r, fonte)
+                        with db.sessao() as s:
+                            repo.gravar_pendente(s, ctrl, fonte, base, termo_id=termo_id,
+                                                 data=base.get("data", ""))
+                            s.commit()
+                        pendentes_docs[ctrl] = {"tipo_doc": fonte, "base": base}
+                    conhecidos.add(ctrl)   # marca visto (não reprocessa)
+                    continue
+                n = gravar_documento_no_banco(db, linhas, atu, termo_id)
+                conhecidos.add(ctrl)
+                total_docs += 1
+                total_itens += n
+                n_itens_busca += n
+                ctx.progresso(feitas_buscas,
+                              descricao=f"buscas · [green]{total_itens} itens[/]")
+            # Progresso e watermark fecham JUNTOS, na mesma transação: marcar a busca como
+            # concluída sem gravar o watermark faria a próxima atualização varrer do zero.
+            with db.sessao() as s:
+                repo.marcar_busca(s, termo_id, fonte, n_docs_busca, n_itens_busca)
+                if max_atu:
+                    repo_termo.gravar_watermark(s, termo_id, fonte, max_atu)
+                s.commit()
+            if max_atu:
+                watermark[(termo_id, fonte)] = max_atu
+        except Exception as exc:  # noqa: BLE001
+            total_erros += 1
+            ctx.log("erro", f"[red]erro[/] {termo} ({fonte}): {str(exc)[:80]}")
+            ctx.erro_item(termo, exc, tipo=fonte, nome=termo)
+        finally:
+            feitas_buscas += 1
+            ctx.progresso(feitas_buscas)
+
+    with db.sessao() as s:
+        contagens = repo.contar(s)
+    cor = "yellow" if total_erros else "green"
+    ctx.log("info", f"[bold {cor}][2] Concluído.[/] {total_docs} documentos novos, "
+                    f"[bold]{total_itens}[/] itens coletados, {total_erros} erros"
+                    f"{f', {resolvidos} pendentes resolvidos' if resolvidos else ''}. "
+                    f"→ banco ({contagens['documento']} documentos, {contagens['item']} itens)")
+
+    return ResultadoEtapa(
+        processados=total_itens, erros=total_erros,
+        metricas={"documentos_novos": total_docs, "itens_coletados": total_itens,
+                  "pendentes_resolvidos": resolvidos,
+                  "pendentes_restantes": len(pendentes_docs), **contagens},
+        preview=[],
+    )
+
+
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Quantas buscas (termo × fonte) faltam. Só HTTP: não gasta LLM."""
+    if params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+        from pesquisa_precos.db.repos import documento as repo
+
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+        try:
+            filtro = (set(c.strip() for c in params.conceitos.split(","))
+                      if params.conceitos else None)
+            termos = termos_do_banco(filtro, params.limite_termos)
+        except SystemExit as e:
+            return Estimativa(detalhes={"fonte": "banco", "aviso": str(e)})
+        with db.sessao() as s:
+            feitas = (set() if (params.ignorar_cache or params.atualizar)
+                      else repo.buscas_concluidas(s))
+            n_pendentes_doc = len(repo.pendentes(s))
+        total = len(termos) * len(FONTES)
+        faltam = sum(1 for t in termos for f in FONTES if (t["termo_id"], f) not in feitas)
+        return Estimativa(
+            unidades=faltam, chamadas_llm=0,
+            detalhes={"fonte": "banco", "buscas_totais": total,
+                      "já_feitas": total - faltam,
+                      "modo": "atualização (para no watermark)" if params.atualizar
+                              else "completa",
+                      "pendentes_sem_homologado": n_pendentes_doc},
+        )
+
     if not CONCEITOS.exists():
         return Estimativa(detalhes={"aviso": f"{CONCEITOS} ausente — rode a etapa 1 antes."})
     tarefas, feitas = _montar_tarefas(params)
@@ -200,6 +529,9 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    if params.fonte == "banco":
+        return executar_no_banco(params, ctx)
+
     os.makedirs(ARQUIVOS_DIR, exist_ok=True)
     os.makedirs(CK_PROGRESSO.parent, exist_ok=True)
 

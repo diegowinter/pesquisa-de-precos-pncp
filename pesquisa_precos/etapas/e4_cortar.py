@@ -18,6 +18,7 @@ Uso: python -m pesquisa_precos.etapas.e4_cortar
 """
 
 import sys
+from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -33,7 +34,8 @@ from pesquisa_precos.core.coleta import coleta_pncp
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 
 CHAVE = "4"
-VERSAO_CODIGO = "1.0.0"
+# 1.1.0 (Fase 10): `--fonte banco` — a etapa vira UPDATE em `item.sobrevivente`.
+VERSAO_CODIGO = "1.1.0"
 
 ITENS = paths.E2_ITENS
 CK_EXTRA = paths.CK_2_CONCEITOS_EXTRA
@@ -44,6 +46,51 @@ RELATORIO = paths.E4_RELATORIO
 
 class Params(BaseModel):
     entrada_legado: str | None = Field(None, description="CSV explodido da v1 (aceite fase 2)")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm classificação e itens")
+
+
+# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+#
+# A etapa inteira vira um UPDATE. "Sobrevivente" é ATRIBUTO do item (`item.sobrevivente`), não
+# um conjunto à parte: não existe tabela de sobreviventes para sair de sincronia com `item`,
+# e o CSV de 182 MB deixa de ser produzido.
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import documento as repo
+
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+
+    with db.sessao() as s:
+        contagens = repo.contar(s)
+        if not contagens["item"]:
+            raise SystemExit("Nenhum item no banco. Rode a etapa 2 antes.")
+        if not contagens["documento_termo"] and not contagens["item"]:
+            raise SystemExit("Nada classificado. Rode a etapa 3 antes.")
+        resultado = repo.marcar_sobreviventes_por_categoria(s)
+        n_docs = repo.recontar_sobreviventes_por_documento(s)
+        relatorio = repo.relatorio_por_categoria(s)
+        s.commit()
+        final = repo.contar(s)
+
+    ctx.log("info", f"[4] Categorias mantidas: {len(relatorio)} "
+                    f"(regra dos 5 desativada — ADR-016)")
+    ctx.log("info", f"[bold green][4] Itens sobreviventes: "
+                    f"{final['item_sobrevivente']}[/] "
+                    f"(+{resultado['marcados']}, -{resultado['desmarcados']}) · "
+                    f"{n_docs} documentos recontados")
+
+    return ResultadoEtapa(
+        processados=final["item_sobrevivente"], erros=0,
+        metricas={"categorias_mantidas": len(relatorio),
+                  "itens_sobreviventes": final["item_sobrevivente"],
+                  "documentos_recontados": n_docs, **resultado},
+        preview=relatorio[:50],
+    )
 
 
 def carregar_base(entrada_legado: str | None) -> pd.DataFrame:
@@ -58,6 +105,25 @@ def carregar_base(entrada_legado: str | None) -> pd.DataFrame:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Sem LLM: só conta quantos itens classificados entrariam no corte."""
+    if params.fonte == "banco":
+        from pesquisa_precos.db import sessao as db
+        from pesquisa_precos.db.repos import classificacao as repo_cls
+        from pesquisa_precos.db.repos import documento as repo
+
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+        with db.sessao() as s:
+            contagens = repo.contar(s)
+            cls = repo_cls.contar(s)
+        com_categoria = cls.get("item_categoria", 0)
+        return Estimativa(
+            unidades=contagens["item"], chamadas_llm=0,
+            detalhes={"fonte": "banco", "itens_no_banco": contagens["item"],
+                      "ligações item×categoria": com_categoria,
+                      "sobreviventes_hoje": contagens["item_sobrevivente"]},
+        )
+
     if not CLASSIF.exists():
         return Estimativa(detalhes={"aviso": f"{CLASSIF} ausente — rode a etapa 3 antes."})
     clas = pd.read_csv(CLASSIF, dtype=str, encoding="utf-8").fillna("")
@@ -70,6 +136,9 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+    if params.fonte == "banco":
+        return executar_no_banco(params, ctx)
+
     base = carregar_base(params.entrada_legado)
     if base.empty:
         raise SystemExit("Sem itens coletados. Rode a etapa 2 antes (ou use --entrada-legado).")

@@ -439,6 +439,10 @@ class Documento(Base):
     # Campo REAL de ordenação da API do PNCP — é o watermark da coleta incremental.
     data_atualizacao_pncp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     url_pncp: Mapped[str | None] = mapped_column(Text)
+    # Identificadores internos do PNCP (Fase 8, ADR-011/012): é com eles que a etapa 5 refaz
+    # `listar_arquivos()` para baixar o PDF depois do corte, sem reconsultar a busca.
+    numero_sequencial: Mapped[str | None] = mapped_column(Text)
+    numero_sequencial_ata: Mapped[str | None] = mapped_column(Text)
     n_paginas: Mapped[int | None] = mapped_column(Integer)
     hash_arquivo: Mapped[str | None] = mapped_column(Text)
     estado: Mapped[str] = mapped_column(
@@ -478,6 +482,44 @@ class Item(Base):
     sobrevivente: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     criado_em: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("numero_controle_pncp", "numero_item"),)
+
+
+class ColetaProgresso(Base):
+    """(termo, tipo_doc) já varridos — o que era `checkpoints/2_progresso.csv`.
+
+    NÃO é derivável do resultado, ao contrário dos checkpoints das outras etapas: uma busca
+    legítima pode não trazer documento nenhum, e derivar de `documento` faria a etapa revarrer
+    esses termos para sempre. Chaveado por `termo_id` porque o texto do termo pode ser
+    reescrito pela curadoria; o id, não.
+    """
+
+    __tablename__ = "coleta_progresso"
+    termo_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("termo.id", ondelete="CASCADE"), primary_key=True)
+    tipo_doc: Mapped[str] = mapped_column(_enum("tipo_documento"), primary_key=True)
+    n_documentos: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    n_itens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    concluido_em: Mapped[datetime] = _agora()
+
+
+class ColetaPendente(Base):
+    """Documento visto na busca mas ainda SEM resultado homologado — o que era
+    `checkpoints/2_pendentes.csv`. O `--atualizar` revisita esta lista antes de tudo.
+
+    `base` é o dict que `coleta_pncp.revisitar_pendente()` consome de volta; guardá-lo inteiro
+    em jsonb evita reimplementar o parser da API por fora dele.
+    """
+
+    __tablename__ = "coleta_pendente"
+    numero_controle_pncp: Mapped[str] = mapped_column(Text, primary_key=True)
+    tipo_doc: Mapped[str] = mapped_column(_enum("tipo_documento"), nullable=False)
+    termo_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("termo.id", ondelete="SET NULL"))
+    motivo: Mapped[str] = mapped_column(Text, nullable=False,
+                                        server_default="sem_homologado")
+    data: Mapped[str | None] = mapped_column(Text)
+    base: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    visto_em: Mapped[datetime] = _agora()
 
 
 class ColetaWatermark(Base):

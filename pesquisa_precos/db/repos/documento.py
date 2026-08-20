@@ -20,7 +20,7 @@ from pesquisa_precos.db import copia
 
 COLUNAS_DOC = ("numero_controle_pncp", "tipo_doc", "orgao", "orgao_cnpj", "uf", "ano",
                "data", "data_assinatura", "data_fim_vigencia", "data_atualizacao_pncp",
-               "url_pncp", "n_itens")
+               "url_pncp", "numero_sequencial", "numero_sequencial_ata", "n_itens")
 
 COLUNAS_ITEM = ("item_key", "numero_controle_pncp", "numero_item", "descricao_api",
                 "unidade", "quantidade", "preco_unitario", "preco_estimado",
@@ -39,7 +39,8 @@ def gravar_documentos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]])
         conn, "documento", COLUNAS_DOC, linhas,
         conflito=("numero_controle_pncp",),
         atualizar=("orgao", "orgao_cnpj", "uf", "ano", "data", "data_assinatura",
-                   "data_fim_vigencia", "data_atualizacao_pncp", "url_pncp", "n_itens"),
+                   "data_fim_vigencia", "data_atualizacao_pncp", "url_pncp",
+                   "numero_sequencial", "numero_sequencial_ata", "n_itens"),
     )
 
 
@@ -74,6 +75,44 @@ def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
              "WHERE item_key = ANY(:keys) AND NOT sobrevivente"),
         {"keys": list(item_keys)},
     ).rowcount
+
+
+def marcar_sobreviventes_por_categoria(sessao: Session) -> dict[str, int]:
+    """A etapa 4 inteira, em SQL: sobrevive o item com ao menos UMA categoria de conteúdo.
+
+    O caminho CSV carrega dois arquivos (182 MB de saída), faz merge, explode o multi-label e
+    reagrega — tudo para produzir um booleano por item. Aqui é um UPDATE nos dois sentidos,
+    porque "sobrevivente" é ATRIBUTO do item, não um conjunto à parte (ADR-018): não existe
+    tabela de sobreviventes para ficar fora de sincronia com `item`.
+
+    O `UPDATE` desmarca quem deixou de ter categoria — a etapa 4 sempre recomputa o corpus
+    inteiro (o corte depende de tudo que existe), então marcar sem desmarcar deixaria item
+    reprovado numa reclassificação marcado para sempre.
+
+    A regra dos 5 (`MIN_ITENS`/`TOP_N`) NÃO entra aqui: está desativada de propósito
+    (ADR-016), e a contagem por categoria é só diagnóstico.
+    """
+    marcados = sessao.execute(text("""
+        UPDATE item SET sobrevivente = true
+         WHERE NOT sobrevivente
+           AND EXISTS (SELECT 1 FROM item_categoria ic WHERE ic.item_key = item.item_key)
+    """)).rowcount
+    desmarcados = sessao.execute(text("""
+        UPDATE item SET sobrevivente = false
+         WHERE sobrevivente
+           AND NOT EXISTS (SELECT 1 FROM item_categoria ic WHERE ic.item_key = item.item_key)
+    """)).rowcount
+    return {"marcados": marcados, "desmarcados": desmarcados}
+
+
+def relatorio_por_categoria(sessao: Session) -> list[dict]:
+    """Contagem por categoria — o `4_relatorio_corte.csv`, que era diagnóstico e continua."""
+    return [
+        {"categoria": c, "n_itens_coletados": n, "mantida": True}
+        for c, n in sessao.execute(text(
+            "SELECT categoria, count(*) FROM item_categoria "
+            "GROUP BY categoria ORDER BY count(*) DESC")).all()
+    ]
 
 
 def limpar_sobreviventes(sessao: Session) -> int:
@@ -116,6 +155,75 @@ def mapa_pasta_para_controle(sessao: Session) -> dict[str, str]:
     raise NotImplementedError(
         "pasta_arquivos não é migrada (ADR-012). O mapa caminho→controle vive no m10, "
         "construído a partir de 2_itens_coletados.csv.")
+
+
+# ── Coleta da etapa 2 no banco (Fase 10) ────────────────────────────────────────────
+
+def buscas_concluidas(sessao: Session) -> set[tuple[int, str]]:
+    """(termo_id, tipo_doc) já varridos — o `ler_chaves_concluidas(2_progresso.csv)`."""
+    return {(tid, td) for tid, td in sessao.execute(
+        text("SELECT termo_id, tipo_doc::text FROM coleta_progresso")).all()}
+
+
+def marcar_busca(sessao: Session, termo_id: int, tipo_doc: str,
+                 n_documentos: int = 0, n_itens: int = 0) -> None:
+    """Fecha uma busca (termo × fonte). Os contadores são acumulados, não substituídos: uma
+    revarredura do mesmo termo soma o que trouxe a mais em vez de zerar o histórico."""
+    sessao.execute(text("""
+        INSERT INTO coleta_progresso (termo_id, tipo_doc, n_documentos, n_itens)
+        VALUES (:id, CAST(:td AS tipo_documento), :nd, :ni)
+        ON CONFLICT (termo_id, tipo_doc) DO UPDATE
+           SET n_documentos = coleta_progresso.n_documentos + EXCLUDED.n_documentos,
+               n_itens = coleta_progresso.n_itens + EXCLUDED.n_itens,
+               concluido_em = now()
+    """), {"id": termo_id, "td": tipo_doc, "nd": n_documentos, "ni": n_itens})
+
+
+def limpar_progresso(sessao: Session) -> int:
+    """`--ignorar-cache`: refaz todas as buscas. Não apaga documento nem item — o upsert
+    absorve a repetição, e apagar jogaria fora classificação já paga."""
+    return sessao.execute(text("DELETE FROM coleta_progresso")).rowcount
+
+
+def controles_conhecidos(sessao: Session) -> set[str]:
+    """Todo `numeroControlePNCP` já visto — o `indexar_docs_existentes()` do caminho CSV.
+
+    O dedup por documento é o que segura o custo de todas as etapas abaixo (um documento
+    aparece em dezenas de buscas). No CSV era preciso reconstruir doc→[item_key] para ligar
+    os conceitos extras; aqui não: `documento_termo` é por documento, não por item.
+    """
+    return set(sessao.scalars(text("SELECT numero_controle_pncp FROM documento")).all())
+
+
+def pendentes(sessao: Session) -> dict[str, dict]:
+    """Documentos sem resultado homologado, no formato que a etapa consome."""
+    return {
+        nc: {"tipo_doc": td, "termo_id": tid, "motivo": motivo, "data": data, "base": base}
+        for nc, td, tid, motivo, data, base in sessao.execute(text(
+            "SELECT numero_controle_pncp, tipo_doc::text, termo_id, motivo, data, base "
+            "  FROM coleta_pendente")).all()
+    }
+
+
+def gravar_pendente(sessao: Session, numero_controle: str, tipo_doc: str, base: dict, *,
+                    termo_id: int | None = None, motivo: str = "sem_homologado",
+                    data: str | None = None) -> None:
+    import json
+
+    sessao.execute(text("""
+        INSERT INTO coleta_pendente (numero_controle_pncp, tipo_doc, termo_id, motivo, data, base)
+        VALUES (:nc, CAST(:td AS tipo_documento), :tid, :motivo, :data, CAST(:base AS jsonb))
+        ON CONFLICT (numero_controle_pncp) DO UPDATE
+           SET motivo = EXCLUDED.motivo, base = EXCLUDED.base, visto_em = now()
+    """), {"nc": numero_controle, "td": tipo_doc, "tid": termo_id, "motivo": motivo,
+           "data": data, "base": json.dumps(base, ensure_ascii=False, default=str)})
+
+
+def remover_pendente(sessao: Session, numero_controle: str) -> int:
+    """A homologação saiu: o documento vira item coletado e sai da fila de revisita."""
+    return sessao.execute(
+        text("DELETE FROM coleta_pendente WHERE numero_controle_pncp = :nc"),
+        {"nc": numero_controle}).rowcount
 
 
 def contar(sessao: Session) -> dict[str, int]:

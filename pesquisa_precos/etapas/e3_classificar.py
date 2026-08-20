@@ -22,6 +22,7 @@ Uso: python -m pesquisa_precos.etapas.e3_classificar [--provedor local|openroute
 
 import sys
 import threading
+from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -72,6 +73,8 @@ class Params(BaseModel):
         False, description="Reprocessa só as chaves de erros/3_erros.csv")
     reasoning: bool = Field(
         False, description="Mantém o raciocínio do modelo LIGADO. Padrão: desligado.")
+    fonte: Literal["banco", "csv"] = Field(
+        "banco", description="De onde vêm os itens e para onde vai a classificação")
 
 
 def carregar_itens(entrada_legado: str | None) -> pd.DataFrame:
@@ -115,6 +118,28 @@ def agrupar_por_texto(pendentes: list) -> list[dict]:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Uma chamada por TEXTO único ainda não classificado — não por item."""
+    if params.fonte == "banco":
+        from pesquisa_precos.db.repos import classificacao as repo
+
+        ok, detalhe = db.esta_disponivel()
+        if not ok:
+            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+        with db.sessao() as s:
+            n_textos, n_itens = repo.contar_pendentes(s)
+            ja = len(repo.hashes_ja_classificados(s))
+        n = n_textos if not params.limite else min(n_textos, params.limite)
+        nome_provedor = ctx.provedores.resolucao("chat", provedor=params.provedor).info.nome
+        preco = custo_por_chamada(ctx.config, nome_provedor)
+        return Estimativa(
+            unidades=n, chamadas_llm=n,
+            custo_usd=None if preco is None else n * preco,
+            duracao_s=n / max(params.concurrency, 1) * 2,
+            detalhes={"fonte": "banco", "itens_pendentes": n_itens,
+                      "textos_unicos": n_textos,
+                      "dedup": f"{n_itens / max(n_textos, 1):.1f}x",
+                      "textos_ja_classificados (nunca repagos)": ja},
+        )
+
     if not params.entrada_legado and not ENTRADA.exists():
         return Estimativa(detalhes={"aviso": f"{ENTRADA} ausente — rode a etapa 2 antes."})
     df = carregar_itens(params.entrada_legado)
@@ -147,6 +172,20 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         msg = exigir(cfg, nome_provedor)
         if msg:
             raise SystemExit(msg)
+
+    if params.fonte == "banco":
+        # Prompt e reasoning são resolvidos igual nos dois caminhos; só o IO muda.
+        reasoning_kw = {}
+        if not params.reasoning:
+            reasoning_kw = ({"extra_body": {"reasoning_effort": "none"}}
+                            if nome_provedor == "local" else {"reasoning": {"enabled": False}})
+        try:
+            with db.sessao() as sessao:
+                prompts_ativos = prompts_resolver.carregar_ativos(sessao,
+                                                                  ["classificar_item"])
+        except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
+            prompts_ativos = {}
+        return executar_no_banco(params, ctx, resolucao_chat, prompts_ativos, reasoning_kw)
 
     df = carregar_itens(params.entrada_legado)
     if params.retry_erros:
@@ -244,6 +283,116 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         metricas={"textos_unicos": len(tarefas), "itens_afetados": n_itens,
                   "dedup": f"{len(pend) / max(n_textos, 1):.1f}x"},
         preview=[{"descricao": g["descricao_api"][:200], "itens": len(g["keys"])}
+                 for g in tarefas[:30]],
+    )
+
+
+# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+#
+# O dedup por texto — o que segura o custo desta etapa, a mais cara do ciclo — deixa de ser
+# intra-execução e vira PERMANENTE (ADR-007): `texto_classificacao` sobrevive entre runs, e
+# um texto já pago nunca mais volta ao modelo. No CSV, o agrupamento era refeito a cada
+# execução sobre 1,6 milhão de linhas em memória; aqui o `texto_hash` já veio calculado da
+# ingestão da etapa 2 e o agrupamento é do banco.
+
+def executar_no_banco(params: Params, ctx: ContextoExecucao,
+                      resolucao_chat, prompts_ativos: dict,
+                      reasoning_kw: dict) -> ResultadoEtapa:
+    from pesquisa_precos.db.repos import classificacao as repo
+
+    ok_banco, detalhe = db.esta_disponivel()
+    if not ok_banco:
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
+                         f"ou rode com --fonte csv.")
+
+    with db.sessao() as s:
+        n_textos, n_itens_pend = repo.contar_pendentes(s)
+        tarefas = repo.textos_pendentes(s, params.limite)
+    if not tarefas:
+        with db.sessao() as s:
+            n_recomputadas = repo.recomputar_item_categoria(s)
+            s.commit()
+        ctx.log("info", "[3] Nada a classificar (todo texto já está em texto_classificacao).")
+        return ResultadoEtapa(metricas={"textos_ja_classificados": 0,
+                                        "item_categoria_recomputadas": n_recomputadas})
+
+    n_itens = sum(g["n_itens"] for g in tarefas)
+    limite_txt = f" — rodando só {len(tarefas)} (limite)" if params.limite else ""
+    ctx.log("info", f"[bold][3] Dedup: {n_itens_pend} itens → {n_textos} textos únicos[/]"
+                    f"{limite_txt} · classificando {len(tarefas)} textos "
+                    f"({n_itens} itens), concorrência: {params.concurrency}")
+
+    _tls = threading.local()
+
+    def _curador():
+        if not hasattr(_tls, "c"):
+            _tls.c = ctx.provedores.novo_chat(
+                provedor=params.provedor,
+                curador_kwargs={"prompts_ativos": prompts_ativos, **reasoning_kw}).curador
+        return _tls.c
+
+    nome_provedor = resolucao_chat.info.nome
+    modelo = getattr(resolucao_chat.info, "modelo", None) or nome_provedor
+    n_erros, n_ok = [0], [0]
+    lote: list[tuple] = []
+
+    def descarregar():
+        """Grava o lote acumulado. Em lote e não por texto: `COPY` numa transação por item
+        seria mais lento que a própria chamada de LLM que estamos economizando."""
+        if not lote:
+            return
+        with db.conexao_bruta() as conn:
+            repo.gravar(conn, lote)
+            conn.commit()
+        lote.clear()
+
+    def fn(g):
+        return _curador().classificar_categoria(g["descricao"], g.get("unidade") or "")
+
+    def ok(g, res):
+        conf = res.get("confianca", "")
+        if conf == "erro":
+            n_erros[0] += 1
+            ctx.erro_item(g["texto_hash"], res.get("_erro"), nome=g["descricao"])
+            return   # texto com erro NÃO entra na tabela: entrar marcaria como pago algo
+                     # que não foi classificado, e o retry nunca mais o encontraria.
+        n_ok[0] += 1
+        # `confianca` é `real` no banco e PALAVRA no LLM — a escala ordinal é declarada em
+        # `repo.CONFIANCA_ORDINAL`, a mesma que a migração usa.
+        lote.append((g["texto_hash"], g["descricao"], g.get("unidade"),
+                     res["categorias"], repo.confianca_para_real(conf),
+                     res.get("_prompt_versao_id"), modelo, nome_provedor, None))
+        if len(lote) >= 500:
+            descarregar()
+
+    def err(g, exc):
+        n_erros[0] += 1
+        ctx.erro_item(g["texto_hash"], exc, nome=g["descricao"])
+
+    ctx.progresso(0, len(tarefas), descricao="classificando")
+    try:
+        executar_paralelo(tarefas, fn, concurrency=params.concurrency,
+                          on_result=ok, on_error=err,
+                          on_progress=lambda f, t: ctx.progresso(f, t))
+    finally:
+        descarregar()   # o que já foi pago é gravado mesmo se a etapa cair no meio
+
+    with db.sessao() as s:
+        n_recomputadas = repo.recomputar_item_categoria(s)
+        s.commit()
+        contagens = repo.contar(s)
+
+    cor = "yellow" if n_erros[0] else "green"
+    ctx.log("info", f"[bold {cor}][3] Concluído.[/] {n_erros[0]} erros. "
+                    f"→ texto_classificacao ({contagens.get('texto_classificacao', 0)} textos), "
+                    f"item_categoria (+{n_recomputadas})")
+
+    return ResultadoEtapa(
+        processados=n_ok[0], erros=n_erros[0],
+        metricas={"textos_unicos": len(tarefas), "itens_afetados": n_itens,
+                  "item_categoria_recomputadas": n_recomputadas,
+                  "dedup": f"{n_itens_pend / max(n_textos, 1):.1f}x"},
+        preview=[{"descricao": g["descricao"][:200], "itens": g["n_itens"]}
                  for g in tarefas[:30]],
     )
 

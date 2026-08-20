@@ -108,6 +108,11 @@ def passada_documentos(rel: Relatorio, total: int) -> dict[str, set[str]]:
                     data(r.get("data_assinatura")), data(r.get("data_fim_vigencia")),
                     None,                                # data_atualizacao_pncp: não existe na v2
                     url_documento(nc, tipo_doc) or None,
+                    # Só as linhas coletadas a partir da Fase 8 trazem os sequenciais; as
+                    # herdadas da v2 vêm vazias, e a etapa 5 cai no fluxo de rebaixar por
+                    # `url_pncp`. Não é perda nova — a v2 nunca gravou esses campos.
+                    txt(r.get("numero_sequencial")),
+                    txt(r.get("numero_sequencial_ata")),
                     0,                                   # n_itens: contado abaixo
                 ]
             docs[nc][-1] += 1

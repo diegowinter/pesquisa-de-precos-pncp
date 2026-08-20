@@ -63,6 +63,20 @@ def id_por_norm(sessao: Session) -> dict[str, int]:
     return {n: i for n, i in sessao.execute(text("SELECT termo_norm, id FROM termo")).all()}
 
 
+def watermarks(sessao: Session) -> dict[tuple[int, str], str]:
+    """`(termo_id, tipo_doc) → watermark ISO` — o `carregar_watermark()` da etapa 2 em SQL.
+
+    Devolve string ISO, não `datetime`: a etapa compara com `data_atualizacao_pncp` como vem
+    da API, que é texto. Converter dos dois lados só criaria uma chance a mais de erro de
+    fuso numa comparação que hoje é lexicográfica e funciona.
+    """
+    return {
+        (tid, td): wm.isoformat() if hasattr(wm, "isoformat") else str(wm)
+        for tid, td, wm in sessao.execute(text(
+            "SELECT termo_id, tipo_doc::text, watermark FROM coleta_watermark")).all()
+    }
+
+
 def gravar_watermark(sessao: Session, termo_id: int, tipo_doc: str, watermark) -> None:
     """Watermark da coleta incremental por (termo, tipo_doc).
 
