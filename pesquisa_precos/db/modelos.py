@@ -132,6 +132,10 @@ class Provedor(Base):
     rpm_limite: Mapped[int | None] = mapped_column(Integer)
     custo_in_por_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     custo_out_por_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    # Preço médio de UMA chamada, em USD (Fase 14). Só alimenta o `estimar()` das etapas;
+    # o custo consumado real vem de `llm_chamada`. NULL = "não informado" → estimativa sem
+    # custo, em vez de um número inventado. 0.0 é diferente: é o provedor local, que é grátis.
+    custo_usd_chamada: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     prioridade: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
     permite_fallback: Mapped[bool] = mapped_column(

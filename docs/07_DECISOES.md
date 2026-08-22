@@ -720,5 +720,25 @@ desenvolvimento.
 - `config/settings.py` encolhe para segredos e `DATABASE_URL`; `carregar_config()` deixa de ser
   a fonte de thresholds e URLs. Bumpar `VERSAO_CODIGO` de toda etapa cujo threshold migrou —
   o valor efetivo passa a vir de outro lugar, e o fingerprint tem de enxergar isso.
-- **Rollback:** a migração Alembic é reversível (`downgrade` restaura `api_key_ref`), e o `.env`
-  atual continua no disco do operador enquanto a virada não é confirmada.
+- **Rollback:** as migrações são reversíveis (`downgrade` de `0009`/`0010`), e o `.env` atual
+  continua no disco do operador enquanto a virada não é confirmada.
+
+**Ajustes feitos na implementação** (2026-08-22)
+
+- O **seed ficou em `ferramentas/semear_provedores.py`**, não numa migração Alembic como esta
+  ADR previa. Semear depende do `.env` de origem e da chave-mestra no ambiente; migração que
+  exige segredo para rodar quebra em qualquer máquina que não seja a do operador, e o
+  `downgrade` dela não teria como desfazer a cifra.
+- **`provedor.custo_usd_chamada` (migração 0010)** não estava prevista. `CUSTO_USD_CHAMADA_*`
+  não cabia em `custo_in_por_mtok`/`custo_out_por_mtok`: converter preço por chamada em preço
+  por Mtok exigiria inventar um tamanho médio de prompt, e o `estimar()` prefere responder
+  "não estimado" a inventar. `NULL` = não informado; `0.0` = grátis (o provedor local).
+- **`REJEITOR_THRESHOLD` não migrou porque já estava morto** — a 6a usa o `Param` `piso` desde
+  a Fase 11. Só saiu de `carregar_config()`.
+- **`estimar()` usa `resolucao_opcional`**, que devolve `None` em vez de levantar. Estimativa
+  roda quando o operador ABRE a tela da etapa, antes de qualquer play, e nesse momento é normal
+  a configuração ainda estar incompleta — derrubar a tela esconderia os números que ele foi ali
+  ver. O gate de verdade continua no play (`checar_saude_previa`).
+- **`Curador.from_provedor` foi removido.** Era um segundo caminho, usado só pela 6c, que
+  montava o cliente lendo o `.env` e contornava `capacidade_provedor` inteiro — exatamente o
+  tipo de duplicação que esta ADR existe para eliminar.

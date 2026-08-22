@@ -31,7 +31,6 @@ for _s in (sys.stdout, sys.stderr):
 
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config.settings import custo_por_chamada, exigir
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import sessao as db
@@ -67,8 +66,8 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
         n_textos, n_itens = repo.contar_pendentes(s)
         ja = len(repo.hashes_ja_classificados(s))
     n = n_textos if not params.limite else min(n_textos, params.limite)
-    nome_provedor = ctx.provedores.resolucao("chat", provedor=params.provedor).info.nome
-    preco = custo_por_chamada(ctx.config, nome_provedor)
+    resolucao = ctx.provedores.resolucao_opcional("chat")
+    preco = resolucao.info.custo_usd_chamada if resolucao else None
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,
@@ -81,16 +80,10 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    cfg = ctx.config
-    # Fase 7 (ADR-006/ADR-014): banco (`capacidade_provedor`) manda se estiver configurado;
-    # sem isso, cai no `.env` como sempre — e só nesse caso a validação legada de `.env` faz
-    # sentido (config via banco já traz tudo que precisa, ou falha alto e claro na chamada).
-    resolucao_chat = ctx.provedores.resolucao("chat", provedor=params.provedor)
+    # Fase 14 (ADR-022): uma fonte só. `resolucao` levanta `CapacidadeNaoConfigurada` se
+    # ninguém atende `chat` — a validação de `.env` que existia aqui virou desnecessária.
+    resolucao_chat = ctx.provedores.resolucao("chat")
     nome_provedor = resolucao_chat.info.nome
-    if resolucao_chat.origem == "env":
-        msg = exigir(cfg, nome_provedor)
-        if msg:
-            raise SystemExit(msg)
 
     # Prompt e reasoning são resolvidos igual nos dois caminhos; só o IO muda.
     reasoning_kw = {}

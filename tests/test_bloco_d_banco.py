@@ -72,36 +72,104 @@ def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
     assert len(tabela) == 2
 
 
-# ── Capacidades novas alternam por configuração (Fase 11) ────────────────────────────
+# ── Capacidades exigem provedor cadastrado (Fase 11 + Fase 14) ───────────────────────
+#
+# Estes testes protegiam a ADR-021 pelo `.env` (`PDF_BASE_URL` vazio → falha). A ADR-022 tirou
+# o `.env` da resolução, então a MESMA invariante é verificada pelo banco: sem provedor
+# apontado, ou com provedor sem endereço, a etapa para antes de começar. O que não pode
+# acontecer, em nenhum dos dois mundos, é cair num caminho em processo.
 
-@pytest.mark.parametrize("capacidade,variavel", [
-    ("pdf", "PDF_BASE_URL"),
-    ("pareamento", "PAREAMENTO_BASE_URL"),
-    ("rerank", "GPU_BASE_URL"),
-])
-def test_capacidade_sem_servico_falha_em_vez_de_rodar_aqui(monkeypatch, capacidade, variavel):
-    """ADR-021: não existe mais adapter em processo. Sem endereço, a etapa PARA com uma
-    mensagem que diz o que configurar — em vez de carregar torch/PyMuPDF no processo que só
-    deveria baixar e gravar no banco."""
-    from pesquisa_precos.config.settings import carregar_config
+@pytest.fixture
+def provedor_de_teste():
+    """Escreve direto no repo (não pelo service) porque alguns casos precisam de uma linha que
+    o service RECUSA gravar — é o cenário "alguém editou a tabela na mão"."""
+    from pesquisa_precos.db.repos import execucao as repo
+
+    criados: list[str] = []
+
+    def criar(nome: str, capacidades: list[str], base_url: str):
+        with db.sessao() as sessao:
+            repo.upsert_provedor(sessao, nome, capacidades, base_url)
+            for c in capacidades:
+                repo.apontar_capacidade(sessao, c, nome)
+        criados.append(nome)
+
+    yield criar
+
+    from sqlalchemy import text
+    with db.sessao() as sessao:
+        for nome in criados:
+            sessao.execute(text("DELETE FROM capacidade_provedor WHERE provedor = :n"),
+                           {"n": nome})
+            sessao.execute(text("DELETE FROM provedor_status WHERE provedor = :n"), {"n": nome})
+            sessao.execute(text("DELETE FROM provedor WHERE nome = :n"), {"n": nome})
+
+
+@pytestmark_db
+@pytest.mark.parametrize("capacidade", ["pdf", "pareamento", "rerank", "embed", "chat"])
+def test_capacidade_sem_provedor_falha_em_vez_de_rodar_aqui(capacidade):
+    """ADR-021 + ADR-022: não existe adapter em processo NEM fallback para o `.env`. Sem
+    provedor apontado, a etapa PARA com uma mensagem que diz o que configurar — em vez de
+    carregar torch/PyMuPDF no processo que só deveria baixar e gravar no banco."""
+    from sqlalchemy import text
+
+    from pesquisa_precos.providers.resolver import (
+        CapacidadeNaoConfigurada,
+        Provedores,
+        resolver_capacidade,
+    )
+
+    with db.sessao() as sessao:
+        # garante a ausência de apontamento, sem tocar no que o operador configurou de verdade
+        existente = sessao.execute(
+            text("SELECT provedor FROM capacidade_provedor "
+                 "WHERE capacidade = CAST(:c AS capacidade)"), {"c": capacidade}).first()
+        if existente:
+            pytest.skip(f"`{capacidade}` está configurada nesta instalação ({existente[0]})")
+        with pytest.raises(CapacidadeNaoConfigurada) as exc:
+            resolver_capacidade(capacidade, sessao=sessao)
+    assert capacidade in str(exc.value) and "/provedores" in str(exc.value)
+    with pytest.raises(CapacidadeNaoConfigurada):
+        assert getattr(Provedores({}), capacidade)
+
+
+@pytestmark_db
+def test_capacidades_viram_remotas_com_provedor_apontado(provedor_de_teste):
     from pesquisa_precos.providers.resolver import Provedores
 
-    monkeypatch.setenv(variavel, "")
-    p = Provedores(carregar_config())
-    with pytest.raises(SystemExit) as exc:
-        getattr(p, capacidade)
-    assert variavel in str(exc.value)
-
-
-def test_capacidades_viram_remotas_com_base_url(monkeypatch):
-    from pesquisa_precos.config.settings import carregar_config
-    from pesquisa_precos.providers.resolver import Provedores
-
-    monkeypatch.setenv("PDF_BASE_URL", "http://gpu:8200")
-    monkeypatch.setenv("PAREAMENTO_BASE_URL", "http://gpu:8300")
-    p = Provedores(carregar_config())
+    provedor_de_teste("teste-d-pdf", ["pdf"], "http://gpu:8200")
+    provedor_de_teste("teste-d-par", ["pareamento"], "http://gpu:8300")
+    p = Provedores({})
     assert type(p.pdf).__name__ == "PdfRemotoAdapter"
     assert type(p.pareamento).__name__ == "PareamentoRemotoAdapter"
+
+
+@pytestmark_db
+def test_provedor_sem_base_url_reprova(provedor_de_teste):
+    """Linha gravada na mão, com `base_url` vazia: `_exigir_servico` tem de recusar. Vazio
+    NUNCA volta a significar "roda aqui" (ADR-021)."""
+    from pesquisa_precos.providers.resolver import CapacidadeNaoConfigurada, Provedores
+
+    provedor_de_teste("teste-d-vazio", ["pdf"], "")
+    with pytest.raises(CapacidadeNaoConfigurada, match="base_url"):
+        assert Provedores({}).pdf
+
+
+@pytestmark_db
+def test_health_check_reprova_capacidade_sem_provedor():
+    """Sem provedor a etapa não pode começar, e o health check pré-play é onde isso aparece —
+    antes de gastar. Tem de virar linha vermelha, não exceção: é o painel de diagnóstico."""
+    from sqlalchemy import text
+
+    from pesquisa_precos.providers import saude
+
+    with db.sessao() as sessao:
+        if sessao.execute(text("SELECT 1 FROM capacidade_provedor "
+                               "WHERE capacidade = 'pdf'")).first():
+            pytest.skip("`pdf` está configurada nesta instalação")
+    resultado = saude.checar_capacidade("pdf", {})
+    assert resultado["saudavel"] is False
+    assert resultado["origem"] == "não configurado"
 
 
 def test_nenhum_adapter_em_processo_sobreviveu():

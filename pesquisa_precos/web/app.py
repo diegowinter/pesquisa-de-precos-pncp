@@ -379,6 +379,7 @@ def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form
                     capacidades: list[str] = _FORM_CAPACIDADES, modelo_padrao: str = Form(""),
                     batch_size: str = Form(""), rpm_limite: str = Form(""),
                     custo_in_por_mtok: str = Form(""), custo_out_por_mtok: str = Form(""),
+                    custo_usd_chamada: str = Form(""),
                     ativo: str = Form("on"), api_key: str = Form(""),
                     usuario: str = Depends(auth.exigir_login)):
     try:
@@ -388,6 +389,7 @@ def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form
             rpm_limite=int(rpm_limite) if rpm_limite.strip() else None,
             custo_in_por_mtok=_num(custo_in_por_mtok),
             custo_out_por_mtok=_num(custo_out_por_mtok),
+            custo_usd_chamada=_num(custo_usd_chamada),
             ativo=ativo == "on", api_key=api_key or None)
     except (ProvedorInvalido, ChaveMestraAusente) as exc:
         return _redirecionar_com_erro("/provedores", exc)

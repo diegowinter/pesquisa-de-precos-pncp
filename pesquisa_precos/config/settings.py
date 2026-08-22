@@ -1,16 +1,20 @@
 """
-Configuração central da pipeline v2 (`.env`), com defaults e validação por etapa.
+Configuração de BOOTSTRAP (`.env`) — o que a aplicação precisa saber antes de conseguir ler o
+banco.
 
-Carrega o `.env` da pasta do projeto (e, como fallback, o da raiz do repositório) e
-expõe todas as variáveis da seção 1.5 do guia já resolvidas, com defaults sensatos.
+Até a Fase 14 este módulo era a configuração inteira da pipeline: modelo, base_url, chave de
+API, thresholds, custos. A ADR-022 mudou a fronteira para **configurável vs. bootstrap**: tudo
+que é ajuste de operação foi para o banco e se edita pela tela (`/provedores` e o formulário de
+cada etapa, gerado do `Params`), versionado em `config_versao`.
 
-Convenção de provedores de LLM:
-  - `openrouter` (pago)  → OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL_PASS1|PASS2
-  - `local` (LM Studio)  → LOCAL_API_KEY / LOCAL_BASE_URL / LOCAL_MODEL
+Sobraram duas variáveis, e nenhuma delas se troca pela tela:
+  - `DATABASE_URL` — resolvida em `db/sessao.py`, não aqui;
+  - `APP_SECRET_KEY` — a chave-mestra que cifra os segredos do banco (`db/segredo.py`). Uma
+    chave não pode morar dentro do que ela protege.
 
-`resolver_provedor(nome)` devolve o trio (model, base_url, api_key) para o `Curador`.
-Cada etapa que precisa de LLM/embeddings/OCR chama `exigir(cfg, *chaves)` para falhar
-cedo com mensagem clara se faltar configuração.
+`carregar_config()` sobrevive porque `ContextoExecucao.config` ainda a expõe às etapas, mas
+devolve um dict praticamente vazio. Se você veio aqui procurar onde configurar um modelo ou um
+threshold: é na tela, não neste arquivo.
 """
 
 import os
@@ -45,110 +49,10 @@ def _i(nome: str, default: int) -> int:
 
 
 def carregar_config() -> dict:
-    """Resolve toda a configuração da pipeline a partir do ambiente/.env."""
-    return {
-        # OpenRouter / OpenAI-compat (pago)
-        "openrouter_api_key": os.getenv("OPENAI_API_KEY", ""),
-        "openrouter_base_url": os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
-        "model_pass1": os.getenv("OPENAI_MODEL_PASS1", ""),
-        "model_pass2": os.getenv("OPENAI_MODEL_PASS2", ""),
-        # Modelo de VISÃO (etapa 5_alt_a: extrai a tabela direto da imagem da página).
-        "model_vision": os.getenv("OPENAI_MODEL_VISION", ""),
-        # LM Studio (local, OpenAI-compatible)
-        "local_base_url": os.getenv("LOCAL_BASE_URL", "http://localhost:1234/v1"),
-        "local_model": os.getenv("LOCAL_MODEL", ""),
-        "local_api_key": os.getenv("LOCAL_API_KEY", "lm-studio"),
-        # ── Serviços de `pncp-servicos-locais` (ADR-019/ADR-021) ─────────────────────
-        # Este processo baixa, orquestra e grava no banco; GPU e CPU intensiva ficam do outro
-        # lado de um HTTP. Vazio NÃO é mais "roda aqui": é erro de configuração, e a etapa
-        # para antes de começar (`providers/resolver._exigir_servico`).
-        "gpu_base_url": os.getenv("GPU_BASE_URL", "http://localhost:8100"),
-        "gpu_api_key": os.getenv("GPU_API_KEY", "gpu"),
-        "pdf_base_url": os.getenv("PDF_BASE_URL", ""),
-        "pdf_api_key": os.getenv("PDF_API_KEY", "pdf"),
-        "pareamento_base_url": os.getenv("PAREAMENTO_BASE_URL", ""),
-        "pareamento_api_key": os.getenv("PAREAMENTO_API_KEY", "pareamento"),
-        # `OCR_*` NÃO mora aqui: quem chama o OCR é o serviço de `pdf`, na máquina dele, e é
-        # no `.env` DE LÁ que ele se configura.
-        # Nomes de modelo, para log e para a tela de provedores — quem carrega são os serviços.
-        "embedder_model": os.getenv("EMBEDDER_MODEL", "BAAI/bge-m3"),
-        "reranker_model": os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3"),
-        # ── Thresholds: SAÍRAM daqui na Fase 14 (ADR-022) ───────────────────────────
-        # `rerank_t_aceita`/`rerank_t_rejeita` são `Params` da etapa 6b; `min_itens`/`top_n`
-        # são `Params` da 7. O valor efetivo vem de `config_versao` — versionado e imutável,
-        # de modo que "por que o resultado mudou?" tenha resposta (ADR-014). Mantê-los aqui
-        # como segunda fonte reintroduziria exatamente a divergência silenciosa que a ADR-020
-        # e a ADR-021 removeram em outros pontos.
-        #
-        # `REJEITOR_THRESHOLD` não migrou porque já estava MORTO: a 6a usa o `Param` `piso`
-        # desde a Fase 11, e nada lia esta chave.
-        # Preço médio de UMA chamada, por modelo, em USD. Só existe para o `estimar` das
-        # etapas: sem número, ele responde "não estimado" em vez de inventar. A medição real
-        # (tokens por chamada, gravados em `llm_chamada`) é entrega da Fase 3 — até lá quem
-        # sabe o preço é o operador, e ele o informa aqui.
-        "custo_usd_chamada_pass1": _f("CUSTO_USD_CHAMADA_PASS1", 0.0),
-        "custo_usd_chamada_pass2": _f("CUSTO_USD_CHAMADA_PASS2", 0.0),
-    }
+    """O que ainda vem do `.env`. Quase nada, por desenho (ADR-022).
 
-
-def custo_por_chamada(cfg: dict, provedor: str, forte: bool = False) -> float | None:
-    """USD por chamada de LLM, ou None quando não configurado (ver `carregar_config`).
-
-    O provedor `local` (LM Studio na GPU caseira) não custa dinheiro: devolve 0.0.
+    Continua devolvendo um dict — e não `None` — porque `ctx.config` faz parte do contrato de
+    etapa (docs/03_ETAPAS.md §1) e várias delas ainda recebem o parâmetro sem usá-lo. Quando o
+    último uso sumir, o campo sai do contexto junto.
     """
-    if provedor == "local":
-        return 0.0
-    chave = "custo_usd_chamada_pass2" if forte else "custo_usd_chamada_pass1"
-    valor = cfg.get(chave) or 0.0
-    return valor or None
-
-
-def resolver_provedor(cfg: dict, provedor: str, forte: bool = False) -> dict:
-    """
-    Devolve {model, base_url, api_key} para o `Curador`, conforme o provedor pedido.
-
-    provedor: 'local' (LM Studio) ou 'openrouter' (pago).
-    forte:    quando 'openrouter', usa PASS2 (modelo caro) em vez de PASS1.
-              (ignorado no 'local', que tem um único modelo.)
-    """
-    if provedor == "local":
-        return {
-            "model": cfg["local_model"],
-            "base_url": cfg["local_base_url"],
-            "api_key": cfg["local_api_key"],
-        }
-    if provedor == "openrouter":
-        return {
-            "model": cfg["model_pass2"] if forte else cfg["model_pass1"],
-            "base_url": cfg["openrouter_base_url"],
-            "api_key": cfg["openrouter_api_key"],
-        }
-    raise ValueError(f"Provedor desconhecido: {provedor!r} (use 'local' ou 'openrouter').")
-
-
-# Validações por escopo: cada chave mapeia para as vars obrigatórias e uma dica.
-_REQUISITOS = {
-    "openrouter": (
-        ("openrouter_api_key", "model_pass1", "model_pass2"),
-        "OPENAI_API_KEY / OPENAI_MODEL_PASS1 / OPENAI_MODEL_PASS2 (provedor openrouter)",
-    ),
-    "local": (
-        ("local_model",),
-        "LOCAL_MODEL (LM Studio; confira também LOCAL_BASE_URL)",
-    ),
-}
-
-
-def exigir(cfg: dict, *escopos: str) -> str | None:
-    """
-    Retorna uma mensagem de erro se faltar alguma var obrigatória p/ os escopos pedidos,
-    senão None. Escopos: 'openrouter', 'local'.
-    """
-    faltando = []
-    for escopo in escopos:
-        chaves, dica = _REQUISITOS[escopo]
-        if any(not cfg.get(k) for k in chaves):
-            faltando.append(dica)
-    if faltando:
-        return "Configuração incompleta no .env:\n  - " + "\n  - ".join(faltando)
-    return None
+    return {}

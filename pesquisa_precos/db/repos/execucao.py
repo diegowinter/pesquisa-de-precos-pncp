@@ -257,6 +257,7 @@ def upsert_provedor(sessao: Session, nome: str, capacidades: Sequence[str], base
                     rpm_limite: int | None = None,
                     custo_in_por_mtok: float | None = None,
                     custo_out_por_mtok: float | None = None,
+                    custo_usd_chamada: float | None = None,
                     ativo: bool = True) -> None:
     """Cadastro/edição de provedor. NÃO toca na chave de API — para isso existe
     `gravar_api_key`, que cifra (ADR-022). Separados de propósito: salvar o formulário sem
@@ -264,9 +265,10 @@ def upsert_provedor(sessao: Session, nome: str, capacidades: Sequence[str], base
     sessao.execute(
         text("INSERT INTO provedor (nome, capacidades, base_url, api_key_ref, modelo_padrao, "
              "                      permite_fallback, batch_size, rpm_limite, "
-             "                      custo_in_por_mtok, custo_out_por_mtok, ativo) "
+             "                      custo_in_por_mtok, custo_out_por_mtok, "
+             "                      custo_usd_chamada, ativo) "
              "VALUES (:n, CAST(:c AS capacidade[]), :u, :k, :m, :f, "
-             "        COALESCE(:b, 32), :r, :ci, :co, :a) "
+             "        COALESCE(:b, 32), :r, :ci, :co, :cc, :a) "
              "ON CONFLICT (nome) DO UPDATE SET "
              "  capacidades = EXCLUDED.capacidades, base_url = EXCLUDED.base_url, "
              "  api_key_ref = EXCLUDED.api_key_ref, modelo_padrao = EXCLUDED.modelo_padrao, "
@@ -274,10 +276,12 @@ def upsert_provedor(sessao: Session, nome: str, capacidades: Sequence[str], base
              "  batch_size = EXCLUDED.batch_size, rpm_limite = EXCLUDED.rpm_limite, "
              "  custo_in_por_mtok = EXCLUDED.custo_in_por_mtok, "
              "  custo_out_por_mtok = EXCLUDED.custo_out_por_mtok, "
+             "  custo_usd_chamada = EXCLUDED.custo_usd_chamada, "
              "  ativo = EXCLUDED.ativo, atualizado_em = now()"),
         {"n": nome, "c": list(capacidades), "u": base_url, "k": api_key_ref,
          "m": modelo_padrao, "f": permite_fallback, "b": batch_size, "r": rpm_limite,
-         "ci": custo_in_por_mtok, "co": custo_out_por_mtok, "a": ativo})
+         "ci": custo_in_por_mtok, "co": custo_out_por_mtok,
+         "cc": custo_usd_chamada, "a": ativo})
 
 
 def gravar_api_key(sessao: Session, provedor: str, api_key: str) -> None:
@@ -561,6 +565,7 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
                               "capacidades_atendidas": []} for p in sessao.execute(
         text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, ativo, "
              "       batch_size, rpm_limite, custo_in_por_mtok, custo_out_por_mtok, "
+             "       custo_usd_chamada, "
              "       api_key_last4, api_key_key_id, api_key_atualizada_em, "
              "       (api_key_cifrada IS NOT NULL) AS tem_api_key, "
              "       atualizado_em FROM provedor ORDER BY nome")).mappings().all()}
@@ -581,7 +586,8 @@ def capacidade_provedor_info(sessao: Session, capacidade: str) -> dict[str, Any]
         text("SELECT cp.capacidade, cp.provedor, cp.modelo, cp.fallback, "
              "       p.base_url, p.api_key_ref, p.api_key_cifrada, p.modelo_padrao, "
              "       p.batch_size, p.rpm_limite, "
-             "       p.custo_in_por_mtok, p.custo_out_por_mtok, p.permite_fallback, p.ativo "
+             "       p.custo_in_por_mtok, p.custo_out_por_mtok, p.custo_usd_chamada, "
+             "       p.permite_fallback, p.ativo "
              "FROM capacidade_provedor cp JOIN provedor p ON p.nome = cp.provedor "
              "WHERE cp.capacidade = CAST(:c AS capacidade) AND p.ativo"),
         {"c": capacidade}).mappings().first()

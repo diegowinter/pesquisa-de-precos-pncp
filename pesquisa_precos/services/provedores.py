@@ -69,7 +69,8 @@ def obter(nome: str) -> dict[str, Any] | None:
 def salvar(nome: str, capacidades: list[str], base_url: str, *,
            modelo_padrao: str | None = None, batch_size: int | None = None,
            rpm_limite: int | None = None, custo_in_por_mtok: float | None = None,
-           custo_out_por_mtok: float | None = None, ativo: bool = True,
+           custo_out_por_mtok: float | None = None,
+           custo_usd_chamada: float | None = None, ativo: bool = True,
            api_key: str | None = None) -> None:
     """Cria ou atualiza um provedor. `api_key` vazio/None **não apaga** a chave existente — o
     campo do formulário vem sempre em branco (nunca se preenche com o valor atual, que a tela
@@ -87,7 +88,7 @@ def salvar(nome: str, capacidades: list[str], base_url: str, *,
             sessao, nome, capacidades, base_url, modelo_padrao=modelo_padrao,
             batch_size=batch_size, rpm_limite=rpm_limite,
             custo_in_por_mtok=custo_in_por_mtok, custo_out_por_mtok=custo_out_por_mtok,
-            ativo=ativo)
+            custo_usd_chamada=custo_usd_chamada, ativo=ativo)
         if api_key:
             repo.gravar_api_key(sessao, nome, api_key)
 
@@ -115,7 +116,8 @@ def definir_ativo(nome: str, ativo: bool) -> None:
     salvar(nome, list(p["capacidades"]), p["base_url"],
            modelo_padrao=p.get("modelo_padrao"), batch_size=p.get("batch_size"),
            rpm_limite=p.get("rpm_limite"), custo_in_por_mtok=p.get("custo_in_por_mtok"),
-           custo_out_por_mtok=p.get("custo_out_por_mtok"), ativo=ativo)
+           custo_out_por_mtok=p.get("custo_out_por_mtok"),
+           custo_usd_chamada=p.get("custo_usd_chamada"), ativo=ativo)
 
 
 def apontar(capacidade: str, provedor: str, modelo: str | None = None,

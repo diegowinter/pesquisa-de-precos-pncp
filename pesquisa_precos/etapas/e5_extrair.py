@@ -52,7 +52,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text as sa_text
 from typing import Literal
 
-from pesquisa_precos.config.settings import exigir
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.db import sessao as db
@@ -459,9 +458,6 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     global _escritor_paginas
     cfg = ctx.config
-    msg = exigir(cfg, params.provedor)
-    if msg:
-        raise SystemExit(msg)
     # OCR não é configurado aqui: quem o chama é o serviço de `pdf`, na máquina dele
     # (ADR-021). Se o OCR estiver mal configurado lá, `/health` do serviço acusa
     # `ocr_configurado: false` e a página escaneada volta com o texto nativo.

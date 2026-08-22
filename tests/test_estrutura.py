@@ -76,3 +76,64 @@ def test_nao_restou_nenhum_import_do_pacote_scripts():
             continue
         texto = arq.read_text(encoding="utf-8")
         assert "from scripts" not in texto and "import scripts" not in texto, arq
+
+
+# ── Fase 14 (ADR-022): o `.env` deixou de ser fonte de configuração ─────────────────
+#
+# A guarda que impede o caminho removido de voltar. Ele não voltaria por decisão consciente —
+# voltaria como um `os.getenv("GPU_BASE_URL")` conveniente dentro de uma etapa, e a partir daí
+# a tela de provedores passaria a mentir sobre o que está em uso.
+
+_VARS_QUE_MIGRARAM = (
+    "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL_PASS1", "OPENAI_MODEL_PASS2",
+    "LOCAL_BASE_URL", "LOCAL_MODEL", "LOCAL_API_KEY", "GPU_BASE_URL", "GPU_API_KEY",
+    "PDF_BASE_URL", "PDF_API_KEY", "PAREAMENTO_BASE_URL", "PAREAMENTO_API_KEY",
+    "EMBEDDER_MODEL", "RERANKER_MODEL", "REJEITOR_THRESHOLD", "RERANK_T_ACEITA",
+    "RERANK_T_REJEITA", "MIN_ITENS", "TOP_N",
+)
+
+# `ferramentas/semear_provedores.py` é a ÚNICA exceção legítima: a ponte de mão única que lê o
+# `.env` antigo uma vez para popular o banco.
+_PODEM_LER_O_ENV_ANTIGO = ("semear_provedores.py",)
+
+
+def _modulos_do_pacote():
+    import pesquisa_precos
+
+    raiz = Path(pesquisa_precos.__file__).parent
+    return [arq for arq in raiz.rglob("*.py") if "__pycache__" not in str(arq)]
+
+
+@pytest.mark.parametrize("variavel", _VARS_QUE_MIGRARAM)
+def test_nenhum_modulo_le_variavel_que_migrou_para_o_banco(variavel):
+    """ADR-022: quem sabe modelo/URL/chave/threshold é o banco, e o único ponto que o lê é
+    `providers/resolver.py`."""
+    infratores = [arq.name for arq in _modulos_do_pacote()
+                  if arq.name not in _PODEM_LER_O_ENV_ANTIGO
+                  and f'"{variavel}"' in arq.read_text(encoding="utf-8")]
+    assert not infratores, f"{variavel} lida em {infratores} — deveria vir do banco"
+
+
+def test_resolver_nao_tem_mais_caminho_env():
+    """A função `_resolver_via_env` saiu na ADR-022. Um fallback reintroduzido devolveria o
+    modo em que um erro de configuração vira etapa rodando com o modelo errado."""
+    from pesquisa_precos.providers import resolver
+
+    assert not hasattr(resolver, "_resolver_via_env")
+    origem = Path(resolver.__file__).read_text(encoding="utf-8")
+    assert 'origem="env"' not in origem
+
+
+def test_settings_nao_resolve_mais_provedor():
+    """`resolver_provedor`/`exigir`/`custo_por_chamada` eram a API de provedor do `.env`."""
+    from pesquisa_precos.config import settings
+
+    for funcao in ("resolver_provedor", "exigir", "custo_por_chamada"):
+        assert not hasattr(settings, funcao), f"settings.{funcao} deveria ter saído (ADR-022)"
+
+
+def test_curador_nao_tem_mais_from_provedor():
+    """Era o segundo caminho da 6c: montava o cliente pelo `.env`, contornando o resolver."""
+    from pesquisa_precos.providers.llm_curador import Curador
+
+    assert not hasattr(Curador, "from_provedor")

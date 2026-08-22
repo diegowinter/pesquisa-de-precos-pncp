@@ -15,7 +15,10 @@ from typing import Any, TYPE_CHECKING
 
 import requests
 
-from pesquisa_precos.providers.resolver import resolver_capacidade
+from pesquisa_precos.providers.resolver import (
+    CapacidadeNaoConfigurada,
+    resolver_capacidade,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -74,22 +77,28 @@ def checar_capacidade(capacidade: str, cfg: dict, *,
                       sessao: "Session | None" = None) -> dict[str, Any]:
     """Resolve + sonda UMA capacidade. Grava em `provedor_status` quando há `sessao` (senão só
     devolve o resultado — é o caso do `estimar()` fora de um run)."""
-    resolucao = resolver_capacidade(capacidade, cfg, sessao=sessao)
+    # Capacidade sem provedor apontado é uma LINHA VERMELHA, não uma exceção: esta função é a
+    # tela de diagnóstico e o gate pré-play, e nos dois lugares o operador precisa ver qual
+    # capacidade está faltando — não uma stack trace no lugar do painel (Fase 14, ADR-022).
+    try:
+        resolucao = resolver_capacidade(capacidade, cfg, sessao=sessao)
+    except CapacidadeNaoConfigurada as exc:
+        return {"saudavel": False, "latencia_ms": None, "mensagem": str(exc),
+                "capacidade": capacidade, "provedor": "—", "base_url": "",
+                "origem": "não configurado"}
     if not resolucao.info.base_url:
         resultado = {"saudavel": False, "latencia_ms": None,
-                     "mensagem": "sem base_url configurada — suba o serviço correspondente "
-                                 "em `pncp-servicos-locais` e aponte a variável no .env"}
+                     "mensagem": f"provedor `{resolucao.info.nome}` está sem base_url — "
+                                 f"corrija em /provedores"}
     elif capacidade in _CAPACIDADES_DE_SERVICO:
         resultado = sondar_health(resolucao.info.base_url)
     else:
         resultado = sondar_url(resolucao.info.base_url)
     resultado.update(capacidade=capacidade, provedor=resolucao.info.nome,
                      base_url=resolucao.info.base_url, origem=resolucao.origem)
-    # `provedor_status` é o cache de saúde dos provedores CONFIGURADOS NO BANCO — a FK aponta
-    # para `provedor`. Uma capacidade resolvida pelo `.env` não tem linha lá por definição
-    # (`capacidade_provedor` vazio é o estado normal de quem ainda não configurou nada pela
-    # interface), então não há o que atualizar: gravar tentaria violar a FK.
-    if sessao is not None and resolucao.origem == "banco":
+    # `provedor_status` é o cache de saúde; a FK aponta para `provedor`. Desde a ADR-022 toda
+    # resolução vem do banco, então sempre há linha para atualizar.
+    if sessao is not None:
         from pesquisa_precos.db.repos import execucao as repo
         try:
             repo.atualizar_status_provedor(sessao, resolucao.info.nome, resultado["saudavel"],

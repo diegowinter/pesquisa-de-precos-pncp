@@ -30,6 +30,9 @@ class InfoProvedor:
     rpm_limite: int | None = None
     custo_in_por_mtok: float | None = None
     custo_out_por_mtok: float | None = None
+    # Preço médio de UMA chamada (Fase 14). `None` = não informado: o `estimar()` responde
+    # "não estimado" em vez de inventar. `0.0` é o provedor local, que é grátis.
+    custo_usd_chamada: float | None = None
     # Fallback é PROIBIDO em 'embed' (ADR-006 §2) — `resolver.py` já recusa montar um
     # `InfoProvedor` de embed com fallback preenchido; o campo existe para chat/rerank/ocr.
     fallback_provedor: str | None = None

@@ -33,12 +33,10 @@ for _s in (sys.stdout, sys.stderr):
 from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config.settings import custo_por_chamada, exigir
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
-from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "6c"
 VERSAO_CODIGO = "2.0.0"
@@ -89,7 +87,6 @@ def _rodar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     db = _exigir_banco()
     from pesquisa_precos.db.repos import par as repo_par
 
-    cfg = ctx.config
     forte = params.forte
     if params.fraco:
         ctx.log("debug", "[dim][6c] --fraco é obsoleta: o modelo barato já é o padrão.[/]")
@@ -104,7 +101,7 @@ def _rodar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     vereditos: dict[str, int] = {"sim": 0, "nao": 0, "indeterminado": 0}
 
     if pend:
-        modelo = cfg["model_pass2"] if forte else cfg["model_pass1"]
+        modelo = ctx.provedores.resolucao("chat").info.modelo
         ctx.log("info" if not forte else "aviso",
                 f"[6c] modelo de validação: {modelo} "
                 f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
@@ -113,8 +110,11 @@ def _rodar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                 prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
         except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
             prompts_ativos = {}
-        curador = Curador.from_provedor(cfg, params.provedor, forte=forte, max_retries=6,
-                                        prompts_ativos=prompts_ativos)
+        # Fase 14 (ADR-022): era `Curador.from_provedor(cfg, ...)` — um segundo caminho,
+        # que lia o `.env` direto e ignorava `capacidade_provedor`. Agora passa pelo resolver
+        # como todas as outras etapas: uma fonte de verdade para "qual modelo, qual chave".
+        curador = ctx.provedores.novo_chat(
+            curador_kwargs={"max_retries": 6, "prompts_ativos": prompts_ativos}).curador
         lote: list[tuple] = []
 
         def descarregar():
@@ -210,8 +210,9 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
         ).scalar_one()
         ambiguos = s.execute(sa_text(
             "SELECT count(*) FROM par WHERE decisao = 'ambiguo'")).scalar_one()
-    preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
-    modelo = ctx.config["model_pass2"] if params.forte else ctx.config["model_pass1"]
+    resolucao = ctx.provedores.resolucao_opcional("chat")
+    preco = resolucao.info.custo_usd_chamada if resolucao else None
+    modelo = resolucao.info.modelo if resolucao else "— sem provedor de `chat` configurado —"
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,
@@ -222,7 +223,4 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    msg = exigir(ctx.config, params.provedor)
-    if msg:
-        raise SystemExit(msg)
     return _rodar(params, ctx)

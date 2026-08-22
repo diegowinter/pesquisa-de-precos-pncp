@@ -51,7 +51,6 @@ import pandas as pd
 from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config.settings import custo_por_chamada, exigir
 from pesquisa_precos.core.classificacao.variacoes import (
     categoria_por_grupo,
     e_generico,
@@ -303,10 +302,6 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     from pesquisa_precos.db.repos import termo as repo_termo
 
     cfg = ctx.config
-    msg = exigir(cfg, params.provedor)
-    if msg:
-        raise SystemExit(msg)
-
     df = carregar_catalogo_do_banco()
     if params.limite:
         df = df.head(params.limite)
@@ -360,7 +355,8 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     with db.sessao() as s:
         feitas = repo_termo.codigos_ja_gerados(s)
     n = sum(1 for _, r in df.iterrows() if (r["tipo"], r["codigo"]) not in feitas)
-    preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
+    resolucao = ctx.provedores.resolucao_opcional("chat")
+    preco = resolucao.info.custo_usd_chamada if resolucao else None
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,

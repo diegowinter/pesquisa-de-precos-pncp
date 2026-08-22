@@ -124,12 +124,10 @@ class Curador:
         # (texto hardcoded de `core/prompts.py`).
         self._prompts_ativos = prompts_ativos
 
-    @classmethod
-    def from_provedor(cls, cfg: dict, provedor: str, forte: bool = False, **kwargs) -> "Curador":
-        """Constrói um Curador resolvendo model/base_url/api_key via config.resolver_provedor."""
-        from pesquisa_precos.config.settings import resolver_provedor
-        p = resolver_provedor(cfg, provedor, forte=forte)
-        return cls(model=p["model"], base_url=p["base_url"], api_key=p["api_key"], **kwargs)
+    # `from_provedor(cfg, provedor, forte=...)` foi REMOVIDO na Fase 14 (ADR-022): ele
+    # resolvia modelo/URL/chave pelo `.env`, contornando `capacidade_provedor` — o segundo
+    # caminho que a ADR-022 existe para eliminar. Quem precisa de um Curador pede
+    # `ctx.provedores.novo_chat(...)`, que passa pelo resolver.
 
     def _invocar_json(self, prompt: str) -> dict:
         """

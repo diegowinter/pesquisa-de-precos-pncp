@@ -491,6 +491,8 @@ repositório congelado, não uma flag.
 **Princípio:** o que é *configuração de operação* mora no banco e se edita pela tela; o `.env`
 guarda só o *bootstrap* — o que a aplicação precisa saber antes de conseguir ler o banco.
 
+✅ **Concluída em 2026-08-22.** O `.env` foi de 24 variáveis para 2.
+
 | Sai do `.env` (vira tela + banco) | Fica no `.env` |
 |---|---|
 | `OPENAI_*`, `LOCAL_*` (modelo, base_url, chave) | `DATABASE_URL` |
@@ -514,11 +516,16 @@ guarda só o *bootstrap* — o que a aplicação precisa saber antes de consegui
    `2.1.0`: o valor efetivo mudou de origem, e o fingerprint precisa enxergar isso.
    `rejeitor_threshold` **não migrou porque já estava morto** — a 6a usa o `Param` `piso`
    desde a Fase 11 e nada lia a variável; ela só saiu de `carregar_config()`.
-4. **Seed + remoção do fallback.** Migração semeia `provedor`/`capacidade_provedor` e uma
-   `config_versao` inicial a partir do `.env` de hoje (uma vez, sem recadastro manual); depois
-   `_resolver_via_env` sai de `providers/resolver.py` e `carregar_config()` encolhe.
-   `tests/test_estrutura.py` ganha a guarda: nenhum módulo de `etapas/` lê threshold de
-   `ctx.config`.
+4. **Seed + remoção do fallback.** ✅ `ferramentas/semear_provedores.py` lê o `.env` uma vez
+   e popula `provedor`/`capacidade_provedor` (idempotente, com `--conferir` que não escreve).
+   `_resolver_via_env` saiu; capacidade sem provedor levanta `CapacidadeNaoConfigurada` e a
+   etapa para antes de começar. `carregar_config()` devolve `{}`. `tests/test_estrutura.py`
+   guarda cada variável migrada, uma por uma.
+
+   > **Desvio da ADR-022:** o seed ficou em `ferramentas/`, não numa migração Alembic. Semear
+   > depende do `.env` de origem e da chave-mestra no ambiente — migração que exige segredo
+   > quebra em qualquer máquina que não seja a do operador, e o `downgrade` dela não teria como
+   > desfazer a cifra. A migração `0010` cuida só do schema (`provedor.custo_usd_chamada`).
 
 **Critério de aceite**
 

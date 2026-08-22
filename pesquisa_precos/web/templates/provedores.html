@@ -187,6 +187,14 @@
       <input type="text" name="custo_out_por_mtok"
              value="{{ editando.custo_out_por_mtok or '' if editando else '' }}">
     </label>
+    <label>Preço médio por chamada (USD) — só para a estimativa prévia
+      <input type="text" name="custo_usd_chamada"
+             value="{{ editando.custo_usd_chamada or '' if editando else '' }}">
+    </label>
+    <p class="dim">
+      Em branco = não informado: a etapa responde “não estimado” em vez de inventar um número.
+      <code>0</code> é diferente — é o provedor local, que não custa nada.
+    </p>
     <label>
       <input type="checkbox" name="ativo"
              {% if not editando or editando.ativo %}checked{% endif %}> Ativo
