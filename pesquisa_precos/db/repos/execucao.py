@@ -661,6 +661,15 @@ def listar_exports(sessao: Session, *, run_id: int | None = None) -> list[dict[s
     return [dict(l) for l in linhas]
 
 
+def conteudo_export(sessao: Session, export_id: int) -> tuple[bytes | None, str | None]:
+    """Os bytes do XLSX e o nome sugerido. Consulta à parte de `export_por_id` de propósito:
+    `conteudo` é um `bytea` de dezenas de MB e não pode entrar em toda listagem."""
+    linha = sessao.execute(
+        text("SELECT conteudo, nome_arquivo FROM export WHERE id = :id"),
+        {"id": export_id}).first()
+    return (None, None) if linha is None else (linha[0], linha[1])
+
+
 def export_por_id(sessao: Session, export_id: int) -> dict[str, Any] | None:
     linha = sessao.execute(
         text("SELECT id, run_id, tipo, arquivo, n_linhas, n_codigos, hash_arquivo, criado_em "

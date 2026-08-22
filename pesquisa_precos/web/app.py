@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -49,6 +49,7 @@ from pesquisa_precos.web import auth
 from pesquisa_precos.web.estado import CLASSE_ETAPA, ICONE_ETAPA
 
 RAIZ_WEB = Path(__file__).resolve().parent
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 app = FastAPI(title="Pesquisa de Preços PLASEG", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEB_SECRET_KEY") or os.urandom(32).hex())
@@ -204,6 +205,7 @@ def _contexto_etapa(run_id: int, chave: str) -> dict[str, Any] | None:
         estimativa_erro = str(exc)
     return {
         "run": run, "chave": chave, "definicao": registry.obter(chave), "detalhe": detalhe,
+        "dependentes": registry.dependentes(chave),
         "estimativa": estimativa, "estimativa_erro": estimativa_erro,
         "erros": servico.erros(run_id, etapa=chave),
         "logs": list(reversed(servico.logs(run_id, etapa=chave, limite=200))),
@@ -314,10 +316,24 @@ def tela_exports(request: Request, usuario: str = Depends(auth.exigir_login)):
 
 @app.get("/exports/{export_id}/download")
 def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
-    export, caminho = servico.caminho_export(export_id)
-    if export is None or not caminho.exists():
+    """Serve o XLSX de `export.conteudo` (ADR-018 §2) — não existe arquivo em disco."""
+    export, conteudo, nome = servico.conteudo_export(export_id)
+    if export is None:
         return RedirectResponse("/exports?erro=export%20n%C3%A3o%20encontrado", status_code=303)
-    return FileResponse(caminho, filename=caminho.name)
+    if conteudo is None:
+        return RedirectResponse(
+            "/exports?erro=export%20anterior%20%C3%A0%20Fase%2010%20-%20o%20arquivo%20ficou%20"
+            "em%20data%2F%2C%20fora%20do%20banco", status_code=303)
+    return Response(
+        conteudo, media_type=XLSX_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+# ── Saúde dos provedores (Fase 13 — era `cli providers saude`) ───────────────────────
+
+@app.get("/provedores")
+def tela_provedores(request: Request, usuario: str = Depends(auth.exigir_login)):
+    return _render(request, "provedores.html", {"resultados": servico.saude_provedores()})
 
 
 # ── Diff entre runs (Fase 9) ─────────────────────────────────────────────────────────

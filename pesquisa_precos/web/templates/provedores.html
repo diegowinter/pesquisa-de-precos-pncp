@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titulo %}Saúde dos provedores{% endblock %}
+{% block conteudo %}
+<div class="painel">
+  <h2>Saúde dos provedores</h2>
+  <p class="dim">
+    Sondagem HTTP leve de cada capacidade, na ordem banco (<code>capacidade_provedor</code>) →
+    <code>.env</code>. Não gasta e não dispara etapa. É a mesma checagem que o executor faz
+    antes de dar play — uma capacidade reprovada aqui reprova a etapa que a declara.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Capacidade</th><th>Provedor</th><th>Origem</th><th>Saudável</th>
+          <th>Latência</th><th>Mensagem</th></tr>
+    </thead>
+    <tbody>
+      {% for r in resultados %}
+      <tr>
+        <td><strong>{{ r.capacidade }}</strong></td>
+        <td>{{ r.provedor }}</td>
+        <td class="dim">{{ r.origem }}</td>
+        <td>{% if r.saudavel %}<span class="ok">sim</span>
+            {% else %}<span class="erro">NÃO</span>{% endif %}</td>
+        <td>{{ r.latencia_ms }} ms</td>
+        <td class="dim">{{ r.mensagem or "—" }}</td>
+      </tr>
+      {% else %}<tr><td colspan="6">nenhuma capacidade configurada</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

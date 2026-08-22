@@ -95,3 +95,9 @@ form.linha { display: inline; }
 .log .linha { white-space: pre-wrap; }
 .log .nivel-erro { color: var(--erro); }
 .log .nivel-aviso { color: var(--alerta); }
+
+/* Utilitários de texto. Já eram usados por vários templates (`class="dim"`, `"ok"`, `"erro"`)
+   sem regra correspondente — apareciam sem estilo nenhum. */
+.dim { color: var(--texto-fraco); }
+.ok { color: var(--ok); font-weight: 600; }
+.erro { color: var(--erro); font-weight: 600; }

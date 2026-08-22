@@ -56,6 +56,15 @@
   {% endif %}
   <details style="display:inline-block;margin-left:.5rem;">
     <summary style="cursor:pointer;color:var(--erro);">Refazer (queima investimento)</summary>
+    {# O que refazer esta etapa deixa desatualizado. Vinha do `cli grafo`, que saiu na Fase 13;
+       o lugar dessa informação é aqui, na frente de quem está decidindo refazer. #}
+    {% if dependentes %}
+    <p class="dim">Refazer também desatualiza:
+      {% for d in dependentes %}<a href="/runs/{{ run.id }}/etapas/{{ d }}">{{ d }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+    </p>
+    {% else %}
+    <p class="dim">Nenhuma etapa depende desta — refazer não invalida mais nada.</p>
+    {% endif %}
     <form method="post" action="/runs/{{ run.id }}/etapas/{{ chave }}/executar"
           onsubmit="return confirm('Refazer do zero descarta o resultado atual desta etapa. Confirmar?');">
       <input type="hidden" name="acao" value="refazer">

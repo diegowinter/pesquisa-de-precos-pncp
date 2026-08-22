@@ -90,8 +90,18 @@ def checar_capacidade(capacidade: str, cfg: dict, *,
                      base_url=resolucao.info.base_url, origem=resolucao.origem)
     if sessao is not None:
         from pesquisa_precos.db.repos import execucao as repo
-        repo.atualizar_status_provedor(sessao, resolucao.info.nome, resultado["saudavel"],
-                                       resultado["latencia_ms"], resultado["mensagem"])
+        try:
+            repo.atualizar_status_provedor(sessao, resolucao.info.nome, resultado["saudavel"],
+                                           resultado["latencia_ms"], resultado["mensagem"])
+        except Exception as exc:  # noqa: BLE001 — ver abaixo
+            # O cache de status é conveniência, não o resultado. Um provedor resolvido pelo
+            # `.env` que ainda não existe na tabela `provedor` viola a FK aqui — e derrubar a
+            # sondagem por causa do registro dela inverteria a prioridade: quem pergunta
+            # "o serviço está de pé?" precisa da resposta, não do histórico.
+            sessao.rollback()
+            resultado["mensagem"] = (
+                f"{resultado['mensagem'] or ''} "
+                f"[status não registrado: {type(exc).__name__}]").strip()
     return resultado
 
 

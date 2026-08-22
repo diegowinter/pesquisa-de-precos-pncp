@@ -229,14 +229,47 @@ def listar_exports(*, run_id: int | None = None) -> list[dict[str, Any]]:
         return repo.listar_exports(sessao, run_id=run_id)
 
 
-def caminho_export(export_id: int):
-    """Caminho absoluto do arquivo de export, resolvido contra `paths.DATA` (`export.arquivo`
-    é relativo — docs/08_CONVENCOES.md: nunca hardcodar caminho de `data/`). `None` se o
-    registro não existe."""
-    from pesquisa_precos.config import paths
+def conteudo_export(export_id: int):
+    """(registro, bytes do XLSX, nome do arquivo) — o export vive em `export.conteudo`
+    (ADR-018 §2), não em disco. `(None, None, None)` se o registro não existe.
 
+    Linhas geradas ANTES da Fase 10 têm `conteudo` nulo e só `arquivo` (um caminho relativo em
+    `data/`). Elas voltam com `conteudo=None`: a interface avisa em vez de servir um arquivo
+    que pode não estar mais lá — o `data/` local deixou de ser parte do sistema."""
     with db.sessao() as sessao:
         export = repo.export_por_id(sessao, export_id)
-    if export is None:
-        return None, None
-    return export, paths.DATA / export["arquivo"]
+        if export is None:
+            return None, None, None
+        conteudo, nome = repo.conteudo_export(sessao, export_id)
+    return export, conteudo, nome or f"export_{export_id}.xlsx"
+
+
+def saude_provedores() -> list[dict[str, Any]]:
+    """Sonda `chat`/`embed`/`rerank`/`ocr`/`pdf`/`pareamento` (banco → `.env`) e devolve o
+    resultado. Não gasta e não dispara etapa — é a mesma sondagem HTTP leve que
+    `runner.executor` faz antes do play, exposta para diagnóstico manual.
+
+    Era o comando `cli providers saude`; virou tela na Fase 13, quando a CLI saiu."""
+    from pesquisa_precos.config.settings import carregar_config
+    from pesquisa_precos.providers import saude
+
+    capacidades = ["chat", "embed", "rerank", "ocr", "pdf", "pareamento"]
+    cfg = carregar_config()
+
+    def uma(capacidade: str, sessao) -> dict[str, Any]:
+        # Uma capacidade que nem dá para resolver (schema do banco atrás do código, provedor
+        # ausente) vira uma LINHA reprovada, não uma tela em branco: a tela de diagnóstico
+        # precisa ser a última coisa a cair.
+        try:
+            return saude.checar_capacidade(capacidade, cfg, sessao=sessao)
+        except Exception as exc:  # noqa: BLE001 — ver acima
+            if sessao is not None:
+                sessao.rollback()
+            return {"capacidade": capacidade, "provedor": "—", "origem": "—", "base_url": None,
+                    "saudavel": False, "latencia_ms": None,
+                    "mensagem": f"não foi possível sondar: {type(exc).__name__}: {exc}"[:300]}
+
+    if db.esta_disponivel()[0]:
+        with db.sessao() as sessao:
+            return [uma(c, sessao) for c in capacidades]
+    return [uma(c, None) for c in capacidades]
