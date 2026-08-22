@@ -34,7 +34,9 @@ from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoE
 CHAVE = "7"
 # 2.0.0 (Fase 13): o caminho CSV saiu — o banco é a única origem e o único destino
 # (ADR-020). A regra de agrupamento em si nunca mudou.
-VERSAO_CODIGO = "2.0.0"
+# 2.1.0 — Fase 14 (ADR-022): `min_itens`/`top_n` deixaram de cair para `ctx.config` (o `.env`)
+# e passam a sair só de `Params`/`config_versao`. Mesma razão do bump da 6b.
+VERSAO_CODIGO = "2.1.0"
 
 META_ITEM = ["tipo_doc", "numeroControlePNCP", "numeroItem", "unidade", "quantidade",
              "preco_unitario", "preco_estimado", "fornecedor", "data_resultado",
@@ -43,12 +45,14 @@ META_ITEM = ["tipo_doc", "numeroControlePNCP", "numeroItem", "unidade", "quantid
 
 
 class Params(BaseModel):
-    # Defaults `None` = "usa o que está na configuração" (hoje o `.env`: MIN_ITENS / TOP_N).
-    # Na Fase 6 esses valores passam a vir de `config_valor` versionado, sem mudar a etapa.
-    min_itens: int | None = Field(
-        None, ge=1, description="Mín. de confirmados p/ o código fechar (default: config)")
-    top_n: int | None = Field(
-        None, ge=0, description="Máx. de itens por código; 0 = SEM TETO (default: config)")
+    # Fase 14: os defaults são concretos, não mais `None` + fallback para o `.env`. Os valores
+    # abaixo são os que o `.env` carregava (MIN_ITENS=1, TOP_N=0) e refletem a ADR-016: a
+    # "regra dos 5" está DESATIVADA a pedido do usuário. `top_n = 0` significa SEM TETO —
+    # traz todas as referências confirmadas do código —, nunca "zero itens".
+    min_itens: int = Field(
+        1, ge=1, description="Mín. de confirmados p/ o código fechar")
+    top_n: int = Field(
+        0, ge=0, description="Máx. de itens (mais baratos) por código; 0 = SEM TETO")
     fator_iqr: float = Field(
         3.0, gt=0, description="Multiplicador do IQR na marcação de outlier de preço")
     run: str = Field(
@@ -99,8 +103,7 @@ def flag_iqr(precos: pd.Series, fator: float = 3.0) -> pd.Series:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Sem LLM. A unidade é o par confirmado que entra no agrupamento."""
-    min_itens = params.min_itens if params.min_itens is not None else ctx.config["min_itens"]
-    top_n = params.top_n if params.top_n is not None else ctx.config["top_n"]
+    min_itens, top_n = params.min_itens, params.top_n
     comum = {"min_itens": min_itens, "top_n": f"{top_n} (0 = sem teto)"}
 
     from pesquisa_precos.db import sessao as db
@@ -178,8 +181,7 @@ def gravar_no_banco(selec: pd.DataFrame, run_id: int, ctx: ContextoExecucao) -> 
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    min_itens = params.min_itens if params.min_itens is not None else ctx.config["min_itens"]
-    top_n = params.top_n if params.top_n is not None else ctx.config["top_n"]
+    min_itens, top_n = params.min_itens, params.top_n
 
     conf, run_id = carregar_confirmados(params, ctx)
     if conf.empty:

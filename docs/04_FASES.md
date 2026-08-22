@@ -508,11 +508,12 @@ guarda só o *bootstrap* — o que a aplicação precisa saber antes de consegui
    provedor (nome, capacidades, `base_url`, modelo, `batch_size`, `rpm_limite`, custo/Mtok,
    chave write-only) e apontar `capacidade → provedor`. Botão "testar agora" reusando
    `providers/saude.py`. Passa por `services/`, nunca por `db/repos` direto.
-3. **Thresholds viram `Params`.** `rejeitor_threshold` (6a), `rerank_t_aceita`/`rerank_t_rejeita`
-   (6b), `min_itens`/`top_n` (7 — hoje já são `Params` com fallback para `ctx.config`; o
-   fallback sai). Ganham formulário de graça (`schema_parametros`) e entram em `config_versao`.
-   **Bumpar `VERSAO_CODIGO`** de cada etapa tocada: o valor efetivo muda de origem, e o
-   fingerprint precisa enxergar isso.
+3. **Thresholds viram `Params`.** ✅ `rerank_t_aceita`/`rerank_t_rejeita` (6b) e
+   `min_itens`/`top_n` (7 — o fallback para `ctx.config` saiu). Ganham formulário de graça
+   (`schema_parametros`) e entram em `config_versao`. `VERSAO_CODIGO` de ambas foi para
+   `2.1.0`: o valor efetivo mudou de origem, e o fingerprint precisa enxergar isso.
+   `rejeitor_threshold` **não migrou porque já estava morto** — a 6a usa o `Param` `piso`
+   desde a Fase 11 e nada lia a variável; ela só saiu de `carregar_config()`.
 4. **Seed + remoção do fallback.** Migração semeia `provedor`/`capacidade_provedor` e uma
    `config_versao` inicial a partir do `.env` de hoje (uma vez, sem recadastro manual); depois
    `_resolver_via_env` sai de `providers/resolver.py` e `carregar_config()` encolhe.

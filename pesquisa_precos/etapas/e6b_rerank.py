@@ -29,7 +29,10 @@ from pydantic import BaseModel, Field
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 
 CHAVE = "6b"
-VERSAO_CODIGO = "2.0.0"
+# 2.1.0 — Fase 14 (ADR-022): `t_aceita`/`t_rejeita` deixaram de vir do `.env` e viraram
+# `Params`. O valor efetivo passa a sair de `config_versao` (versionado e imutável), então o
+# fingerprint TEM de enxergar a mudança de origem — daí o bump.
+VERSAO_CODIGO = "2.1.0"
 
 
 class Params(BaseModel):
@@ -37,6 +40,15 @@ class Params(BaseModel):
     batch: int = Field(16, ge=1, description="Tamanho do lote enviado ao reranker")
     remoto: bool = Field(
         False, description="Usa o servidor de GPU (GPU_BASE_URL) para o reranker")
+    # Os defaults são os que estavam no `.env` (RERANK_T_ACEITA / RERANK_T_REJEITA): a virada
+    # não pode mudar resultado por si só. Para escolher outros com precisão/recall à vista,
+    # ver a tela /recalibrar (`services.config.recalibrar_threshold`).
+    rerank_t_aceita: float = Field(
+        0.80, ge=0.0, le=1.0,
+        description="Score do reranker que confirma o par direto, sem passar pela 6c")
+    rerank_t_rejeita: float = Field(
+        0.30, ge=0.0, le=1.0,
+        description="Score do reranker que rejeita o par direto; entre os dois = ambíguo")
 
 
 # ── Rerank no banco (Fase 10) ───────────────────────────────────────────────────────
@@ -58,7 +70,6 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     db = _exigir_banco()
     from pesquisa_precos.db.repos import par as repo_par
 
-    cfg = ctx.config
     limite = f" LIMIT {int(params.limite)}" if params.limite else ""
     with db.sessao() as s:
         linhas = s.execute(sa_text(f"""
@@ -93,8 +104,8 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
             scores = rer.score_pares(pares_txt[i:i + passo])
             lote = []
             for par_key, score in zip(par_keys[i:i + passo], scores):
-                decisao = decidir(float(score), cfg["rerank_t_aceita"],
-                                  cfg["rerank_t_rejeita"])
+                decisao = decidir(float(score), params.rerank_t_aceita,
+                                  params.rerank_t_rejeita)
                 decisoes[decisao] += 1
                 lote.append((par_key, round(float(score), 4), decisao))
             # Grava a cada bloco, não no fim: o reranker é caro em GPU e uma queda no meio

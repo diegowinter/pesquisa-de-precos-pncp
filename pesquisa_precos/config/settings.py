@@ -73,12 +73,15 @@ def carregar_config() -> dict:
         # Nomes de modelo, para log e para a tela de provedores — quem carrega são os serviços.
         "embedder_model": os.getenv("EMBEDDER_MODEL", "BAAI/bge-m3"),
         "reranker_model": os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3"),
-        # Thresholds calibráveis
-        "rejeitor_threshold": _f("REJEITOR_THRESHOLD", 0.30),
-        "rerank_t_aceita": _f("RERANK_T_ACEITA", 0.80),
-        "rerank_t_rejeita": _f("RERANK_T_REJEITA", 0.30),
-        "min_itens": _i("MIN_ITENS", 1),
-        "top_n": _i("TOP_N", 5),
+        # ── Thresholds: SAÍRAM daqui na Fase 14 (ADR-022) ───────────────────────────
+        # `rerank_t_aceita`/`rerank_t_rejeita` são `Params` da etapa 6b; `min_itens`/`top_n`
+        # são `Params` da 7. O valor efetivo vem de `config_versao` — versionado e imutável,
+        # de modo que "por que o resultado mudou?" tenha resposta (ADR-014). Mantê-los aqui
+        # como segunda fonte reintroduziria exatamente a divergência silenciosa que a ADR-020
+        # e a ADR-021 removeram em outros pontos.
+        #
+        # `REJEITOR_THRESHOLD` não migrou porque já estava MORTO: a 6a usa o `Param` `piso`
+        # desde a Fase 11, e nada lia esta chave.
         # Preço médio de UMA chamada, por modelo, em USD. Só existe para o `estimar` das
         # etapas: sem número, ele responde "não estimado" em vez de inventar. A medição real
         # (tokens por chamada, gravados em `llm_chamada`) é entrega da Fase 3 — até lá quem
