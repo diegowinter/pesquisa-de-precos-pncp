@@ -35,7 +35,7 @@ no banco; a coluna "produz" é a tabela onde o resultado fica.
 | `2` | coleta larga no PNCP (busca → documento → itens) | `documento`, `item` | — |
 | `3` | classifica a categoria de cada item | `texto_classificacao`, `item_categoria` | LLM |
 | `4` | corta quem não tem categoria de conteúdo | `item.sobrevivente` | — |
-| `5` | baixa o PDF, extrai texto e enriquece o item | `documento_pagina`, `item_enriquecido` | PDF+OCR+LLM |
+| `5` | baixa o PDF; o serviço extrai texto e OCRa | `documento_pagina`, `item_enriquecido` | PDF+OCR+LLM |
 | `6a` | pares catálogo × item da mesma categoria + rejeitor | `par` | GPU |
 | `6b` | reranker decide aceito / rejeitado / ambíguo | `par.score_rerank` | GPU |
 | `6c` | LLM julga só os ambíguos | `par.decisao_final`, `rotulo` | LLM |
@@ -58,7 +58,7 @@ Tudo pela web, em `localhost:8001`:
 - **Configuração** — os parâmetros de cada etapa, num formulário gerado dos próprios `Params`
   Pydantic. Salvar cria uma `config_versao` nova; runs apontam para uma versão.
 - **Prompts** — versionados, com diff e ativação.
-- **Provedores** — sonda `chat`/`embed`/`rerank`/`ocr`/`pdf`/`pareamento`. É o primeiro lugar a
+- **Provedores** — sonda `chat`/`embed`/`rerank`/`pdf`/`pareamento`. É o primeiro lugar a
   olhar quando uma etapa reprova antes de começar.
 - **Custo**, **Exports** (download do XLSX), **Diff entre runs**, **Recalibrar** thresholds.
 
@@ -71,7 +71,11 @@ Há também uma superfície JSON no mesmo processo, sob `/api` (protegida por `X
   e sobe `runner/processo.py` como subprocesso, com lock, heartbeat, lease e custo no banco.
   A rota volta na hora.
 - **Nenhuma etapa toca em disco** (ADR-018/ADR-020). Não importa `config/paths.py`, não expõe
-  `Path`. `tests/test_estrutura.py` guarda isso.
+  `Path`. `tests/test_estrutura.py` guarda isso. A exceção é o PDF em trânsito, que vive numa
+  pasta temporária pelo tempo do upload e é apagada no `finally` (ADR-012).
+- **Nenhum provedor roda em processo** (ADR-021). Todo adapter em `providers/adaptadores.py` é
+  cliente de um serviço; um adapter "em processo" reintroduzido traria torch para o servidor
+  que só deveria orquestrar. `tests/test_bloco_d_banco.py` guarda isso.
 - **Toda etapa é resumível**, e o checkpoint é derivado do próprio dado (`par.score_rerank IS
   NULL`, `documento.estado`), não de um arquivo à parte. Matar o processo no meio e retomar não
   reprocessa nem duplica.
@@ -94,15 +98,29 @@ API_TOKEN=           # vazio desliga a checagem das rotas /api
 Chaves de provedor, modelos e thresholds também vivem no `.env`, mas o que estiver no banco
 (`config_valor`, `capacidade_provedor`) tem precedência — é o que a interface edita.
 
-Processamento pesado pode rodar na própria máquina ou como serviço externo (ADR-019). Para
-rodar localmente, instale o extra:
+## Os serviços pesados vivem fora daqui
+
+Este processo faz scraping, orquestra e escreve no banco. **Nada de GPU nem de CPU intensiva
+roda nele** (ADR-021) — é o que permite hospedá-lo num servidor modesto. PyMuPDF, OCR,
+embedder, reranker e BM25 estão no repositório companion
+[`../pncp-servicos-locais`](../pncp-servicos-locais), atrás de HTTP:
 
 ```
-uv sync --extra localmente     # pymupdf, rank-bm25, sentence-transformers
+cd ../pncp-servicos-locais
+uv sync --extra pdf                # ou gpu / ocr / pareamento
+python -m servicos pdf --host 0.0.0.0 --port 8200
 ```
 
-Sem ele, defina `PDF_BASE_URL` / `PAREAMENTO_BASE_URL` / `GPU_BASE_URL` apontando para os
-servidores (`servidor_pdf.py`, `servidor_pareamento.py`, `servidor_gpu.py`, `servidor_ocr.py`).
+E aqui, no `.env`: `PDF_BASE_URL`, `PAREAMENTO_BASE_URL`, `GPU_BASE_URL`. **Vazio não é "roda
+aqui"** — a etapa para antes de começar, dizendo qual variável falta. `OCR_*` não mora neste
+`.env`: quem chama o OCR é o serviço de `pdf`, na máquina dele.
+
+O companion é independente: não importa nada deste pacote, e os dois repositórios não
+precisam ficar no mesmo disco. Rodar tudo na própria máquina é rodar os dois.
+
+O contrato de `pdf` reflete a linha do corte: **este** processo baixa os PDFs (I/O barato, e o
+cliente da API do PNCP já existe para a etapa 2) e manda os bytes; o serviço faz o parse, a
+rasterização a 200 DPI e o OCR, e devolve texto.
 
 ## Estado atual
 

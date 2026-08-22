@@ -374,7 +374,7 @@ externo (ADR-019). É o que permite a máquina do servidor ser pequena.
 ### Entrega
 1. **Capacidade `pdf`** — `ProvedorPdf` em `providers/protocolos.py`, ao lado de `ProvedorOcr`;
    entrada no enum `capacidade` e em `providers/resolver.py`.
-2. **`servidor_pdf.py`** no padrão de `servidor_ocr.py`: baixa o PDF, extrai texto nativo por
+2. **o serviço `pdf`** (hoje `servicos/pdf.py`, em `../pncp-servicos-locais`) no padrão do `ocr`: baixa o PDF, extrai texto nativo por
    página, detecta escaneada (limiar de 100 chars), rasteriza a 200 DPI e chama o OCR
    internamente. Devolve `{paginas: [{pagina, texto, densidade, escaneada}], n_paginas, hash}`.
 3. **Capacidade `pareamento`** — recebe catálogo + itens, calcula BM25 e cosseno, aplica o

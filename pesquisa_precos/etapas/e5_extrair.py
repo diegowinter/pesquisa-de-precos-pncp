@@ -462,10 +462,9 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     msg = exigir(cfg, params.provedor)
     if msg:
         raise SystemExit(msg)
-    if not params.pular_ocr and ctx.provedores.resolucao("ocr").origem == "env":
-        msg = exigir(cfg, "ocr")
-        if msg:
-            raise SystemExit(msg)
+    # OCR não é configurado aqui: quem o chama é o serviço de `pdf`, na máquina dele
+    # (ADR-021). Se o OCR estiver mal configurado lá, `/health` do serviço acusa
+    # `ocr_configurado: false` e a página escaneada volta com o texto nativo.
     grupos, pend, feitos = _documentos_pendentes_banco(params)
     if not pend:
         # Não existe "consolidar destino": `item_enriquecido.destino` já É a projeção que o

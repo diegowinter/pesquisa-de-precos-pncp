@@ -23,16 +23,15 @@ if TYPE_CHECKING:
 _TIMEOUT_S = 5
 
 
-# Capacidades da Fase 11 que podem rodar EM PROCESSO (ADR-019). Para elas, `base_url` vazio
-# não é "mal configurado": é "roda aqui mesmo" — e sondar rede seria reprovar a etapa por um
-# serviço que ela não vai usar. Elas também expõem `/health`, não o `/models` da convenção
-# OpenAI-compatible.
-_CAPACIDADES_EM_PROCESSO = ("pdf", "pareamento")
+# Serviços de `pncp-servicos-locais`: expõem `/health`, e não o `/models` da convenção
+# OpenAI-compatible. Antes da ADR-021 estas duas podiam rodar em processo e `base_url` vazio
+# significava "roda aqui" — hoje significa "não configurado", e reprovar é o certo.
+_CAPACIDADES_DE_SERVICO = ("pdf", "pareamento")
 
 
 def sondar_health(base_url: str, timeout_s: int = _TIMEOUT_S) -> dict[str, Any]:
-    """GET em `base_url + /health` — o endpoint que `servidor_pdf.py` e
-    `servidor_pareamento.py` expõem. Mesma regra de `sondar_url`: responder já basta."""
+    """GET em `base_url + /health` — o endpoint que os serviços `pdf` e
+    `pareamento` do repo `pncp-servicos-locais` expõem. Mesma regra de `sondar_url`: responder já basta."""
     inicio = time.monotonic()
     try:
         resp = requests.get(base_url.rstrip("/") + "/health", timeout=timeout_s)
@@ -74,16 +73,14 @@ def sondar_url(base_url: str, timeout_s: int = _TIMEOUT_S) -> dict[str, Any]:
 def checar_capacidade(capacidade: str, cfg: dict, *,
                       sessao: "Session | None" = None) -> dict[str, Any]:
     """Resolve + sonda UMA capacidade. Grava em `provedor_status` quando há `sessao` (senão só
-    devolve o resultado — é o caso do `estimar()`/CLI sem banco configurado)."""
+    devolve o resultado — é o caso do `estimar()` fora de um run)."""
     resolucao = resolver_capacidade(capacidade, cfg, sessao=sessao)
-    if capacidade in _CAPACIDADES_EM_PROCESSO:
-        if not resolucao.info.base_url:
-            # Em processo: não há serviço para estar fora do ar. Reprovar aqui impediria a
-            # etapa 5 de rodar na máquina do usuário, que é o modo de sempre.
-            resultado = {"saudavel": True, "latencia_ms": None,
-                         "mensagem": "em processo (sem serviço externo configurado)"}
-        else:
-            resultado = sondar_health(resolucao.info.base_url)
+    if not resolucao.info.base_url:
+        resultado = {"saudavel": False, "latencia_ms": None,
+                     "mensagem": "sem base_url configurada — suba o serviço correspondente "
+                                 "em `pncp-servicos-locais` e aponte a variável no .env"}
+    elif capacidade in _CAPACIDADES_DE_SERVICO:
+        resultado = sondar_health(resolucao.info.base_url)
     else:
         resultado = sondar_url(resolucao.info.base_url)
     resultado.update(capacidade=capacidade, provedor=resolucao.info.nome,

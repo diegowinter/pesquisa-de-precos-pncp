@@ -1,21 +1,22 @@
 """
-Adapters concretos das quatro capacidades (Fase 7) — cada um embrulha um cliente já validado
-(`llm_curador.Curador`, `embedder_local`/`gpu_remoto`, `ocr_pdf`) atrás dos `Protocol` de
-`protocolos.py`, sem reescrever a lógica de chamada.
+Adapters concretos das capacidades (Fase 7) — cada um embrulha um cliente já validado atrás
+dos `Protocol` de `protocolos.py`, sem reescrever a lógica de chamada.
+
+**Todo adapter aqui é CLIENTE DE UM SERVIÇO.** Desde a ADR-021 não existe mais versão "em
+processo": trabalho de GPU e de CPU intensiva (embedding, reranking, OCR, parse de PDF, BM25)
+vive no repositório `pncp-servicos-locais` e é alcançado por HTTP. Este processo baixa, grava
+no banco e conversa — nada mais. Era o mesmo problema do `--fonte csv`: dois caminhos para o
+mesmo resultado, e a divergência entre eles não levantava exceção.
 
 Nomes seguem docs/04_FASES.md §Fase 7:
-  - `gpu_caseira`   → embed/rerank remotos (servidor da GPU caseira, `gpu_remoto`)
+  - `gpu_caseira`   → rerank remoto (serviço `gpu`)
   - `lm_studio`     → chat local (OpenAI-compatible)
   - `openrouter`    → chat pago (OpenAI-compatible)
   - `openai_compat` → chat genérico (qualquer servidor OpenAI-compatible além dos dois acima)
-  - `ocr_local`     → servidor de OCR (`ocr_pdf`)
-Mais dois adapters que não têm nome próprio na doc porque atendem embed/rerank IN-PROCESS
-(sem GPU remota) — mesma família de `gpu_caseira`, só que rodando na própria máquina.
 
-Retry/backoff: `Curador` e `ocr_pdf.ocr_pagina` já retriam nativamente. Os clientes remotos de
-GPU (`gpu_remoto`) não tinham — os adapters de embed/rerank remoto acrescentam um retry curto
-aqui, sem mexer em `gpu_remoto.py` (mesma regra de "não portar sem ler": preservar o cliente
-validado e só embrulhar).
+Retry/backoff: `Curador` já retria nativamente. O cliente de GPU (`gpu_remoto`) não tinha — o
+adapter de rerank acrescenta um retry curto aqui, sem mexer em `gpu_remoto.py` (regra de "não
+portar sem ler": preservar o cliente validado e só embrulhar).
 """
 
 import time
@@ -93,26 +94,6 @@ class EmbedGpuCaseiraAdapter:
         self._cliente.liberar()
 
 
-class EmbedProcessoAdapter:
-    """Embed IN-PROCESS (sentence-transformers, sem GPU remota). Mesma proibição de fallback
-    da `EmbedGpuCaseiraAdapter` — aqui não há rede, então não há retry a fazer."""
-
-    def __init__(self, info: InfoProvedor, *, cache_path: str | None = None):
-        from pesquisa_precos.providers.embedder_local import EmbedderLocal
-
-        self.info = info
-        self._cliente = EmbedderLocal(info.modelo, cache_path=cache_path, batch=info.batch_size)
-
-    def embed_textos(self, textos: list[str]) -> np.ndarray:
-        return self._cliente.embed_textos(textos)
-
-    def salvar_cache(self) -> None:
-        self._cliente.salvar_cache()
-
-    def liberar(self) -> None:
-        self._cliente.liberar()
-
-
 class RerankGpuCaseiraAdapter:
     """`gpu_caseira` (rerank) — cliente HTTP do servidor de GPU (`gpu_remoto.RerankerRemoto`),
     com retry curto por lote. Fallback é PERMITIDO em `rerank` (ADR-006) — quem decide se usa
@@ -131,47 +112,12 @@ class RerankGpuCaseiraAdapter:
         self._cliente.liberar()
 
 
-class RerankProcessoAdapter:
-    """Rerank IN-PROCESS (cross-encoder local, sem GPU remota)."""
-
-    def __init__(self, info: InfoProvedor):
-        from pesquisa_precos.providers.reranker_local import RerankerLocal
-
-        self.info = info
-        self._cliente = RerankerLocal(info.modelo, batch=info.batch_size)
-
-    def score_pares(self, pares: list[tuple[str, str]]) -> np.ndarray:
-        return self._cliente.score_pares(pares)
-
-    def liberar(self) -> None:
-        self._cliente.liberar()
-
-
-class OcrLocalAdapter:
-    """`ocr_local` — servidor OCR OpenAI-compatible (`ocr_pdf.ocr_pagina`, já retria)."""
-
-    def __init__(self, info: InfoProvedor, *, api_key: str):
-        self.info = info
-        self._api_key = api_key
-
-    def ocr_pagina(self, png_bytes: bytes) -> str:
-        from pesquisa_precos.providers import ocr_pdf
-
-        return ocr_pdf.ocr_pagina(png_bytes, self.info.base_url, self.info.modelo, self._api_key)
-
-
-# ── Fase 11 (ADR-019): o processamento pesado vira serviço ────────────────────────────────
-#
-# Cada capacidade tem DOIS adapters com a mesma interface: `...RemotoAdapter` (HTTP) e
-# `...EmProcessoAdapter` (o código de sempre, rodando aqui). A etapa não sabe qual está em uso
-# — é o que permite o servidor rodar sem torch/pymupdf enquanto o laptop continua funcionando
-# sem serviço nenhum no ar.
-
 class PdfRemotoAdapter:
-    """`pdf` remoto — o serviço baixa o PDF, extrai texto e chama o OCR por dentro.
+    """`pdf` — este processo baixa os arquivos do PNCP e manda os bytes para o serviço, que
+    extrai o texto, rasteriza as páginas escaneadas e chama o OCR por dentro. Volta só texto.
 
-    O container nunca recebe o PDF: só o texto por página. É o que tira `pymupdf` (e a banda
-    de download) do processo da etapa.
+    É o que tira `pymupdf` e a rasterização a 200 DPI daqui, sem trazer o conhecimento da API
+    do PNCP para lá (ADR-021).
     """
 
     def __init__(self, info: InfoProvedor, *, api_key: str, timeout_s: int = 600):
@@ -182,69 +128,75 @@ class PdfRemotoAdapter:
     def extrair(self, url_pncp: str, *, numero_controle: str = "", tipo_doc: str = "",
                 numero_sequencial: str | None = None, numero_sequencial_ata: str | None = None,
                 orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
-        import requests
-
-        # Timeout generoso: um documento de 300 páginas com OCR leva minutos. Curto demais
-        # transformaria trabalho de GPU já feito em erro de rede.
-        resp = requests.post(
-            f"{self.info.base_url.rstrip('/')}/extrair",
-            json={"url_pncp": url_pncp, "numero_controle": numero_controle,
-                  "tipo_doc": tipo_doc, "numero_sequencial": numero_sequencial,
-                  "numero_sequencial_ata": numero_sequencial_ata,
-                  "orgao_cnpj": orgao_cnpj, "ano": ano},
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            timeout=(30, self._timeout),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return self._enviar("/extrair", url_pncp, numero_controle=numero_controle,
+                            tipo_doc=tipo_doc, numero_sequencial=numero_sequencial,
+                            numero_sequencial_ata=numero_sequencial_ata,
+                            orgao_cnpj=orgao_cnpj, ano=ano)
 
     def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None, **ids) -> list[bytes]:
         import base64
 
+        resp = self._enviar("/rasterizar", url_pncp, campos={"max_paginas": max_paginas}, **ids)
+        # base64 e não multipart na volta: são poucas páginas (a visão tem teto) e manter uma
+        # resposta JSON simplifica o servidor, que já fala JSON em tudo.
+        return [base64.b64decode(b) for b in resp.get("paginas_png", [])]
+
+    # ── download + upload ────────────────────────────────────────────────────────────────
+    # Baixar é I/O barato, e o cliente da API do PNCP já vive aqui (é o mesmo da etapa 2).
+    # Duplicá-lo do outro lado daria duas implementações da mesma API pública para manter em
+    # sincronia sem tirar carga nenhuma deste processo. O que vai para o serviço é o trabalho
+    # caro: parse com PyMuPDF, rasterização a 200 DPI e OCR na GPU (ADR-021).
+
+    def _baixar(self, url_pncp: str, destino: str, *, tipo_doc: str,
+                numero_sequencial: str | None, numero_sequencial_ata: str | None,
+                orgao_cnpj: str | None, ano: int | None) -> list[str]:
+        from pesquisa_precos.core.coleta import consultar_arquivos
+
+        if not all([tipo_doc, orgao_cnpj, ano, numero_sequencial]):
+            return []
+        arquivos = consultar_arquivos.listar_arquivos(
+            tipo_doc, orgao_cnpj, ano, numero_sequencial, numero_sequencial_ata, silent=True)
+        alvos = consultar_arquivos.selecionar_do_tipo(arquivos, tipo_doc)
+        return consultar_arquivos.baixar_arquivos(alvos, destino, silent=True) if alvos else []
+
+    def _enviar(self, rota: str, url_pncp: str, *, campos: dict | None = None, **ids) -> dict:
+        import os
+        import shutil
+        import tempfile
+
         import requests
 
-        resp = requests.post(
-            f"{self.info.base_url.rstrip('/')}/rasterizar",
-            json={"url_pncp": url_pncp, "max_paginas": max_paginas, **ids},
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            timeout=(30, self._timeout),
-        )
-        resp.raise_for_status()
-        # base64 e não multipart: são poucas páginas (a visão tem teto) e manter uma resposta
-        # JSON só simplifica o servidor, que já fala JSON em tudo.
-        return [base64.b64decode(b) for b in resp.json().get("paginas_png", [])]
-
-
-class PdfEmProcessoAdapter:
-    """`pdf` em processo — o caminho pré-Fase-11, preservado para rodar sem serviço no ar.
-
-    É o ÚNICO lugar que ainda importa PyMuPDF, e o import é tardio de propósito: num ambiente
-    sem as dependências opcionais (`.[localmente]`), instanciar este adapter não pode estourar —
-    só usá-lo.
-    """
-
-    def __init__(self, info: InfoProvedor, *, cfg: dict):
-        self.info = info
-        self._cfg = cfg
-
-    def extrair(self, url_pncp: str, *, numero_controle: str = "", tipo_doc: str = "",
-                numero_sequencial: str | None = None, numero_sequencial_ata: str | None = None,
-                orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
-        from pesquisa_precos.providers import ocr_pdf, pdf_pipeline
-
-        return pdf_pipeline.extrair_documento(
-            url_pncp, numero_controle=numero_controle, tipo_doc=tipo_doc,
-            numero_sequencial=numero_sequencial,
-            numero_sequencial_ata=numero_sequencial_ata, orgao_cnpj=orgao_cnpj, ano=ano,
-            ocr=lambda png: ocr_pdf.ocr_pagina(
-                png, self._cfg["ocr_base_url"], self._cfg["ocr_model"],
-                self._cfg["ocr_api_key"]),
-        )
-
-    def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None, **ids) -> list[bytes]:
-        from pesquisa_precos.providers import pdf_pipeline
-
-        return pdf_pipeline.rasterizar_documento(url_pncp, max_paginas=max_paginas, **ids)
+        pasta = tempfile.mkdtemp(prefix="pdf_envio_")
+        try:
+            nomes = self._baixar(
+                url_pncp, pasta,
+                tipo_doc=ids.get("tipo_doc") or "",
+                numero_sequencial=ids.get("numero_sequencial"),
+                numero_sequencial_ata=ids.get("numero_sequencial_ata"),
+                orgao_cnpj=ids.get("orgao_cnpj"), ano=ids.get("ano"))
+            if not nomes:
+                return {"paginas": [], "n_paginas": 0, "n_ocr": 0, "hash": None, "arquivos": [],
+                        "erro": "nenhum arquivo encontrado para o documento"}
+            abertos = [open(os.path.join(pasta, n), "rb") for n in nomes]
+            try:
+                # Timeout generoso: um documento de 300 páginas com OCR leva minutos. Curto
+                # demais transformaria trabalho de GPU já feito em erro de rede.
+                resp = requests.post(
+                    f"{self.info.base_url.rstrip('/')}{rota}",
+                    files=[("arquivos", (n, f, "application/pdf"))
+                           for n, f in zip(nomes, abertos)],
+                    data={k: str(v) for k, v in (campos or {}).items() if v is not None},
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=(30, self._timeout),
+                )
+            finally:
+                for f in abertos:
+                    f.close()
+            resp.raise_for_status()
+            return resp.json()
+        finally:
+            # ADR-012: o PDF é efêmero dos DOIS lados. Aqui ele vive o tempo do upload.
+            shutil.rmtree(pasta, ignore_errors=True)
 
 
 class PareamentoRemotoAdapter:
@@ -269,25 +221,10 @@ class PareamentoRemotoAdapter:
         return resp.json()["pares"]
 
 
-class PareamentoEmProcessoAdapter:
-    """`pareamento` em processo — BM25 + embedding local, o caminho de sempre."""
-
-    def __init__(self, info: InfoProvedor, *, cfg: dict):
-        self.info = info
-        self._cfg = cfg
-
-    def parear(self, catalogo: list[dict], itens: list[dict], *,
-               piso: float, top_k: int | None = None) -> list[dict]:
-        from pesquisa_precos.core.pareamento import motor
-
-        return motor.parear(catalogo, itens, piso=piso, top_k=top_k, cfg=self._cfg)
-
-
 def custo_estimado_generico(info: InfoProvedor, tokens_in: int, tokens_out: int) -> float:
     """Mesma fórmula de `ChatAdapter.custo_estimado`, exposta solta p/ `estimar()` de etapas
     que não têm (e não precisam) instanciar o adapter de verdade (docs/03_ETAPAS.md §1.1
     regra 5: `estimar()` nunca gasta nem chama provedor pago)."""
     if info.custo_in_por_mtok is None or info.custo_out_por_mtok is None:
         return 0.0
-    return (tokens_in / 1_000_000) * info.custo_in_por_mtok + \
-           (tokens_out / 1_000_000) * info.custo_out_por_mtok
+    return (tokens_in / 1_000_000) * info.custo_in_por_mtok +            (tokens_out / 1_000_000) * info.custo_out_por_mtok

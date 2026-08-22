@@ -72,14 +72,15 @@ ETAPAS: tuple[DefinicaoEtapa, ...] = (
                    ("2",), "pago", True, False, ("chat",)),
     DefinicaoEtapa("4", "Cortar / definir escopo", "e4_cortar",
                    ("3",), "gratis", True, True),
-    # Fase 11 (ADR-019): `pdf` e `pareamento` entram como capacidades de primeira classe —
-    # é o que faz o health check pré-play reprovar a etapa ANTES de começar quando o serviço
-    # externo está fora do ar. `ocr` continua listado na 5 porque o provedor `pdf` em processo
-    # ainda o consome; com o `pdf` remoto, quem chama o OCR é o serviço.
+    # Fase 11 (ADR-019): `pdf` e `pareamento` são capacidades de primeira classe — é o que faz
+    # o health check pré-play reprovar a etapa ANTES de começar quando o serviço está fora do
+    # ar. ADR-021: `ocr` NÃO é declarado pela 5 e `embed` não é declarado pela 6a — os dois
+    # rodam DENTRO dos serviços de `pdf` e `pareamento`, na máquina deles. Sondá-los daqui
+    # reprovaria a etapa por um endereço que este processo nem usa.
     DefinicaoEtapa("5", "Extrair e enriquecer itens (download + OCR + LLM)", "e5_extrair",
-                   ("4",), "pago", False, False, ("pdf", "ocr", "chat")),
+                   ("4",), "pago", False, False, ("pdf", "chat")),
     DefinicaoEtapa("6a", "Gerar pares + rejeitor híbrido", "e6a_pares",
-                   ("4", "5"), "gpu", False, True, ("pareamento", "embed")),
+                   ("4", "5"), "gpu", False, True, ("pareamento",)),
     DefinicaoEtapa("6b", "Rerankear pares", "e6b_rerank",
                    ("6a",), "gpu", False, False, ("rerank",)),
     DefinicaoEtapa("6c", "Validar ambíguos (LLM)", "e6c_validar",

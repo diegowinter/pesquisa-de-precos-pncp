@@ -109,30 +109,20 @@ def _resolver_via_env(capacidade: str, cfg: dict, *, provedor: str | None, forte
 
     if capacidade in ("embed", "rerank"):
         modelo_cfg = "embedder_model" if capacidade == "embed" else "reranker_model"
-        if remoto:
-            info = InfoProvedor(nome="gpu_caseira", capacidade=capacidade,
-                                base_url=cfg["gpu_base_url"], modelo=cfg[modelo_cfg])
-            return ResolucaoCapacidade(info=info, api_key=cfg["gpu_api_key"], origem="env")
-        info = InfoProvedor(nome="local", capacidade=capacidade, base_url="",
-                            modelo=cfg[modelo_cfg])
-        return ResolucaoCapacidade(info=info, api_key="", origem="env")
-
-    if capacidade == "ocr":
-        info = InfoProvedor(nome="ocr_local", capacidade="ocr", base_url=cfg["ocr_base_url"],
-                            modelo=cfg["ocr_model"])
-        return ResolucaoCapacidade(info=info, api_key=cfg["ocr_api_key"], origem="env")
+        # `remoto` sobreviveu como parâmetro por compatibilidade das etapas; hoje só existe
+        # o serviço de GPU (ADR-021), então ele não escolhe mais nada.
+        info = InfoProvedor(nome="gpu_caseira", capacidade=capacidade,
+                            base_url=cfg["gpu_base_url"], modelo=cfg[modelo_cfg])
+        return ResolucaoCapacidade(info=info, api_key=cfg["gpu_api_key"], origem="env")
 
     if capacidade in ("pdf", "pareamento"):
-        # `base_url` vazio = roda em processo (comportamento pré-Fase-11). O adapter é quem
-        # decide, para que a etapa não precise saber onde o processamento acontece.
         base = cfg[f"{capacidade}_base_url"]
-        info = InfoProvedor(nome="remoto" if base else "local", capacidade=capacidade,
-                            base_url=base, modelo="")
+        info = InfoProvedor(nome="remoto", capacidade=capacidade, base_url=base, modelo="")
         return ResolucaoCapacidade(info=info, api_key=cfg[f"{capacidade}_api_key"],
                                    origem="env")
 
     raise ValueError(f"capacidade desconhecida: {capacidade!r} "
-                     f"(use chat/embed/rerank/ocr/pdf/pareamento)")
+                     f"(use chat/embed/rerank/pdf/pareamento)")
 
 
 def criar_chat(cfg: dict, *, sessao: "Session | None" = None, provedor: str | None = None,
@@ -143,57 +133,58 @@ def criar_chat(cfg: dict, *, sessao: "Session | None" = None, provedor: str | No
     return ChatAdapter(r.info, api_key=r.api_key, curador_kwargs=curador_kwargs)
 
 
+def _exigir_servico(r, capacidade: str, variavel: str):
+    """Capacidade sem `base_url` é erro de configuração, não motivo para rodar aqui.
+
+    Desde a ADR-021 não existe caminho em processo: embedding, rerank, OCR, parse de PDF e
+    BM25 rodam nos serviços de `pncp-servicos-locais`. Cair silenciosamente num modo local
+    faria o servidor que orquestra tentar carregar torch/PyMuPDF — exatamente o trabalho que
+    ele não deve fazer — e só descobriríamos pelo `MemoryError` ou pela conta.
+    """
+    if not r.info.base_url:
+        raise SystemExit(
+            f"Capacidade `{capacidade}` sem endereço de serviço. Defina {variavel} no .env "
+            f"(ou configure o provedor pela tela /provedores) apontando para o serviço "
+            f"correspondente do repositório `pncp-servicos-locais`.")
+    return r
+
+
 def criar_embed(cfg: dict, *, sessao: "Session | None" = None, remoto: bool | None = None,
                 cache_path: str | None = None):
-    from pesquisa_precos.providers.adaptadores import EmbedGpuCaseiraAdapter, EmbedProcessoAdapter
+    from pesquisa_precos.providers.adaptadores import EmbedGpuCaseiraAdapter
 
-    r = resolver_capacidade("embed", cfg, sessao=sessao, remoto=remoto)
-    if r.info.nome == "local" or not r.info.base_url:
-        return EmbedProcessoAdapter(r.info, cache_path=cache_path)
+    r = _exigir_servico(resolver_capacidade("embed", cfg, sessao=sessao, remoto=remoto),
+                        "embed", "GPU_BASE_URL")
     return EmbedGpuCaseiraAdapter(r.info, api_key=r.api_key, cache_path=cache_path)
 
 
 def criar_rerank(cfg: dict, *, sessao: "Session | None" = None, remoto: bool | None = None,
                  batch: int | None = None):
-    from pesquisa_precos.providers.adaptadores import RerankGpuCaseiraAdapter, RerankProcessoAdapter
+    from pesquisa_precos.providers.adaptadores import RerankGpuCaseiraAdapter
 
-    r = resolver_capacidade("rerank", cfg, sessao=sessao, remoto=remoto)
+    r = _exigir_servico(resolver_capacidade("rerank", cfg, sessao=sessao, remoto=remoto),
+                        "rerank", "GPU_BASE_URL")
     if batch:
         r.info = InfoProvedor(**{**r.info.__dict__, "batch_size": batch})
-    if r.info.nome == "local" or not r.info.base_url:
-        return RerankProcessoAdapter(r.info)
     return RerankGpuCaseiraAdapter(r.info, api_key=r.api_key)
 
 
 def criar_pdf(cfg: dict, *, sessao: "Session | None" = None):
-    """Capacidade `pdf` (ADR-019). Sem `PDF_BASE_URL`, cai no adapter em processo — que é o
-    único que ainda importa PyMuPDF, e por isso vive atrás de um import tardio."""
-    from pesquisa_precos.providers.adaptadores import PdfEmProcessoAdapter, PdfRemotoAdapter
+    """Capacidade `pdf` (ADR-019/ADR-021). Este processo baixa os arquivos; o serviço faz o
+    parse, a rasterização e o OCR."""
+    from pesquisa_precos.providers.adaptadores import PdfRemotoAdapter
 
-    r = resolver_capacidade("pdf", cfg, sessao=sessao)
-    if not r.info.base_url:
-        return PdfEmProcessoAdapter(r.info, cfg=cfg)
+    r = _exigir_servico(resolver_capacidade("pdf", cfg, sessao=sessao), "pdf", "PDF_BASE_URL")
     return PdfRemotoAdapter(r.info, api_key=r.api_key)
 
 
 def criar_pareamento(cfg: dict, *, sessao: "Session | None" = None):
-    """Capacidade `pareamento` (ADR-019). Sem `PAREAMENTO_BASE_URL`, roda em processo."""
-    from pesquisa_precos.providers.adaptadores import (
-        PareamentoEmProcessoAdapter,
-        PareamentoRemotoAdapter,
-    )
+    """Capacidade `pareamento` (ADR-019/ADR-021) — BM25 + embedding + corte, no serviço."""
+    from pesquisa_precos.providers.adaptadores import PareamentoRemotoAdapter
 
-    r = resolver_capacidade("pareamento", cfg, sessao=sessao)
-    if not r.info.base_url:
-        return PareamentoEmProcessoAdapter(r.info, cfg=cfg)
+    r = _exigir_servico(resolver_capacidade("pareamento", cfg, sessao=sessao),
+                        "pareamento", "PAREAMENTO_BASE_URL")
     return PareamentoRemotoAdapter(r.info, api_key=r.api_key)
-
-
-def criar_ocr(cfg: dict, *, sessao: "Session | None" = None):
-    from pesquisa_precos.providers.adaptadores import OcrLocalAdapter
-
-    r = resolver_capacidade("ocr", cfg, sessao=sessao)
-    return OcrLocalAdapter(r.info, api_key=r.api_key)
 
 
 @dataclass
@@ -232,12 +223,6 @@ class Provedores:
         return self._cache["rerank"]
 
     @property
-    def ocr(self):
-        if "ocr" not in self._cache:
-            self._cache["ocr"] = criar_ocr(self._cfg, sessao=self._sessao)
-        return self._cache["ocr"]
-
-    @property
     def pdf(self):
         if "pdf" not in self._cache:
             self._cache["pdf"] = criar_pdf(self._cfg, sessao=self._sessao)
@@ -267,5 +252,3 @@ class Provedores:
     def novo_rerank(self, *, remoto: bool | None = None, batch: int | None = None):
         return criar_rerank(self._cfg, sessao=self._sessao, remoto=remoto, batch=batch)
 
-    def novo_ocr(self):
-        return criar_ocr(self._cfg, sessao=self._sessao)

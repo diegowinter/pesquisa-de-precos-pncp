@@ -6,66 +6,22 @@ O que estes testes protegem:
      (ADR-018 §2), e um export corrompido só apareceria na mão do usuário final;
   2. a estratégia `visao` receber IMAGENS em vez de uma pasta de PDFs — a mudança que permite
      tirar o PyMuPDF do container sem quebrar a rota de exceção (ADR-019);
-  3. as capacidades `pdf`/`pareamento` alternarem entre em-processo e remoto pela config, sem
-     a etapa saber qual está em uso;
-  4. o motor de pareamento preservar o corte em streaming e o desempate estável — a regra que
-     não pode se perder ao mudar de lado.
+  3. as capacidades `pdf`/`pareamento` exigirem um serviço configurado — desde a ADR-021 não
+     há caminho em processo, e cair num silenciosamente seria pôr GPU e PyMuPDF no processo
+     que só deveria orquestrar.
+
+O motor de pareamento mudou de repositório junto com a implementação: os testes dele agora
+vivem em `../pncp-servicos-locais/tests/test_pareamento.py`.
 
 Os testes de banco são PULADOS sem Postgres; os demais rodam sempre.
 """
 
 import pytest
 
-from pesquisa_precos.core.pareamento import motor
 from pesquisa_precos.db import sessao as db
 
 _MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
 pytestmark_db = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
-
-
-# ── Motor de pareamento (puro) ───────────────────────────────────────────────────────
-
-CATALOGO = [{"codigo": "C1", "texto": "colete balistico", "categoria": "protecao"}]
-ITENS = [
-    {"item_key": "i0", "descricao_final": "colete balistico nivel III-A", "categoria": "protecao"},
-    {"item_key": "i1", "descricao_final": "colete a prova de balas nivel 3", "categoria": "protecao"},
-    {"item_key": "i2", "descricao_final": "capacete balistico", "categoria": "protecao"},
-    {"item_key": "i3", "descricao_final": "cadeira de escritorio giratoria", "categoria": "protecao"},
-    {"item_key": "i4", "descricao_final": "papel sulfite A4", "categoria": "protecao"},
-    {"item_key": "i5", "descricao_final": "caneta esferografica azul", "categoria": "protecao"},
-]
-
-
-def test_pareamento_corta_pelo_piso():
-    pares = motor.parear(CATALOGO, ITENS, piso=0.3)
-    sobreviventes = {p["item_key"] for p in pares}
-    assert "i0" in sobreviventes, "o item mais parecido tem que sobreviver"
-    assert "i4" not in sobreviventes and "i5" not in sobreviventes
-
-
-def test_pareamento_respeita_top_k():
-    assert len(motor.parear(CATALOGO, ITENS, piso=0.0, top_k=2)) == 2
-
-
-def test_pareamento_e_deterministico():
-    """`argsort(kind='stable')` reproduz o desempate do `rank(method='first')` original. Sem
-    ele, dois pares de score idêntico trocariam de posição entre execuções e o top-K
-    devolveria conjuntos diferentes para a MESMA entrada."""
-    a = [p["par_key"] for p in motor.parear(CATALOGO, ITENS, piso=0.0, top_k=3)]
-    b = [p["par_key"] for p in motor.parear(CATALOGO, ITENS, piso=0.0, top_k=3)]
-    assert a == b
-
-
-def test_pareamento_nao_cruza_categorias():
-    """O produto é RESTRITO à mesma categoria — regra de negócio da 6a."""
-    itens = [{"item_key": "x", "descricao_final": "colete balistico", "categoria": "armamento"}]
-    assert motor.parear(CATALOGO, itens, piso=0.0) == []
-
-
-def test_pareamento_sem_embedding_usa_so_bm25():
-    """Equivalente ao `--sem-embedding`: sem GPU, o cosseno é zero e o BM25 decide sozinho."""
-    pares = motor.parear(CATALOGO, ITENS, piso=0.0, top_k=1, embed=None)
-    assert pares and pares[0]["score_cosseno"] == 0.0
 
 
 # ── Estratégia `visao` recebe imagens, não pasta (ADR-019) ───────────────────────────
@@ -118,15 +74,23 @@ def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
 
 # ── Capacidades novas alternam por configuração (Fase 11) ────────────────────────────
 
-def test_capacidades_caem_em_processo_sem_servico(monkeypatch):
+@pytest.mark.parametrize("capacidade,variavel", [
+    ("pdf", "PDF_BASE_URL"),
+    ("pareamento", "PAREAMENTO_BASE_URL"),
+    ("rerank", "GPU_BASE_URL"),
+])
+def test_capacidade_sem_servico_falha_em_vez_de_rodar_aqui(monkeypatch, capacidade, variavel):
+    """ADR-021: não existe mais adapter em processo. Sem endereço, a etapa PARA com uma
+    mensagem que diz o que configurar — em vez de carregar torch/PyMuPDF no processo que só
+    deveria baixar e gravar no banco."""
     from pesquisa_precos.config.settings import carregar_config
     from pesquisa_precos.providers.resolver import Provedores
 
-    monkeypatch.setenv("PDF_BASE_URL", "")
-    monkeypatch.setenv("PAREAMENTO_BASE_URL", "")
+    monkeypatch.setenv(variavel, "")
     p = Provedores(carregar_config())
-    assert type(p.pdf).__name__ == "PdfEmProcessoAdapter"
-    assert type(p.pareamento).__name__ == "PareamentoEmProcessoAdapter"
+    with pytest.raises(SystemExit) as exc:
+        getattr(p, capacidade)
+    assert variavel in str(exc.value)
 
 
 def test_capacidades_viram_remotas_com_base_url(monkeypatch):
@@ -140,16 +104,28 @@ def test_capacidades_viram_remotas_com_base_url(monkeypatch):
     assert type(p.pareamento).__name__ == "PareamentoRemotoAdapter"
 
 
-def test_health_check_nao_reprova_capacidade_em_processo(monkeypatch):
-    """Regressão: ao entrar no registry da etapa 5, `pdf` sem serviço configurado passou a ser
-    sondado por rede e reprovava a etapa antes de ela começar — na máquina do usuário, que é
-    o modo de sempre."""
+def test_nenhum_adapter_em_processo_sobreviveu():
+    """Guarda da ADR-021: um adapter "em processo" reintroduzido traria torch/PyMuPDF de volta
+    para o processo que orquestra, e faria isso silenciosamente — só a conta de memória do
+    servidor acusaria."""
+    import inspect
+
+    from pesquisa_precos.providers import adaptadores
+
+    nomes = [n for n, o in vars(adaptadores).items()
+             if inspect.isclass(o) and n.endswith("Adapter")]
+    assert not [n for n in nomes if "Processo" in n], nomes
+
+
+def test_health_check_reprova_capacidade_sem_servico(monkeypatch):
+    """Sem `base_url` a etapa não pode começar: o health check pré-play é onde isso aparece,
+    antes de gastar. Era o inverso enquanto existia caminho em processo."""
     from pesquisa_precos.config.settings import carregar_config
     from pesquisa_precos.providers import saude
 
     monkeypatch.setenv("PDF_BASE_URL", "")
     resultado = saude.checar_capacidade("pdf", carregar_config())
-    assert resultado["saudavel"] is True
+    assert resultado["saudavel"] is False
 
 
 # ── Export no banco (ADR-018 §2) ─────────────────────────────────────────────────────

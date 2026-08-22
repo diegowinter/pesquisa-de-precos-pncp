@@ -21,7 +21,8 @@ pesquisa_precos/
   etapas/    e0a_catalogo · e1_termos · e2_coletar · e3_classificar · e4_cortar
              e5_extrair · e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
   core/      regras, paralelo, prompts, coleta PNCP, catálogo, classificação, pareamento
-  providers/ chat · embed · rerank · ocr · pdf · pareamento (resolver + adapters)
+  providers/ chat · embed · rerank · pdf · pareamento (resolver + adapters — TODOS clientes
+             de serviço; nada roda em processo desde a ADR-021)
   estrategias/ janela · completa · visao (implementações plugáveis da etapa 5)
   db/        modelos, repos, sessão (SQLAlchemy 2.x; migrations em alembic/)
   runner/    executor, lock, fingerprint, processo, ContextoBanco, ContextoNulo
@@ -34,6 +35,26 @@ Cada etapa expõe `Params` (Pydantic) + `executar(params, ctx)` + `estimar(param
 ordem e as dependências vêm de `pesquisa_precos/etapas/registry.py`; os `Params` geram o
 formulário de configuração da web. Ao mudar a lógica de uma etapa, **bumpe o `VERSAO_CODIGO`
 do módulo** — é o que alimenta o fingerprint que marca as dependentes como desatualizadas.
+
+### O pesado não roda aqui (ADR-021)
+
+Desde 2026-08-22 existe `../pncp-servicos-locais/` — quatro serviços HTTP (`gpu`, `ocr`,
+`pdf`, `pareamento`) com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
+200 DPI, OCR, embedder, reranker, BM25 e o corte do produto catálogo × itens.
+
+Aqui só ficaram **clientes**. Não existe mais `…EmProcessoAdapter`: `base_url` vazio é erro de
+configuração, não "roda na própria máquina". A razão é a mesma da ADR-020 — dois caminhos para
+o mesmo resultado divergem em silêncio — e o destino é um servidor econômico, que faz scraping
+e escreve no banco e nada mais.
+
+A linha do corte é **"precisa de GPU ou é CPU intensiva"**, não "toca em bytes": baixar o PDF
+continua sendo daqui (é I/O, e o cliente do PNCP já existe para a etapa 2); o processo baixa e
+manda os bytes por upload, o serviço devolve texto.
+
+O companion **não importa `pesquisa_precos`** — é independente e tem `pyproject`, testes e
+`.env` próprios. Consequências práticas: `OCR_*` saiu do `.env` daqui, a etapa 5 declara
+`("pdf", "chat")` e a 6a declara `("pareamento",)`. Rodar o pipeline localmente é subir os
+serviços também.
 
 ### Não existe CLI (Fase 13, ADR-020)
 
@@ -218,7 +239,8 @@ estavam iguais antes dela.
   status), `run_log` (log estruturado) e `erro_item` (falha por item, que não derruba a etapa).
   `data/checkpoints/` e `data/erros/` são do pipeline antigo.
 - **A tela `/provedores`** é o primeiro lugar a olhar quando uma etapa reprova antes de começar:
-  ela sonda cada capacidade na ordem banco → `.env`.
+  ela sonda cada capacidade na ordem banco → `.env`. Uma linha vermelha aí costuma ser um
+  serviço de `pncp-servicos-locais` que não está no ar, não um bug do pipeline.
 - `.env` — nunca commitar (está no `.gitignore`); tem chaves de API e a URL do túnel ngrok da
   GPU remota (`GPU_BASE_URL`), que muda de tempos em tempos.
 - `legado/` **saiu do repositório** na Fase 0. O patch aposentado

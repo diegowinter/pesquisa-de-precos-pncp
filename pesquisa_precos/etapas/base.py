@@ -72,7 +72,7 @@ class ContextoExecucao(Protocol):
 
     Diferença em relação ao contrato final de docs/03_ETAPAS.md §1: `db` (sessão de domínio da
     etapa, Fase 2/3) ainda não é injetado aqui — as etapas continuam abrindo sua própria sessão
-    via `db.sessao()`. `provedores` (Fase 7) já é injetado: `.chat`/`.embed`/`.rerank`/`.ocr`,
+    via `db.sessao()`. `provedores` (Fase 7) já é injetado: `.chat`/`.embed`/`.rerank`/`.pdf`/`.pareamento`,
     resolvidos do banco (`capacidade_provedor`) quando configurado, senão do `.env` — ver
     `providers.resolver`. `config` é, nesta fase, o dict de `config.settings.carregar_config()`
     — na Fase 6 vira a `ConfigResolvida` da `config_versao` do run, sem que a assinatura mude

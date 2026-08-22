@@ -245,7 +245,7 @@ def conteudo_export(export_id: int):
 
 
 def saude_provedores() -> list[dict[str, Any]]:
-    """Sonda `chat`/`embed`/`rerank`/`ocr`/`pdf`/`pareamento` (banco → `.env`) e devolve o
+    """Sonda `chat`/`embed`/`rerank`/`pdf`/`pareamento` (banco → `.env`) e devolve o
     resultado. Não gasta e não dispara etapa — é a mesma sondagem HTTP leve que
     `runner.executor` faz antes do play, exposta para diagnóstico manual.
 
@@ -253,7 +253,10 @@ def saude_provedores() -> list[dict[str, Any]]:
     from pesquisa_precos.config.settings import carregar_config
     from pesquisa_precos.providers import saude
 
-    capacidades = ["chat", "embed", "rerank", "ocr", "pdf", "pareamento"]
+    # `ocr` NÃO entra: ele é consumido DENTRO do serviço de `pdf`, na máquina dele, e é lá
+    # que está configurado (ADR-021). Sondá-lo daqui daria uma linha vermelha permanente por
+    # um endereço que este processo nunca chama.
+    capacidades = ["chat", "embed", "rerank", "pdf", "pareamento"]
     cfg = carregar_config()
 
     def uma(capacidade: str, sessao) -> dict[str, Any]:

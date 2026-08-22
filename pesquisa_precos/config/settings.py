@@ -58,21 +58,19 @@ def carregar_config() -> dict:
         "local_base_url": os.getenv("LOCAL_BASE_URL", "http://localhost:1234/v1"),
         "local_model": os.getenv("LOCAL_MODEL", ""),
         "local_api_key": os.getenv("LOCAL_API_KEY", "lm-studio"),
-        # OCR local
-        "ocr_base_url": os.getenv("OCR_BASE_URL", "http://localhost:8000/v1"),
-        "ocr_model": os.getenv("OCR_MODEL", ""),
-        "ocr_api_key": os.getenv("OCR_API_KEY", "ocr"),
-        # Servidor de GPU (embedder 6a + reranker 6b) — opcional, via --remoto.
+        # ── Serviços de `pncp-servicos-locais` (ADR-019/ADR-021) ─────────────────────
+        # Este processo baixa, orquestra e grava no banco; GPU e CPU intensiva ficam do outro
+        # lado de um HTTP. Vazio NÃO é mais "roda aqui": é erro de configuração, e a etapa
+        # para antes de começar (`providers/resolver._exigir_servico`).
         "gpu_base_url": os.getenv("GPU_BASE_URL", "http://localhost:8100"),
         "gpu_api_key": os.getenv("GPU_API_KEY", "gpu"),
-        # Fase 11 (ADR-019): serviços que tiram o processamento pesado do processo da etapa.
-        # Vazio = roda EM PROCESSO (o comportamento de sempre), desde que as dependências
-        # opcionais (`pip install -e ".[localmente]"`) estejam instaladas.
         "pdf_base_url": os.getenv("PDF_BASE_URL", ""),
         "pdf_api_key": os.getenv("PDF_API_KEY", "pdf"),
         "pareamento_base_url": os.getenv("PAREAMENTO_BASE_URL", ""),
         "pareamento_api_key": os.getenv("PAREAMENTO_API_KEY", "pareamento"),
-        # Modelos em processo (sentence-transformers)
+        # `OCR_*` NÃO mora aqui: quem chama o OCR é o serviço de `pdf`, na máquina dele, e é
+        # no `.env` DE LÁ que ele se configura.
+        # Nomes de modelo, para log e para a tela de provedores — quem carrega são os serviços.
         "embedder_model": os.getenv("EMBEDDER_MODEL", "BAAI/bge-m3"),
         "reranker_model": os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3"),
         # Thresholds calibráveis
@@ -135,17 +133,13 @@ _REQUISITOS = {
         ("local_model",),
         "LOCAL_MODEL (LM Studio; confira também LOCAL_BASE_URL)",
     ),
-    "ocr": (
-        ("ocr_model",),
-        "OCR_MODEL (servidor de OCR; confira também OCR_BASE_URL)",
-    ),
 }
 
 
 def exigir(cfg: dict, *escopos: str) -> str | None:
     """
     Retorna uma mensagem de erro se faltar alguma var obrigatória p/ os escopos pedidos,
-    senão None. Escopos: 'openrouter', 'local', 'ocr'.
+    senão None. Escopos: 'openrouter', 'local'.
     """
     faltando = []
     for escopo in escopos:

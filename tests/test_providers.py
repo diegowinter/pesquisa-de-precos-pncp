@@ -71,10 +71,12 @@ def test_resolver_chat_override_explicito_vence_default():
     assert r.info.modelo == "modelo-barato"  # não é --forte, então pass1
 
 
-def test_resolver_embed_local_sem_remoto():
+def test_resolver_embed_e_sempre_o_servico_de_gpu():
+    """ADR-021: `remoto=False` não existe mais como caminho — embedding é GPU, e GPU mora nos
+    serviços. O parâmetro sobrevive nas assinaturas das etapas, mas não escolhe nada."""
     r = resolver_capacidade("embed", CFG, remoto=False)
-    assert r.info.nome == "local"
-    assert r.info.modelo == "BAAI/bge-m3"
+    assert r.info.nome == "gpu_caseira"
+    assert r.info.base_url == "http://gpu.local:8100"
 
 
 def test_resolver_embed_remoto_e_gpu_caseira():
@@ -83,10 +85,11 @@ def test_resolver_embed_remoto_e_gpu_caseira():
     assert r.info.base_url == "http://gpu.local:8100"
 
 
-def test_resolver_ocr():
-    r = resolver_capacidade("ocr", CFG)
-    assert r.info.nome == "ocr_local"
-    assert r.info.modelo == "ocr-modelo"
+def test_ocr_nao_e_mais_capacidade_deste_processo():
+    """Quem chama o OCR é o serviço de `pdf`, na máquina dele, com o `.env` dele (ADR-021).
+    Resolver `ocr` aqui significaria que alguém voltou a rasterizar página neste processo."""
+    with pytest.raises(ValueError, match="capacidade desconhecida"):
+        resolver_capacidade("ocr", CFG)
 
 
 def test_resolver_capacidade_desconhecida_leva_a_erro_claro():

@@ -571,3 +571,76 @@ a que existia antes, "todo caminho da etapa cai dentro de `data/`").
 - **Custo:** sem banco de pé, não há pipeline. Antes havia um caminho degradado; agora
   `DATABASE_URL` é pré-requisito duro. É o mesmo custo que o ADR-018 já havia aceitado, agora
   sem rede.
+
+---
+
+## ADR-021 — Trabalho pesado sai do repositório: só serviços, sem caminho em processo
+
+**Data:** 2026-08-22 · **Status:** aceito · **Substitui parcialmente:** [ADR-019](#adr-019)
+
+**Contexto**
+
+A ADR-019 tirou o processamento pesado do processo da etapa, mas manteve as duas formas: sem
+`PDF_BASE_URL`/`PAREAMENTO_BASE_URL`, os adapters `…EmProcessoAdapter` rodavam PyMuPDF, BM25 e
+sentence-transformers na própria máquina. O mesmo valia para `embed` e `rerank`, que escolhiam
+entre GPU remota e modelo local pelo parâmetro `remoto`.
+
+Era a mesma estrutura que o `--fonte csv` da [ADR-020](#adr-020): dois caminhos para o mesmo
+resultado, escolhidos por configuração, e a divergência entre eles não levanta exceção. Pior
+aqui, porque o caminho em processo é o *default* de quem não configurou nada — o modo em que
+um erro de configuração vira, silenciosamente, torch carregado no servidor que orquestra.
+
+O destino da aplicação é um **servidor econômico**, dimensionado para scraping do PNCP e
+escrita no banco. GPU e CPU intensiva nunca vão rodar lá. Um caminho em processo que nunca
+será usado em produção é código que só existe para divergir.
+
+**Decisão**
+
+O trabalho pesado sai do repositório e vira um repositório companion,
+**`pncp-servicos-locais`**, com quatro serviços HTTP (`gpu`, `ocr`, `pdf`, `pareamento`).
+Aqui ficam apenas clientes.
+
+Saem daqui, movidos para `servicos/core/` de lá: `providers/pdf_pipeline.py`,
+`providers/ocr_pdf.py`, `providers/embedder_local.py`, `providers/reranker_local.py` e
+`core/pareamento/` (motor + índice BM25). Junto foram os testes do motor.
+
+Saem os quatro adapters em processo. `resolver._exigir_servico` transforma `base_url` vazio em
+`SystemExit` com o nome da variável a preencher — a etapa para antes de começar, e o health
+check pré-play reprova em vez de aprovar.
+
+**A linha do corte é "precisa de GPU ou é CPU intensiva", não "toca em bytes".**
+
+- Fica **aqui**: baixar os PDFs do PNCP (I/O barato, e o cliente da API já existe para a
+  etapa 2), orquestrar, gravar no banco.
+- Vai para **lá**: parse com PyMuPDF, rasterização a 200 DPI, OCR, embedding, rerank, BM25 e o
+  corte top-K sobre o produto catálogo × itens.
+
+Consequência direta no contrato da capacidade `pdf`: este processo baixa os arquivos e os
+manda por upload multipart; o serviço devolve texto por página. O companion não sabe o que é
+um contrato, uma ata ou um `tipoDocumentoNome` — recebe arquivos, devolve texto.
+
+**Alternativas descartadas**
+
+- *Deixar o companion importar `pesquisa_precos` por dependência de caminho*: foi a primeira
+  versão. Funciona, mas amarra os dois repositórios ao mesmo disco e inverte a autonomia de
+  quem hospeda o serviço.
+- *Copiar o código para os dois lados*: é a duplicação que a ADR-019 recusou, e com razão — o
+  limiar de página escaneada, o DPI e o piso do corte divergindo dariam texto e pares
+  diferentes conforme o serviço estivesse no ar, sem erro nenhum.
+- *Levar o download para o serviço, junto com o cliente do PNCP*: daria dois clientes da mesma
+  API pública para manter em sincronia, sem tirar carga nenhuma do servidor — baixar é I/O.
+- *Manter o caminho em processo só para desenvolvimento local*: rodar local também é rodar os
+  serviços. Um `python -m servicos pdf` a mais é mais barato que uma segunda implementação.
+
+**Consequências**
+
+- `ocr` deixa de ser capacidade deste processo: quem chama o OCR é o serviço de `pdf`, na
+  máquina dele. `OCR_BASE_URL`/`OCR_MODEL`/`OCR_API_KEY` saem do `.env` daqui e passam para o
+  do companion. A etapa 5 declara `("pdf", "chat")`; a 6a declara `("pareamento",)`.
+- O extra `localmente` sai do `pyproject.toml`. Não há mais como instalar o pesado aqui.
+- `remoto`, nas etapas 6a/6b, deixa de escolher: só existe o serviço de GPU. O campo sobrevive
+  nas assinaturas sem efeito, como `fraco` na 6c depois da ADR-004.
+- **Custo:** rodar o pipeline na própria máquina passa a exigir subir os serviços. É o preço
+  de ter uma forma canônica, e é o mesmo que a ADR-020 cobrou ao tirar a CLI.
+- **Rollback:** os módulos movidos estão no histórico deste repositório (o commit anterior a
+  esta ADR) e vivos em `pncp-servicos-locais`. Nada foi perdido.

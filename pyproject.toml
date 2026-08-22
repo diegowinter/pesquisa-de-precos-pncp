@@ -20,11 +20,10 @@ dependencies = [
     "langchain-openai",
     "langchain-core",
     "unidecode",
-    # Fase 11 (ADR-019): `pymupdf`, `rank-bm25` e `sentence-transformers` SAÍRAM daqui e
-    # viraram o extra `localmente`. O processo que orquestra (API/web/runner no servidor) não
-    # precisa de nenhum deles: parse de PDF e pareamento são serviços externos, e o container
-    # cai de ~3 GB para poucas centenas de MB. Quem roda tudo na própria máquina instala com
-    # `uv sync --extra localmente` (ou `pip install -e ".[localmente]"`).
+    # ADR-021: `pymupdf`, `rank-bm25` e `sentence-transformers` não estão aqui nem em extra
+    # nenhum — saíram do repositório. Parse de PDF, rasterização, OCR, embedding, rerank e
+    # BM25 vivem em `../pncp-servicos-locais` e são alcançados por HTTP. Este processo faz
+    # scraping, orquestra e escreve no banco; é o que o mantém rodando num servidor modesto.
     # Fase 2: o banco vira a fonte da verdade. `psycopg` 3 (não 2) porque a migração depende
     # de `cursor.copy()` — `COPY` é o que faz 1,6 milhão de itens entrarem em minutos em vez
     # de horas. O extra `[binary]` evita exigir libpq instalada no Windows.
@@ -43,15 +42,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "pytest"]
-# Processamento pesado NA PRÓPRIA MÁQUINA. Necessário em dois casos: rodar a pipeline sem os
-# serviços da Fase 11 no ar (`PDF_BASE_URL`/`PAREAMENTO_BASE_URL` vazios), e hospedar esses
-# mesmos serviços (`servidor_pdf.py`, `servidor_pareamento.py`). O container que só orquestra
-# não instala nada disto — é o que o mantém em poucas centenas de MB.
-localmente = ["pymupdf", "rank-bm25", "sentence-transformers"]
 
 [tool.setuptools.packages.find]
-# Só o pacote da aplicação. `ferramentas/`, `migracao/` e os servidores de GPU/OCR são
-# scripts avulsos, rodados de dentro do repositório — não fazem parte do pacote instalável.
+# Só o pacote da aplicação. `ferramentas/` e `migracao/` são scripts avulsos, rodados de
+# dentro do repositório — não fazem parte do pacote instalável.
 include = ["pesquisa_precos*"]
 
 [tool.ruff]

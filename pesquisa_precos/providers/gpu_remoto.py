@@ -1,5 +1,6 @@
 """
-Clientes HTTP drop-in para o embedder/reranker rodando no servidor de GPU (servidor_gpu.py).
+Clientes HTTP drop-in para o embedder/reranker rodando no servidor de GPU
+(`servicos/gpu.py`, no repo `pncp-servicos-locais`).
 
 Espelham a interface das versões in-process (embedder_local.EmbedderLocal /
 reranker_local.RerankerLocal), então a etapa 6a/6b troca só a linha de instanciação:
