@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from pesquisa_precos.etapas import registry
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
-from pesquisa_precos.runner.contexto_console import ContextoConsole
+from pesquisa_precos.runner.contexto_nulo import ContextoNulo
 
 CHAVES = [e.chave for e in registry.todas()]
 
@@ -90,7 +90,7 @@ def test_top_n_zero_e_sem_teto_e_nao_e_rejeitado_pela_validacao():
 
 
 def test_contexto_console_satisfaz_o_protocolo():
-    assert isinstance(ContextoConsole("teste"), ContextoExecucao)
+    assert isinstance(ContextoNulo("teste"), ContextoExecucao)
 
 
 def test_modelos_de_resultado_tem_defaults():

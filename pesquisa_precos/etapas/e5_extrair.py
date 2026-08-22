@@ -25,7 +25,7 @@ Saídas: data/5_pdf_texto.csv (texto por página, append, resumível por numeroC
         data/5_itens_destino.csv (projeção item_key→destino, o que a 6a consome),
         data/5_documento_extracao.csv (1 linha por (documento, estratégia) — custo/páginas).
 Chave de resumo: numeroControlePNCP (documento) — reprocessar um documento sobrescreve o
-veredito de TODOS os seus itens (última linha vence na leitura, ver `core.io_seguro`); é o
+veredito de TODOS os seus itens; é o
 mecanismo por trás de "reprocessar este documento com outra estratégia".
 
 NÃO fazer: persistir o PDF além da vida do worker (sempre `try/finally` + `shutil.rmtree`);
@@ -38,7 +38,6 @@ Uso: python -m pesquisa_precos.etapas.e5_extrair [--estrategia auto|janela|compl
      [--documentos <numeroControlePNCP,...>] [--limite-docs N]
 """
 
-import os
 import sys
 import threading
 from collections import defaultdict
@@ -49,15 +48,12 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-import pandas as pd
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sa_text
 from typing import Literal
 
-from pesquisa_precos.config import paths
 from pesquisa_precos.config.settings import exigir
 from pesquisa_precos.core import prompts_resolver
-from pesquisa_precos.core.io_seguro import EscritorSeguro, ler_chaves_concluidas, ler_csv, escrever_csv
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.estrategias import base as estr_base
@@ -69,29 +65,13 @@ from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoE
 from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "5"
-VERSAO_CODIGO = "1.0.0"
+VERSAO_CODIGO = "2.0.0"
 
-SOBREVIVENTES = paths.E4_SOBREVIVENTES
-PAGINAS = paths.E5_PDF_TEXTO
-SAIDA = paths.E5_ENRIQUECIDOS
-DESTINO = paths.E5_DESTINO
-DOC_EXTRACAO = paths.E5_DOC_EXTRACAO
-STAGING = paths.ARQUIVOS
 
-COLS_PAGINAS = ["numeroControlePNCP", "arquivo", "pagina", "fonte", "texto"]
-COLS_ENRIQUECIDOS = ["item_key", "descricao_final", "fonte_descricao", "preco_api", "preco_pdf",
-                     "divergencia_preco", "fornecedor", "quantidade_pdf", "status", "destino",
-                     "estrategia", "doc_status"]
-COLS_DESTINO = ["item_key", "destino", "doc_status"]
-COLS_DOC_EXTRACAO = ["numeroControlePNCP", "estrategia", "n_paginas", "n_paginas_ocr",
-                     "n_itens_tabela", "chamadas_llm", "doc_status"]
 
-ESTRATEGIAS_VALIDAS = ("auto", "janela", "completa", "visao")
 
 
 class Params(BaseModel):
-    fonte: Literal["banco", "csv"] = Field(
-        "banco", description="De onde vêm os sobreviventes e para onde vai a extração")
     estrategia: Literal["auto", "janela", "completa", "visao"] = Field(
         "auto", description="Estratégia de extração; 'auto' roteia por documento (ADR-010)")
     provedor: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
@@ -208,8 +188,7 @@ def _documentos_pendentes_banco(params: Params) -> tuple[dict, list[str], set[st
 
     ok, detalhe = db.esta_disponivel()
     if not ok:
-        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
-                         f"ou rode com --fonte csv.")
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     forcados = _documentos_alvo(params)
     with db.sessao() as s:
         linhas = s.execute(sa_text("""
@@ -244,23 +223,8 @@ def _documentos_alvo(params: Params) -> set[str]:
     return {d.strip() for d in params.documentos.split(",") if d.strip()}
 
 
-def _grupos_por_documento(sob: pd.DataFrame) -> dict[str, list[dict]]:
-    grupos: dict[str, list[dict]] = defaultdict(list)
-    for r in sob.to_dict("records"):
-        grupos[r["numeroControlePNCP"]].append(r)
-    return grupos
 
 
-def _documentos_pendentes(params: Params) -> tuple[dict[str, list[dict]], list[str], set[str]]:
-    sob = pd.read_csv(SOBREVIVENTES, dtype=str, encoding="utf-8").fillna("")
-    grupos = _grupos_por_documento(sob)
-    feitos_itens = ler_chaves_concluidas(str(SAIDA), "item_key")
-    forcados = _documentos_alvo(params)
-    pend = [doc for doc, itens in grupos.items()
-            if doc in forcados or not all(it["item_key"] in feitos_itens for it in itens)]
-    if params.limite_docs:
-        pend = pend[: params.limite_docs]
-    return grupos, pend, feitos_itens
 
 
 def _identificadores(doc_ctrl: str, item0: dict) -> dict:
@@ -441,25 +405,15 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
         return linhas, doc_extracao
 
 
-_lock_paginas = threading.Lock()
-_escritor_paginas: EscritorSeguro | None = None
+_escritor_paginas: "DestinoBanco | None" = None
 
 
 def _grava_paginas(linhas: list[dict]) -> None:
-    """Único ponto de gravação das páginas — atende CSV e banco (ver `DestinoBanco`).
-
-    Manter um ponto só é o que impede `_processar_documento`, onde mora a regra de negócio, de
-    ganhar um `if fonte ==` no meio.
-    """
-    global _escritor_paginas
+    """Único ponto de gravação das páginas. Manter um ponto só é o que mantém
+    `_processar_documento`, onde mora a regra de negócio, sem nenhum `if` de persistência."""
     if not linhas or _escritor_paginas is None:
         return
-    if isinstance(_escritor_paginas, DestinoBanco):
-        _escritor_paginas.paginas(linhas)   # o COPY já é atômico; não precisa do lock
-        return
-    with _lock_paginas:
-        for l in linhas:
-            _escritor_paginas.escrever(l)
+    _escritor_paginas.paginas(linhas)   # o COPY já é atômico; não precisa de lock
 
 
 def _marcar_documento_extraido(linhas_doc: list[dict]) -> None:
@@ -483,45 +437,22 @@ def _marcar_documento_extraido(linhas_doc: list[dict]) -> None:
         s.commit()
 
 
-def consolidar_destino() -> dict:
-    """Projeta item_key→destino/doc_status a partir do estado final de `SAIDA` (última linha
-    por item_key vence — reprocessar um documento sobrescreve o veredito dos seus itens)."""
-    por_item: dict[str, dict] = {}
-    for r in ler_csv(str(SAIDA)):
-        r["destino"] = estr_base.destino_de(r.get("status", ""), r.get("doc_status", "ok"))
-        por_item[r["item_key"]] = r
-    linhas = list(por_item.values())
-    escrever_csv(str(DESTINO), COLS_DESTINO, [
-        {"item_key": l["item_key"], "destino": l["destino"], "doc_status": l.get("doc_status", "")}
-        for l in linhas])
-    return estr_base.contagem_destinos(linhas)
 
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
-    if params.fonte == "banco":
-        ok, detalhe = db.esta_disponivel()
-        if not ok:
-            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
-        try:
-            grupos, pend, _ = _documentos_pendentes_banco(params)
-        except SystemExit as e:
-            return Estimativa(detalhes={"fonte": "banco", "aviso": str(e)})
-        n_itens = sum(len(grupos[d]) for d in pend)
-        return Estimativa(
-            unidades=len(pend), chamadas_llm=n_itens,
-            detalhes={"fonte": "banco", "documentos_visiveis": len(grupos),
-                      "documentos_pendentes": len(pend), "itens_nos_pendentes": n_itens,
-                      "estrategia": params.estrategia},
-        )
-
-    if not SOBREVIVENTES.exists():
-        return Estimativa(detalhes={"aviso": f"{SOBREVIVENTES} ausente — rode a etapa 4 antes."})
-    grupos, pend, feitos = _documentos_pendentes(params)
-    n_itens_pend = sum(len(grupos[d]) for d in pend)
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+    try:
+        grupos, pend, _ = _documentos_pendentes_banco(params)
+    except SystemExit as e:
+        return Estimativa(detalhes={"aviso": str(e)})
+    n_itens = sum(len(grupos[d]) for d in pend)
     return Estimativa(
-        unidades=len(pend), chamadas_llm=n_itens_pend,
-        detalhes={"documentos_visiveis": len(grupos), "documentos_pendentes": len(pend),
-                  "itens_nos_pendentes": n_itens_pend, "estrategia": params.estrategia},
+        unidades=len(pend), chamadas_llm=n_itens,
+        detalhes={"documentos_visiveis": len(grupos),
+                  "documentos_pendentes": len(pend), "itens_nos_pendentes": n_itens,
+                  "estrategia": params.estrategia},
     )
 
 
@@ -535,27 +466,16 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         msg = exigir(cfg, "ocr")
         if msg:
             raise SystemExit(msg)
-    if params.fonte == "csv" and not SOBREVIVENTES.exists():
-        raise SystemExit(f"{SOBREVIVENTES} ausente. Rode a etapa 4 antes.")
-
-    grupos, pend, feitos = (_documentos_pendentes_banco(params) if params.fonte == "banco"
-                            else _documentos_pendentes(params))
+    grupos, pend, feitos = _documentos_pendentes_banco(params)
     if not pend:
-        if params.fonte == "banco":
-            # No banco não existe "consolidar destino": `item_enriquecido.destino` já É a
-            # projeção que o CSV `5_itens_destino.csv` reconstruía a cada execução.
-            from pesquisa_precos.db.repos import extracao as repo_extr
-            with db.sessao() as s:
-                cont = repo_extr.contar(s)
-            ctx.log("info", "[5] Nada a fazer (todos os documentos já extraídos).")
-            return ResultadoEtapa(metricas=dict(cont))
-        ctx.log("info", "[5] Nada a fazer (todos os documentos já processados). Consolidando destino…")
-        cont = consolidar_destino()
-        ctx.log("info", f"[5] Destino: manter={cont.get('manter',0)} descartar="
-                        f"{cont.get('descartar',0)} revisar={cont.get('revisar',0)}")
+        # Não existe "consolidar destino": `item_enriquecido.destino` já É a projeção que o
+        # antigo `5_itens_destino.csv` reconstruía a cada execução.
+        from pesquisa_precos.db.repos import extracao as repo_extr
+        with db.sessao() as s:
+            cont = repo_extr.contar(s)
+        ctx.log("info", "[5] Nada a fazer (todos os documentos já extraídos).")
         return ResultadoEtapa(metricas=dict(cont))
 
-    os.makedirs(str(STAGING), exist_ok=True)
     ctx.log("info", f"[bold][5] {len(grupos)} documentos sobreviventes, pendentes: {len(pend)}[/] "
                     f"— estratégia: {params.estrategia}, provedor: {params.provedor}, "
                     f"concorrência: {params.concurrency_docs} docs × {params.concurrency_llm} itens")
@@ -592,62 +512,30 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         ctx.erro_item(doc_ctrl, exc)
         ctx.log("aviso", f"[yellow][5] erro em {doc_ctrl}: {str(exc)[:120]}[/]")
 
-    if params.fonte == "banco":
-        from pesquisa_precos.db.repos import extracao as repo_extr
+    from pesquisa_precos.db.repos import extracao as repo_extr
 
-        destino = DestinoBanco()
-        _escritor_paginas = destino    # `_grava_paginas` grava por ele (ver a função)
+    destino = DestinoBanco()
+    _escritor_paginas = destino    # `_grava_paginas` grava por ele (ver a função)
 
-        def ok_banco(_doc_ctrl, resultado):
-            linhas_item, linhas_doc = resultado
-            destino.enriquecidos(linhas_item)
-            destino.extracoes(linhas_doc)
-            _marcar_documento_extraido(linhas_doc)
+    def ok_banco(_doc_ctrl, resultado):
+        linhas_item, linhas_doc = resultado
+        destino.enriquecidos(linhas_item)
+        destino.extracoes(linhas_doc)
+        _marcar_documento_extraido(linhas_doc)
 
-        try:
-            ctx.progresso(0, len(pend), descricao="extraindo (PDF+LLM)")
-            executar_paralelo(pend, fn_doc, concurrency=params.concurrency_docs,
-                              on_result=ok_banco, on_error=err_doc,
-                              on_progress=lambda f, t: ctx.progresso(f, t))
-        finally:
-            _escritor_paginas = None
-
-        with db.sessao() as s:
-            cont = repo_extr.contar(s)
-        ctx.log("info", f"[bold green][5] Concluído.[/] → banco ({cont})")
-        n_itens = sum(len(grupos[d]) for d in pend)
-        return ResultadoEtapa(
-            processados=n_itens - n_erros[0], erros=n_erros[0],
-            metricas={"documentos_processados": len(pend) - n_erros[0], **cont},
-        )
-
-    _escritor_paginas = EscritorSeguro(str(PAGINAS), COLS_PAGINAS)
     try:
-        with EscritorSeguro(str(SAIDA), COLS_ENRIQUECIDOS) as w_enr, \
-             EscritorSeguro(str(DOC_EXTRACAO), COLS_DOC_EXTRACAO) as w_doc:
-
-            def ok(_doc_ctrl, resultado):
-                linhas_item, linhas_doc = resultado
-                for l in linhas_item:
-                    w_enr.escrever(l)
-                for l in linhas_doc:
-                    w_doc.escrever(l)
-
-            ctx.progresso(0, len(pend), descricao="extraindo (download+OCR+LLM)")
-            executar_paralelo(pend, fn_doc, concurrency=params.concurrency_docs, on_result=ok,
-                              on_error=err_doc, on_progress=lambda f, t: ctx.progresso(f, t))
+        ctx.progresso(0, len(pend), descricao="extraindo (PDF+LLM)")
+        executar_paralelo(pend, fn_doc, concurrency=params.concurrency_docs,
+                          on_result=ok_banco, on_error=err_doc,
+                          on_progress=lambda f, t: ctx.progresso(f, t))
     finally:
-        _escritor_paginas.fechar()
         _escritor_paginas = None
 
-    cont = consolidar_destino()
-    ctx.log("info", f"[bold green][5] Concluído.[/] → {SAIDA}")
-    ctx.log("info", f"[5] Destino: manter={cont.get('manter',0)} descartar={cont.get('descartar',0)} "
-                    f"revisar={cont.get('revisar',0)} (preço diverge={cont.get('preco_diverge',0)}, "
-                    f"suspeito={cont.get('preco_suspeito',0)}, sem preço={cont.get('sem_preco',0)})")
-
-    n_itens_pend = sum(len(grupos[d]) for d in pend)
+    with db.sessao() as s:
+        cont = repo_extr.contar(s)
+    ctx.log("info", f"[bold green][5] Concluído.[/] → banco ({cont})")
+    n_itens = sum(len(grupos[d]) for d in pend)
     return ResultadoEtapa(
-        processados=n_itens_pend - n_erros[0], erros=n_erros[0],
+        processados=n_itens - n_erros[0], erros=n_erros[0],
         metricas={"documentos_processados": len(pend) - n_erros[0], **cont},
     )

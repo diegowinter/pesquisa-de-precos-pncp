@@ -44,26 +44,29 @@ def test_todo_o_pacote_importa():
 
 
 @pytest.mark.parametrize("nome", ETAPAS)
-def test_caminhos_da_etapa_ficam_dentro_de_data(nome):
+def test_etapa_nao_expoe_nenhum_caminho(nome):
     """
-    Toda constante de caminho de uma etapa tem que cair dentro de `paths.DATA`.
+    Fase 13 (ADR-020): nenhuma etapa pode ter constante de caminho.
 
-    Se um `DATA = Path(__file__).parent / "data"` tivesse sobrevivido à movimentação, ele
-    apontaria para `pesquisa_precos/etapas/data/` — dentro do pacote, fora do acervo.
+    Este teste era o INVERSO — "todo caminho da etapa cai dentro de `paths.DATA`" — enquanto
+    as etapas escreviam CSV. Com o banco como único meio de persistência, qualquer `Path` de
+    volta ao módulo de uma etapa é o começo do caminho paralelo de novo: um arquivo que a web
+    não sabe servir, que o container não persiste e que ninguém lembra de migrar.
+
+    `paths.py` continua existindo, mas é do importador (`migracao/`), não das etapas.
     """
     mod = importlib.import_module(f"pesquisa_precos.etapas.{nome}")
-    achou = False
-    for atributo in dir(mod):
-        if atributo.startswith("_"):
-            continue
-        valor = getattr(mod, atributo)
-        if not isinstance(valor, Path):
-            continue
-        achou = True
-        assert paths.DATA in valor.parents or valor == paths.DATA, (
-            f"{nome}.{atributo} = {valor} está fora de {paths.DATA}"
-        )
-    assert achou, f"{nome} não expõe nenhuma constante de caminho — a movimentação as perdeu?"
+    caminhos = {a: getattr(mod, a) for a in dir(mod)
+                if not a.startswith("_") and isinstance(getattr(mod, a), Path)}
+    assert not caminhos, f"{nome} voltou a expor caminho(s): {caminhos}"
+
+
+@pytest.mark.parametrize("nome", ETAPAS)
+def test_etapa_nao_importa_paths(nome):
+    """A outra metade da mesma regra: nem por importação indireta."""
+    origem = (paths.RAIZ / "pesquisa_precos" / "etapas" / f"{nome}.py").read_text(encoding="utf-8")
+    assert "config import paths" not in origem and "config.paths" not in origem, (
+        f"{nome} importa `config.paths` — ver o docstring de `paths.py`")
 
 
 def test_nao_restou_nenhum_import_do_pacote_scripts():

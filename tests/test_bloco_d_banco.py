@@ -199,24 +199,30 @@ def test_export_vai_e_volta_do_banco():
 
 @pytestmark_db
 @pytest.mark.parametrize("chave", ["5", "6a", "6b", "6c"])
-def test_estimar_usa_o_banco_e_nao_os_csvs(chave):
-    """Regressão: com `--fonte banco` (o default), `estimar` continuava lendo `data/*.csv`.
-    O sintoma era grosseiro — `estimar 6a` reportava 154 MILHÕES de pares num banco vazio,
-    porque somava o produto cartesiano do acervo em disco. É o número que o operador usa para
-    decidir se gasta; errar aqui é pior que falhar.
+def test_estimar_usa_o_banco_e_nao_os_csvs(chave, monkeypatch):
+    """Regressão: `estimar` já leu `data/*.csv` em vez do banco. O sintoma era grosseiro —
+    `estimar 6a` reportava 154 MILHÕES de pares num banco vazio, porque somava o produto
+    cartesiano do acervo em disco. É o número que o operador usa para decidir se gasta; errar
+    aqui é pior que falhar.
 
-    A asserção é sobre a ORIGEM, não sobre o número: `detalhes["fonte"] == "banco"` prova que
-    o ramo certo rodou, e continua válida quando o banco tiver dados.
+    Até a Fase 13 a guarda era o marcador `detalhes["fonte"] == "banco"`, que distinguia os
+    dois caminhos. Sem `--fonte`, a guarda passa a ser direta: qualquer leitura de arquivo de
+    dados durante `estimar` explode.
     """
+    import pandas as pd
+
     from pesquisa_precos.config.settings import carregar_config
     from pesquisa_precos.etapas import registry
-    from pesquisa_precos.runner.contexto_console import ContextoConsole
+    from pesquisa_precos.runner.contexto_nulo import ContextoNulo
+
+    def proibido(*a, **kw):
+        raise AssertionError(f"etapa {chave}: `estimar` leu arquivo em vez de consultar o banco")
+
+    monkeypatch.setattr(pd, "read_csv", proibido)
+    monkeypatch.setattr(pd, "read_parquet", proibido)
 
     # `config` real (e não `{}`): a 6c consulta `model_pass1` para montar a estimativa de custo.
-    ctx = ContextoConsole(chave, config=carregar_config(), mostrar_barra=False)
+    ctx = ContextoNulo(chave, config=carregar_config())
     modulo = registry.obter(chave).carregar()
-    params = modulo.Params()
-    assert params.fonte == "banco", "o default da Fase 10 é banco"
-    estimativa = modulo.estimar(params, ctx)
-    assert estimativa.detalhes.get("fonte") == "banco", \
-        f"etapa {chave}: `estimar` não passou pelo ramo do banco"
+    assert "fonte" not in modulo.Params.model_fields, "o campo `fonte` saiu na Fase 13"
+    modulo.estimar(modulo.Params(), ctx)

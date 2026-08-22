@@ -99,16 +99,15 @@ def detalhe_etapa(run_id: int, chave: str) -> dict[str, Any]:
 
 
 def estimativa_etapa(chave: str) -> dict[str, Any]:
-    """`estimar()` da etapa — escopo e custo previstos, sem gastar nada (mesma chamada que
-    `cli estimar`, só que sem terminal: `ContextoConsole` com a barra desligada)."""
+    """`estimar()` da etapa — escopo e custo previstos, sem gastar nada. Roda fora de um run,
+    então o contexto é o `ContextoNulo` (ver o módulo)."""
     from pesquisa_precos.config.settings import carregar_config
-    from pesquisa_precos.runner.contexto_console import ContextoConsole
+    from pesquisa_precos.runner.contexto_nulo import ContextoNulo
 
     definicao = registry.obter(chave)
     modulo = definicao.carregar()
     params = definicao.params_model()
-    with ContextoConsole(chave, config=carregar_config(), caminho_erros=definicao.caminho_erros,
-                         mostrar_barra=False) as ctx:
+    with ContextoNulo(chave, config=carregar_config()) as ctx:
         estimativa = modulo.estimar(params, ctx)
     return estimativa.model_dump()
 

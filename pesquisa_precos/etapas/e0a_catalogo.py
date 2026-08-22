@@ -4,7 +4,7 @@ Etapa 0a — Catálogos CATMAT (materiais) e CATSER (serviços) da API de Dados 
 Baixa os catálogos do Compras.gov.br e aplica a allow-list curada. Mantida como etapa
 separada porque o download é pesado e roda esporadicamente.
 
-FASE 10 — `--fonte banco` (DEFAULT) não escreve NADA em disco (ADR-018):
+A etapa não escreve NADA em disco (ADR-018/ADR-020):
     catalogo_raw     ← catálogo completo, uma página por transação
     catalogo_download← checkpoint de página (o que era a pasta de parquet-partes)
     catalogo_item    ← DERIVADO por SQL de `catalogo_raw ∩ pdm_permitido` (ADR-017)
@@ -13,40 +13,19 @@ A allow-list não vive mais no código: `pdm_permitido` é editável pela interf
 `core/catalogo/local.py` guarda só o método de filtro. Mudar a curadoria e rederivar não
 exige rebaixar a API.
 
-RESUMÍVEL / à prova de queda nos dois caminhos: cada página é persistida assim que chega
-(linha em `catalogo_download` ou parquet-parte em data/checkpoints/0a_parts_<tipo>/) e um
-novo run pula o que já entrou. No pior caso perde-se a última página.
+RESUMÍVEL / à prova de queda: cada página é persistida assim que chega (linha em
+`catalogo_download`) e um novo run pula o que já entrou. No pior caso perde-se a última.
 
 Entradas: nenhuma (é a raiz do grafo).
-Saídas do caminho legado `--fonte csv` (nomes canônicos em config/paths.py):
-    data/0a_catalogo_materiais.parquet
-    data/0a_catalogo_servicos.parquet
-    data/0a_catalogo_meta.json          (data do download e contagens)
-    data/0a_catalogo_filtrado.csv       (allow-list curada aplicada)
-    data/0a_catalogo_snapshot.csv       (baseline p/ o delta da próxima rodada)
-    data/0a_catalogo_delta.csv          (tipo, codigo, status ∈ {novo, removido})
-    data/checkpoints/0a_parts_<tipo>/   (temporário; removido ao final)
-Chave de resumo: página da API (arquivo-parte por página).
+Chave de resumo: página da API (linha em `catalogo_download`).
 
-NÃO fazer: apagar as partes antes do parquet final existir; tratar a primeira execução sem
-snapshot como "tudo novo" (ver `gerar_delta_catalogo`).
-
-Uso:
-    python -m pesquisa_precos.etapas.e0a_catalogo                        # banco (default)
-    python -m pesquisa_precos.etapas.e0a_catalogo --fonte csv            # caminho legado
-    python -m pesquisa_precos.etapas.e0a_catalogo --so-grupos-seguranca  # só grupos de segurança
-    python -m pesquisa_precos.etapas.e0a_catalogo --forcar               # re-baixa mesmo se existir
-    python -m pesquisa_precos.etapas.e0a_catalogo --tipo material        # só materiais
+NÃO fazer: tratar a primeira execução sem snapshot como "tudo novo" (ver
+`repo.delta_catalogo`) — sem baseline, o delta é zerado por definição.
 """
 
-import json
-import os
-import shutil
 import sys
 import time
-from pathlib import Path
 
-import pandas as pd
 import requests
 
 for _stream in (sys.stdout, sys.stderr):
@@ -55,35 +34,25 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config import paths
-from pesquisa_precos.core.catalogo.local import GRUPOS_MATERIAIS, GRUPOS_SERVICOS, filtrar_curado
+from pesquisa_precos.core.catalogo.local import GRUPOS_MATERIAIS, GRUPOS_SERVICOS
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 
 CHAVE = "0a"
-# 1.1.0 (Fase 10): ganhou `--fonte banco` — catalogo_raw + derivação da allow-list.
-# A regra de curadoria não mudou: o banco reproduz `filtrar_curado()` código a código.
-VERSAO_CODIGO = "1.1.0"
-
-DATA_DIR = paths.DATA
-# Checkpoints de páginas ficam em data/checkpoints/0a_parts_<tipo>/ (não são saída de etapa).
-PARTS_DIR = paths.CHECKPOINTS
+# 2.0.0 (Fase 13): o caminho CSV/parquet saiu — o banco é o único destino (ADR-020).
+VERSAO_CODIGO = "2.0.0"
 
 FONTES = {
     "material": {
         "base_url": "https://dadosabertos.compras.gov.br/modulo-material/4_consultarItemMaterial",
         "params_extra": {"bps": "false"},
         "grupos": GRUPOS_MATERIAIS,
-        "parquet": paths.E0A_PARQUET_MATERIAIS,
     },
     "servico": {
         "base_url": "https://dadosabertos.compras.gov.br/modulo-servico/6_consultarItemServico",
         "params_extra": {},
         "grupos": GRUPOS_SERVICOS,
-        "parquet": paths.E0A_PARQUET_SERVICOS,
     },
 }
 
@@ -106,17 +75,11 @@ MARCAS_400_TRANSITORIO = (
     "deadlock",
 )
 
-SNAPSHOT = paths.E0A_SNAPSHOT
-DELTA = paths.E0A_DELTA
-
-
 class Params(BaseModel):
     tipo: str | None = Field(None, description="Baixar só um tipo: material ou servico")
     so_grupos_seguranca: bool = Field(
         False, description="Baixar só os grupos de segurança pública (rápido)")
-    forcar: bool = Field(False, description="Re-baixar mesmo se o parquet já existir")
-    fonte: Literal["banco", "csv"] = Field(
-        "banco", description="Onde gravar o catálogo (banco = sem arquivo em disco)")
+    forcar: bool = Field(False, description="Re-baixar mesmo o que já está em catalogo_raw")
 
     def tipos(self) -> list[str]:
         return [self.tipo] if self.tipo else ["material", "servico"]
@@ -154,162 +117,7 @@ def fetch_page(base_url: str, params: dict, ctx: ContextoExecucao) -> dict:
             time.sleep(wait)
 
 
-def _gravar_parquet_atomico(df: pd.DataFrame, destino: Path):
-    """Grava um parquet de forma atômica (tmp + replace), recriando a pasta se sumiu."""
-    destino.parent.mkdir(parents=True, exist_ok=True)  # defensivo: pasta pode ter sido removida
-    tmp = destino.with_suffix(destino.suffix + ".tmp")
-    df.to_parquet(tmp, index=False)
-    os.replace(tmp, destino)
-
-
-def coletar_para_partes(base_url: str, params_extra: dict, parts_dir: Path, prefixo: str,
-                        ctx: ContextoExecucao, estado: dict) -> None:
-    """
-    Pagina os resultados gravando CADA página como um parquet-parte em `parts_dir`.
-    Resumível: páginas já gravadas são puladas. Assim um download longo nunca é perdido —
-    no pior caso perde-se só a última página, e um novo run continua de onde parou.
-    """
-    params = {"pagina": 1, "tamanhoPagina": TAM_PAGINA, **params_extra}
-    first = fetch_page(base_url, params, ctx)
-    total_paginas = first.get("totalPaginas", 1) or 1
-    total_registros = first.get("totalRegistros", 0) or 0
-    estado["total"] += total_registros
-    ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
-
-    for pagina in range(1, total_paginas + 1):
-        parte = parts_dir / f"{prefixo}_p{pagina:05d}.parquet"
-        if parte.exists():  # já baixada num run anterior → pula (resume)
-            try:
-                estado["feitos"] += len(pd.read_parquet(parte))
-            except Exception:
-                pass
-            ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
-            continue
-        data = first if pagina == 1 else fetch_page(base_url, {**params, "pagina": pagina}, ctx)
-        lote = data.get("resultado", [])
-        if lote:
-            _gravar_parquet_atomico(pd.DataFrame(lote), parte)
-        estado["feitos"] += len(lote)
-        ctx.progresso(estado["feitos"], estado["total"], descricao=estado["descricao"])
-        if pagina < total_paginas:
-            time.sleep(0.3)
-
-
-def _consolidar_partes(parts_dir: Path, tipo: str) -> pd.DataFrame:
-    """Junta todos os parquet-partes num DataFrame, deduplicando pela chave do catálogo."""
-    partes = sorted(parts_dir.glob("*.parquet"))
-    if not partes:
-        return pd.DataFrame()
-    df = pd.concat((pd.read_parquet(p) for p in partes), ignore_index=True)
-    chave = "codigoItem" if tipo == "material" else "codigoServico"
-    if chave in df.columns:
-        df = df.drop_duplicates(subset=[chave]).reset_index(drop=True)
-    return df
-
-
-def baixar_tipo(tipo: str, so_grupos: bool, forcar: bool, ctx: ContextoExecucao,
-                estado: dict) -> pd.DataFrame:
-    fonte = FONTES[tipo]
-    parts_dir = PARTS_DIR / f"0a_parts_{tipo}"
-    if forcar and parts_dir.exists():
-        shutil.rmtree(parts_dir, ignore_errors=True)
-    parts_dir.mkdir(parents=True, exist_ok=True)
-
-    estado["descricao"] = f"[cyan]{tipo}[/]"
-    if so_grupos:
-        for codigo in sorted(fonte["grupos"]):
-            coletar_para_partes(
-                fonte["base_url"], {**fonte["params_extra"], "codigoGrupo": codigo},
-                parts_dir, f"g{codigo}", ctx, estado,
-            )
-    else:
-        coletar_para_partes(fonte["base_url"], fonte["params_extra"], parts_dir, "full",
-                            ctx, estado)
-
-    return _consolidar_partes(parts_dir, tipo)
-
-
-def gerar_catalogo_filtrado(tipos: list[str], ctx: ContextoExecucao) -> tuple[int, dict]:
-    """
-    Gera data/0a_catalogo_filtrado.csv aplicando a allow-list curada (PDM p/ materiais,
-    codigoServico p/ serviços) sobre os parquet baixados. Substitui a curadoria por LLM.
-    """
-    saida = paths.E0A_CATALOGO
-    partes = []
-    por_tipo: dict[str, int] = {}
-    for tipo in tipos:
-        parquet = FONTES[tipo]["parquet"]
-        if not parquet.exists():
-            ctx.log("aviso", f"{tipo}: parquet ausente — pulando no filtrado.")
-            continue
-        df = filtrar_curado(tipo, pd.read_parquet(parquet))
-        if tipo == "material":
-            sub = pd.DataFrame({
-                "tipo": "material",
-                "codigo": df["codigoItem"],
-                "codigo_pdm": df["codigoPdm"],
-                "nome_pdm": df["nomePdm"],
-                "descricao": df["descricaoItem"],
-                "codigo_grupo": df["codigoGrupo"],
-                "nome_grupo": df["nomeGrupo"],
-                "nome_classe": df["nomeClasse"],
-            })
-        else:
-            sub = pd.DataFrame({
-                "tipo": "servico",
-                "codigo": df["codigoServico"],
-                "codigo_pdm": pd.NA,
-                "nome_pdm": pd.NA,
-                "descricao": df["nomeServico"],
-                "codigo_grupo": df["codigoGrupo"],
-                "nome_grupo": df["nomeGrupo"],
-                "nome_classe": df["nomeClasse"],
-            })
-        ctx.log("info", f"[green]{tipo}: {len(sub):,} itens no filtrado[/]")
-        por_tipo[tipo] = len(sub)
-        partes.append(sub)
-
-    if not partes:
-        ctx.log("aviso", "Nada a gravar no catálogo filtrado.")
-        return 0, {}
-    combinado = pd.concat(partes, ignore_index=True)
-    combinado.to_csv(saida, index=False, encoding="utf-8-sig")
-    ctx.log("info", f"[bold green]Catálogo filtrado: {len(combinado):,} itens[/] → {saida}")
-    delta = gerar_delta_catalogo(combinado, ctx)
-    return len(combinado), {**por_tipo, **delta}
-
-
-def gerar_delta_catalogo(combinado: pd.DataFrame, ctx: ContextoExecucao) -> dict:
-    """
-    Compara o catálogo filtrado recém-gerado com o snapshot da rodada anterior e grava
-    data/0a_catalogo_delta.csv (tipo, codigo, status ∈ {novo, removido}); ao final atualiza
-    o snapshot para o estado atual.
-
-    Primeira execução (sem snapshot): apenas estabelece a linha de base — delta vazio, para
-    NÃO marcar como 'novo' um catálogo que já foi coletado (caso do seed do v3). O delta é
-    consumido pela poda de 'removido' na etapa 8 e por relatório; a geração de termos (etapa 1)
-    já é resumível por (tipo, codigo), então captura os 'novo' por conta própria.
-    """
-    atual = combinado[["tipo", "codigo"]].dropna().astype(str).drop_duplicates()
-    chave_atual = set(map(tuple, atual.values))
-    if SNAPSHOT.exists():
-        snap = pd.read_csv(SNAPSHOT, dtype=str, encoding="utf-8-sig").fillna("")
-        chave_prev = set(map(tuple, snap[["tipo", "codigo"]].astype(str).values))
-    else:
-        chave_prev = chave_atual  # baseline: nada é 'novo' na primeira vez
-    novos = chave_atual - chave_prev
-    removidos = chave_prev - chave_atual
-    linhas = [{"tipo": t, "codigo": c, "status": "novo"} for (t, c) in sorted(novos)]
-    linhas += [{"tipo": t, "codigo": c, "status": "removido"} for (t, c) in sorted(removidos)]
-    pd.DataFrame(linhas, columns=["tipo", "codigo", "status"]).to_csv(
-        DELTA, index=False, encoding="utf-8-sig")
-    atual.to_csv(SNAPSHOT, index=False, encoding="utf-8-sig")
-    ctx.log("info", f"[bold]Delta do catálogo:[/] {len(novos)} novos, "
-                    f"{len(removidos)} removidos → {DELTA}")
-    return {"codigos_novos": len(novos), "codigos_removidos": len(removidos)}
-
-
-# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+# ── Gravação no banco (Fase 10) ─────────────────────────────────────────────────────
 #
 # Mesma paginação e mesmo resume do caminho em disco; muda ONDE cada página cai. Em vez de
 # um parquet-parte por página + consolidação no fim, cada página é gravada direto em
@@ -331,7 +139,7 @@ def _linha_raw(tipo: str, reg: dict) -> tuple | None:
 
     O mapeamento é o MESMO de `gerar_catalogo_filtrado()` — material e serviço têm nomes de
     campo diferentes na origem, e é aqui que eles viram um formato só. Manter os dois lugares
-    em sincronia é o preço de ter dois caminhos; quando `--fonte csv` sair, sobra este.
+    é a única — o caminho de parquet/CSV saiu na Fase 13.
     """
     if tipo == "material":
         codigo = _texto(reg.get("codigoItem"))
@@ -425,7 +233,7 @@ def baixar_tipo_para_banco(tipo: str, so_grupos: bool, forcar: bool,
                               ctx, estado)
 
 
-def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     """0a inteira sem tocar em disco (ADR-018): baixa → `catalogo_raw` → deriva
     `catalogo_item` pela allow-list → delta por snapshot no banco."""
     from sqlalchemy import text as text_sql
@@ -435,8 +243,7 @@ def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
 
     ok, detalhe = db.esta_disponivel()
     if not ok:
-        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
-                         f"ou rode com --fonte csv.")
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
 
     tipos = params.tipos()
     ctx.log("info", f"[bold]Download do catálogo (CATMAT/CATSER) → banco[/] · grupos: "
@@ -481,23 +288,21 @@ def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Quantos catálogos serão baixados. Sem LLM: o custo é tempo de HTTP, não dinheiro."""
-    if params.fonte == "banco":
-        from pesquisa_precos.db import sessao as db
-        from pesquisa_precos.db.repos import curadoria as repo
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import curadoria as repo
 
-        detalhes = {"fonte": "banco",
-                    "grupos": "só segurança pública" if params.so_grupos_seguranca else "todos"}
-        ok, detalhe = db.esta_disponivel()
-        if not ok:
-            return Estimativa(detalhes={**detalhes, "aviso": f"banco indisponível: {detalhe}"})
-        with db.sessao() as s:
-            for tipo in params.tipos():
-                # A unidade útil aqui é "quanto já está no banco": o resume é por página, então
-                # o que falta baixar só se sabe consultando a API — que é justamente o que uma
-                # estimativa não pode fazer (ela não gasta nada, nem tempo de rede).
-                detalhes[tipo] = f"{repo.contar_raw(s, tipo):,} linhas já em catalogo_raw"
-            detalhes["curados_hoje"] = len(repo.listar_permitidos(s))
-        return Estimativa(unidades=len(params.tipos()), chamadas_llm=0, detalhes=detalhes)
+    detalhes = {"grupos": "só segurança pública" if params.so_grupos_seguranca else "todos"}
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        return Estimativa(detalhes={**detalhes, "aviso": f"banco indisponível: {detalhe}"})
+    with db.sessao() as s:
+        for tipo in params.tipos():
+            # A unidade útil aqui é "quanto já está no banco": o resume é por página, então
+            # o que falta baixar só se sabe consultando a API — que é justamente o que uma
+            # estimativa não pode fazer (ela não gasta nada, nem tempo de rede).
+            detalhes[tipo] = f"{repo.contar_raw(s, tipo):,} linhas já em catalogo_raw"
+        detalhes["curados_hoje"] = len(repo.listar_permitidos(s))
+    return Estimativa(unidades=len(params.tipos()), chamadas_llm=0, detalhes=detalhes)
 
     a_baixar = [t for t in params.tipos()
                 if params.forcar or not FONTES[t]["parquet"].exists()]
@@ -506,58 +311,3 @@ def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
                 for t in params.tipos()}
     detalhes["grupos"] = "só segurança pública" if params.so_grupos_seguranca else "todos"
     return Estimativa(unidades=len(a_baixar), chamadas_llm=0, detalhes=detalhes)
-
-
-def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    if params.fonte == "banco":
-        return executar_no_banco(params, ctx)
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tipos = params.tipos()
-
-    ctx.log("info", f"[bold]Download do catálogo (CATMAT/CATSER)[/] · grupos: "
-                    f"[cyan]{'só segurança pública' if params.so_grupos_seguranca else 'todos'}[/]"
-                    f" · destino: [green]{DATA_DIR}[/]")
-
-    meta = {}
-    if paths.E0A_META.exists():
-        meta = json.loads(paths.E0A_META.read_text(encoding="utf-8"))
-
-    estado = {"feitos": 0, "total": 0, "descricao": "catálogo"}
-    baixados = 0
-    for tipo in tipos:
-        if ctx.cancelado():
-            break
-        parquet = FONTES[tipo]["parquet"]
-        if parquet.exists() and not params.forcar:
-            ctx.log("debug", f"[dim]{tipo}: {parquet.name} já existe — pulando "
-                             f"(use --forcar para rebaixar).[/]")
-            continue
-        df = baixar_tipo(tipo, params.so_grupos_seguranca, params.forcar, ctx, estado)
-        _gravar_parquet_atomico(df, parquet)  # atômico + recria a pasta se necessário
-        # Só remove as partes DEPOIS do parquet final existir (evita perder o download).
-        shutil.rmtree(PARTS_DIR / f"0a_parts_{tipo}", ignore_errors=True)
-        meta[tipo] = {
-            "linhas": int(len(df)),
-            "so_grupos_seguranca": bool(params.so_grupos_seguranca),
-            "baixado_em": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        baixados += 1
-        ctx.log("info", f"[green]{tipo}: {len(df):,} itens[/] → {parquet}")
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)  # defensivo
-    paths.E0A_META.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    # Aplica a allow-list curada e grava o catálogo filtrado (materiais + serviços).
-    n_filtrado, metricas = gerar_catalogo_filtrado(tipos, ctx)
-
-    preview = []
-    if paths.E0A_CATALOGO.exists():
-        amostra = pd.read_csv(paths.E0A_CATALOGO, dtype=str, encoding="utf-8-sig",
-                              nrows=20).fillna("")
-        preview = amostra[["tipo", "codigo", "descricao"]].to_dict("records")
-    return ResultadoEtapa(
-        processados=n_filtrado, erros=0,
-        metricas={"tipos_baixados": baixados, "itens_no_filtrado": n_filtrado, **metricas},
-        preview=preview,
-    )

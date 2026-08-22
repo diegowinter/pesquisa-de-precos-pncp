@@ -23,8 +23,6 @@ Uso: python -m pesquisa_precos.etapas.e6c_validar [--provedor openrouter] [--lim
 """
 
 import sys
-from typing import Literal
-import time
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -32,34 +30,18 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-import pandas as pd
 from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config import paths
 from pesquisa_precos.config.settings import custo_por_chamada, exigir
-from pesquisa_precos.core.io_seguro import EscritorSeguro, ler_chaves_concluidas
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
-from pesquisa_precos.core.textos import descricao_itens, texto_catalogo
 from pesquisa_precos.db import sessao as db
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "6c"
-VERSAO_CODIGO = "1.0.0"
-
-RERANK = paths.E6B_RERANKEADOS
-CATALOGO = paths.E0A_CATALOGO
-SOBREVIVENTES = paths.E4_SOBREVIVENTES
-ENRIQUECIDOS = paths.E5_ENRIQUECIDOS
-VALIDADOS = paths.E6C_VALIDADOS
-ROTULOS = paths.E6_ROTULOS
-ERROS = paths.ERROS_6C
-
-COLS_VALID = ["par_key", "mesmo_item", "justificativa"]
-COLS_ROTULO = ["par_key", "texto_catalogo", "texto_item", "score_rerank", "decisao_final",
-               "origem", "timestamp"]
+VERSAO_CODIGO = "2.0.0"
 
 
 class Params(BaseModel):
@@ -70,11 +52,9 @@ class Params(BaseModel):
         False, description="Usa o modelo CARO (PASS2). Padrão é o barato — ver ADR-004.")
     fraco: bool = Field(
         False, description="(obsoleta) O modelo barato já é o padrão; a flag não faz nada.")
-    fonte: Literal["banco", "csv"] = Field(
-        "banco", description="De onde vêm os ambíguos e para onde vai o veredito")
 
 
-# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+# ── Validação no banco (Fase 10) ────────────────────────────────────────────────────
 #
 # O veredito volta para a MESMA linha de `par` (ADR-013) e `recomputar_decisao_final()` fecha
 # a decisão. `rotulo` continua sendo append-only: é o ativo de calibração do projeto e nunca
@@ -84,12 +64,10 @@ class Params(BaseModel):
 # exige gesto explícito.
 
 def _exigir_banco():
-    from pesquisa_precos.db import sessao as db
 
     ok, detalhe = db.esta_disponivel()
     if not ok:
-        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
-                         f"ou rode com --fonte csv.")
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     return db
 
 
@@ -107,7 +85,7 @@ SQL_AMBIGUOS = """
 """
 
 
-def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+def _rodar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     db = _exigir_banco()
     from pesquisa_precos.db.repos import par as repo_par
 
@@ -220,156 +198,31 @@ def _acumular_rotulos(db) -> int:
     return n
 
 
-def _pendentes(params: Params) -> tuple[pd.DataFrame, list, set]:
-    """(rerankeados, ambíguos ainda não validados, par_keys já validadas)."""
-    df = pd.read_csv(RERANK, dtype=str, encoding="utf-8").fillna("")
-    ambiguos = df[df["decisao"] == "ambiguo"]
-    feitas = ler_chaves_concluidas(str(VALIDADOS), "par_key")
-    pend = [r for _, r in ambiguos.iterrows() if r["par_key"] not in feitas]
-    if params.limite:
-        pend = pend[: params.limite]
-    return df, pend, feitas
-
-
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Uma chamada por par ambíguo ainda não validado."""
-    if params.fonte == "banco":
-        from pesquisa_precos.db import sessao as db
 
-        ok, detalhe = db.esta_disponivel()
-        if not ok:
-            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
-        with db.sessao() as s:
-            n = s.execute(sa_text(
-                "SELECT count(*) FROM par WHERE decisao = 'ambiguo' AND veredito IS NULL")
-            ).scalar_one()
-            ambiguos = s.execute(sa_text(
-                "SELECT count(*) FROM par WHERE decisao = 'ambiguo'")).scalar_one()
-        preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
-        modelo = ctx.config["model_pass2"] if params.forte else ctx.config["model_pass1"]
-        return Estimativa(
-            unidades=n, chamadas_llm=n,
-            custo_usd=None if preco is None else n * preco,
-            duracao_s=n / max(params.concurrency, 1) * 2,
-            detalhes={"fonte": "banco", "ambiguos": ambiguos, "já_validados": ambiguos - n,
-                      "modelo": f"{modelo} ({'CARO' if params.forte else 'barato'})"},
-        )
-
-    if not RERANK.exists():
-        return Estimativa(detalhes={"aviso": f"{RERANK} ausente — rode a etapa 6b antes."})
-    df, pend, feitas = _pendentes(params)
-    n = len(pend)
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+    with db.sessao() as s:
+        n = s.execute(sa_text(
+            "SELECT count(*) FROM par WHERE decisao = 'ambiguo' AND veredito IS NULL")
+        ).scalar_one()
+        ambiguos = s.execute(sa_text(
+            "SELECT count(*) FROM par WHERE decisao = 'ambiguo'")).scalar_one()
     preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
     modelo = ctx.config["model_pass2"] if params.forte else ctx.config["model_pass1"]
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,
         duracao_s=n / max(params.concurrency, 1) * 2,
-        detalhes={"pares_rerankeados": len(df),
-                  "ambiguos": int((df["decisao"] == "ambiguo").sum()),
-                  "já_validados": len(feitas),
+        detalhes={"ambiguos": ambiguos, "já_validados": ambiguos - n,
                   "modelo": f"{modelo} ({'CARO' if params.forte else 'barato'})"},
     )
 
 
 def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    if params.fonte == "banco":
-        msg = exigir(ctx.config, params.provedor)
-        if msg:
-            raise SystemExit(msg)
-        return executar_no_banco(params, ctx)
-
-    cfg = ctx.config
-    forte = params.forte
-    if params.fraco:
-        ctx.log("debug", "[dim][6c] --fraco é obsoleta: o modelo barato já é o padrão.[/]")
-    msg = exigir(cfg, params.provedor)
+    msg = exigir(ctx.config, params.provedor)
     if msg:
         raise SystemExit(msg)
-    if not RERANK.exists():
-        raise SystemExit(f"{RERANK} ausente. Rode a etapa 6b antes.")
-
-    df, pend, feitas = _pendentes(params)
-    cat = texto_catalogo(str(CATALOGO))
-    itens = descricao_itens(str(SOBREVIVENTES), str(ENRIQUECIDOS))
-
-    def t_cat(par_key):
-        return cat.get(par_key.split("::", 1)[0], {}).get("texto", "")
-
-    def t_itm(par_key):
-        return itens.get(par_key.split("::", 1)[1], "")
-
-    # ── Acúmulo de rótulos: registra as decisões extremas do 6b (origem=rerank) ──
-    rotulos_existentes = ler_chaves_concluidas(str(ROTULOS), "par_key")
-    esc_rot = EscritorSeguro(str(ROTULOS), COLS_ROTULO)
-    ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    novos_rotulos = 0
-    for _, r in df.iterrows():
-        if r["decisao"] in ("aceito", "rejeitado") and r["par_key"] not in rotulos_existentes:
-            esc_rot.escrever({
-                "par_key": r["par_key"], "texto_catalogo": t_cat(r["par_key"])[:500],
-                "texto_item": t_itm(r["par_key"])[:500], "score_rerank": r.get("score_rerank", ""),
-                "decisao_final": r["decisao"], "origem": "rerank", "timestamp": ts,
-            })
-            rotulos_existentes.add(r["par_key"])
-            novos_rotulos += 1
-
-    # ── LLM nos ambíguos (resumível por par_key em 6c_pares_validados) ──
-    n_ambiguos = int((df["decisao"] == "ambiguo").sum())
-    ctx.log("info", f"[6c] Ambíguos: {n_ambiguos} | a validar por LLM: {len(pend)}")
-
-    n_ok = [0]
-    n_erros = [0]
-    vereditos: dict[str, int] = {"sim": 0, "nao": 0}
-    if pend:
-        modelo = cfg["model_pass2"] if forte else cfg["model_pass1"]
-        ctx.log("info" if not forte else "aviso",
-                f"[6c] modelo de validação: {modelo} "
-                f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
-        # Prompt 'comparar_par' resolvido UMA vez, fora dos workers (Fase 6, ver etapa 3).
-        try:
-            with db.sessao() as sessao:
-                prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
-        except Exception:  # noqa: BLE001 — sem banco configurado, cai no prompt hardcoded
-            prompts_ativos = {}
-        curador = Curador.from_provedor(cfg, params.provedor, forte=forte, max_retries=6,
-                                        prompts_ativos=prompts_ativos)
-        esc_val = EscritorSeguro(str(VALIDADOS), COLS_VALID)
-
-        def fn(row):
-            return curador.comparar_par(t_cat(row["par_key"]), t_itm(row["par_key"]))
-
-        def ok(row, res):
-            n_ok[0] += 1
-            esc_val.escrever({"par_key": row["par_key"], "mesmo_item": res["mesmo_item"],
-                              "justificativa": res["justificativa"]})
-            if res["mesmo_item"] in ("sim", "nao") and row["par_key"] not in rotulos_existentes:
-                vereditos[res["mesmo_item"]] += 1
-                esc_rot.escrever({
-                    "par_key": row["par_key"], "texto_catalogo": t_cat(row["par_key"])[:500],
-                    "texto_item": t_itm(row["par_key"])[:500],
-                    "score_rerank": row.get("score_rerank", ""),
-                    "decisao_final": "aceito" if res["mesmo_item"] == "sim" else "rejeitado",
-                    "origem": "llm", "timestamp": ts,
-                })
-                rotulos_existentes.add(row["par_key"])
-
-        def err(row, exc):
-            n_erros[0] += 1
-            ctx.erro_item(row["par_key"], exc)
-
-        ctx.progresso(0, len(pend), descricao="validando ambíguos")
-        executar_paralelo(pend, fn, concurrency=params.concurrency, on_result=ok, on_error=err,
-                          on_progress=lambda f, t: ctx.progresso(f, t))
-        esc_val.fechar()
-
-    esc_rot.fechar()
-    ctx.log("info", f"[6c] Concluído. Validados: {VALIDADOS} | rótulos: {ROTULOS}")
-
-    return ResultadoEtapa(
-        processados=n_ok[0], erros=n_erros[0],
-        metricas={"ambiguos": n_ambiguos, "validados_agora": n_ok[0],
-                  "veredito_sim": vereditos["sim"], "veredito_nao": vereditos["nao"],
-                  "rotulos_novos_do_rerank": novos_rotulos,
-                  "modelo": "PASS2 (caro)" if forte else "PASS1 (barato)"},
-    )
+    return _rodar(params, ctx)

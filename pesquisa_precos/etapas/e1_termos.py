@@ -14,7 +14,7 @@ Fluxo:
   3. Expande variações de grafia (core/classificacao/variacoes) + duplica forma sem acento.
   4. Agrega um-termo-por-linha: termo → união dos codigos_catalogo (categoria = maioria).
 
-FASE 10 — `--fonte banco` (DEFAULT) não escreve NADA em disco (ADR-018):
+A etapa não escreve NADA em disco (ADR-018/ADR-020):
   entrada          catalogo_item (ativo)
   termo_geracao    checkpoint por item — a saída BRUTA do LLM (o que era 1_termos_item.csv)
   termo/termo_codigo  o agregado um-termo-por-linha (o que era 1_conceitos_termos.csv)
@@ -22,7 +22,7 @@ FASE 10 — `--fonte banco` (DEFAULT) não escreve NADA em disco (ADR-018):
 O miolo é o mesmo nos dois caminhos: só muda de onde vem o catálogo e para onde vai o
 resultado.
 
-Entradas do caminho legado `--fonte csv`: data/0a_catalogo_filtrado.csv.
+Entrada: `catalogo_item` (etapa 0a).
 Saídas:
   data/1_conceitos_termos.csv    (conceito=termo, categoria, termos=termo, codigos_catalogo, origem)
   data/1_categoria_por_codigo.csv (tipo, codigo, categoria)  ← fonte canônica por-item p/ a etapa 6a
@@ -36,12 +36,10 @@ Uso: python -m pesquisa_precos.etapas.e1_termos [--provedor local|openrouter] [-
                                                 [--limite N] [--concurrency N] [--regerar]
 """
 
-import os
 import sys
 import threading
 import unicodedata
 from collections import Counter, defaultdict
-from typing import Literal
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -53,37 +51,23 @@ import pandas as pd
 from sqlalchemy import text as sa_text
 from pydantic import BaseModel, Field
 
-from pesquisa_precos.config import paths
 from pesquisa_precos.config.settings import custo_por_chamada, exigir
 from pesquisa_precos.core.classificacao.variacoes import (
     categoria_por_grupo,
     e_generico,
     expandir_variacoes,
 )
-from pesquisa_precos.core.io_seguro import (
-    EscritorSeguro,
-    escrever_csv,
-    ler_chaves_concluidas,
-    ler_csv,
-)
 from pesquisa_precos.core.paralelo import executar_paralelo
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.providers.llm_curador import Curador
 
 CHAVE = "1"
-# 1.1.0 (Fase 10): ganhou `--fonte banco`. A regra (cascata de categoria, expansão de
+# 2.0.0 (Fase 13): sobrou só o banco. A regra (cascata de categoria, expansão de
 # variações, agregação por termo) é a MESMA — só muda de onde vem o catálogo e para
 # onde vão termos/categoria. `termo_geracao` é o checkpoint por item.
-VERSAO_CODIGO = "1.1.0"
+VERSAO_CODIGO = "2.0.0"
 
-CATALOGO_FILTRADO = paths.E0A_CATALOGO
-CK_TERMOS = paths.CK_1_TERMOS_ITEM
-SAIDA = paths.E1_TERMOS
-CATEGORIA_POR_CODIGO = paths.E1_CATEGORIA_POR_CODIGO
-ERROS = paths.ERROS_1
 
-COLS_SAIDA = ["conceito", "categoria", "termos", "codigos_catalogo", "origem"]
-COLS_CATEGORIA = ["tipo", "codigo", "categoria"]
 CAT_FALLBACK = "outros"
 
 
@@ -93,85 +77,11 @@ class Params(BaseModel):
     concurrency: int = Field(3, ge=1, le=32, description="Chamadas simultâneas ao LLM")
     forte: bool = Field(False, description="Usa o modelo PASS2 (caro). Só afeta 'openrouter'.")
     regerar: bool = Field(False, description="Recria a saída do zero (pede confirmação)")
-    fonte: Literal["banco", "csv"] = Field(
-        "banco", description="De onde vem o catálogo e para onde vão os termos")
 
 
 def _norm(s: str) -> str:
     nfkd = unicodedata.normalize("NFKD", (s or "").strip().lower())
     return "".join(c for c in nfkd if not unicodedata.combining(c))
-
-
-def carregar_catalogo() -> pd.DataFrame:
-    if not CATALOGO_FILTRADO.exists():
-        raise SystemExit(f"Catálogo filtrado ausente: {CATALOGO_FILTRADO}. Rode 0a antes.")
-    return pd.read_csv(CATALOGO_FILTRADO, dtype=str, encoding="utf-8-sig").fillna("")
-
-
-def _pendentes(df: pd.DataFrame) -> tuple[list, set]:
-    """Itens do catálogo ainda sem termos no checkpoint (+ o conjunto dos já feitos)."""
-    feitas = ler_chaves_concluidas(str(CK_TERMOS), ("tipo", "codigo"))
-    return [r for _, r in df.iterrows() if (r["tipo"], r["codigo"]) not in feitas], feitas
-
-
-def gerar_por_item(df, criar_curador, concurrency, ctx: ContextoExecucao) -> tuple[int, int]:
-    """Preenche checkpoints/1_termos_item.csv (tipo, codigo, termos, categoria) de forma resumível.
-
-    Cada worker usa o SEU próprio Curador (cliente por thread): compartilhar um único cliente
-    ChatOpenAI entre threads serializa as chamadas HTTP e mata a concorrência.
-    """
-    os.makedirs(CK_TERMOS.parent, exist_ok=True)
-    pendentes, feitas = _pendentes(df)
-    if not pendentes:
-        ctx.log("debug", f"[dim][1] Termos/categoria: todos os {len(feitas)} itens já feitos — "
-                         f"pulando.[/]")
-        return 0, 0
-    ctx.log("info", f"[bold][1] Gerando termos + categoria de {len(pendentes)} itens[/] "
-                    f"(já feitos: {len(feitas)}, concorrência: {concurrency})")
-
-    _tls = threading.local()
-
-    def _curador():
-        if not hasattr(_tls, "c"):
-            _tls.c = criar_curador()
-        return _tls.c
-
-    n_erros = [0]
-    n_ok = [0]
-    with EscritorSeguro(str(CK_TERMOS), ["tipo", "codigo", "termos", "categoria"]) as w:
-        def fn(row):
-            cur = _curador()
-            termos = cur.gerar_termos_item(row.get("nome_pdm", ""), row.get("descricao", ""),
-                                           row.get("tipo", ""), row.get("nome_grupo", ""))
-            cats = cur.classificar_categoria(row.get("descricao", ""))["categorias"]
-            return {"termos": termos, "categoria": cats[0] if cats else ""}
-
-        def ok(row, res):
-            n_ok[0] += 1
-            w.escrever({"tipo": row["tipo"], "codigo": row["codigo"],
-                        "termos": "|".join(res["termos"]), "categoria": res["categoria"]})
-
-        def err(row, exc):
-            n_erros[0] += 1
-            ctx.log("erro", f"[red]erro[/] {row.get('tipo')}/{row.get('codigo')}: {exc}")
-            ctx.erro_item(str(row.get("codigo")), exc, tipo=str(row.get("tipo")),
-                          nome=str(row.get("nome_pdm")))
-
-        ctx.progresso(0, len(pendentes), descricao="itens")
-        executar_paralelo(pendentes, fn, concurrency=concurrency, on_result=ok,
-                          on_error=err, on_progress=lambda f, t: ctx.progresso(f, t))
-    if n_erros[0]:
-        ctx.log("aviso", f"[yellow][1] {n_erros[0]} itens falharam — ver {ERROS}[/]")
-    return n_ok[0], n_erros[0]
-
-
-def _ler_checkpoint() -> dict:
-    """(tipo, codigo) → {'termos': [...], 'categoria': str} a partir do checkpoint."""
-    dados = {}
-    for r in ler_csv(str(CK_TERMOS)):
-        termos = [t for t in r.get("termos", "").split("|") if t]
-        dados[(r["tipo"], r["codigo"])] = {"termos": termos, "categoria": r.get("categoria", "")}
-    return dados
 
 
 def resolver_categorias(df, checkpoint) -> dict:
@@ -259,17 +169,7 @@ def agregar_por_termo(df, checkpoint, categorias, ctx: ContextoExecucao) -> list
     return linhas
 
 
-def mesclar_preservando_manual(novas: list[dict], ctx: ContextoExecucao) -> list[dict]:
-    """Mantém as linhas origem=manual; reconstrói as origem=llm; não duplica termo já manual."""
-    manuais = [l for l in ler_csv(str(SAIDA)) if l.get("origem") == "manual"]
-    termos_manual = {_norm(l.get("termos", "")) for l in manuais}
-    novas = [l for l in novas if _norm(l["termos"]) not in termos_manual]
-    if manuais:
-        ctx.log("debug", f"[dim][1] {len(manuais)} linhas origem=manual preservadas.[/]")
-    return manuais + novas
-
-
-# ── Caminho `--fonte banco` (Fase 10) ───────────────────────────────────────────────
+# ── Geração gravando no banco (Fase 10) ─────────────────────────────────────────────
 #
 # Só a BORDA muda: o catálogo vem de `catalogo_item` em vez do CSV filtrado, e o resultado vai
 # para `termo`/`termo_codigo`/`catalogo_item.categoria` em vez de dois CSVs. O miolo —
@@ -282,8 +182,7 @@ def _exigir_banco():
 
     ok, detalhe = db.esta_disponivel()
     if not ok:
-        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env "
-                         f"ou rode com --fonte csv.")
+        raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     return db
 
 
@@ -399,7 +298,7 @@ def gravar_termos_no_banco(linhas: list[dict], ctx: ContextoExecucao) -> dict:
             "ligacoes_gravadas": ligacoes, "termos_desativados": desativados}
 
 
-def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
+def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
     db = _exigir_banco()
     from pesquisa_precos.db.repos import termo as repo_termo
 
@@ -443,93 +342,29 @@ def executar_no_banco(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
     """Uma chamada de LLM por código de catálogo ainda sem termos no checkpoint."""
-    if params.fonte == "banco":
-        from pesquisa_precos.db import sessao as db
-        from pesquisa_precos.db.repos import termo as repo_termo
+    from pesquisa_precos.db import sessao as db
+    from pesquisa_precos.db.repos import termo as repo_termo
 
-        ok, detalhe = db.esta_disponivel()
-        if not ok:
-            return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
-        try:
-            df = carregar_catalogo_do_banco()
-        except SystemExit as e:
-            # Estimar NUNCA aborta: é o comando que o operador roda justamente para descobrir
-            # se dá para rodar. Catálogo vazio é um aviso, do mesmo jeito que o CSV ausente é
-            # no caminho legado.
-            return Estimativa(detalhes={"fonte": "banco", "aviso": str(e)})
-        if params.limite:
-            df = df.head(params.limite)
-        with db.sessao() as s:
-            feitas = repo_termo.codigos_ja_gerados(s)
-        n = sum(1 for _, r in df.iterrows() if (r["tipo"], r["codigo"]) not in feitas)
-        preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
-        return Estimativa(
-            unidades=n, chamadas_llm=n,
-            custo_usd=None if preco is None else n * preco,
-            duracao_s=n / max(params.concurrency, 1) * 2,
-            detalhes={"fonte": "banco", "codigos_no_catalogo": len(df),
-                      "já_feitos": len(feitas)},
-        )
-
-    if not CATALOGO_FILTRADO.exists():
-        return Estimativa(detalhes={"aviso": f"{CATALOGO_FILTRADO} ausente — rode a 0a antes."})
-    df = carregar_catalogo()
+    ok, detalhe = db.esta_disponivel()
+    if not ok:
+        return Estimativa(detalhes={"aviso": f"banco indisponível: {detalhe}"})
+    try:
+        df = carregar_catalogo_do_banco()
+    except SystemExit as e:
+        # Estimar NUNCA aborta: é o comando que o operador roda justamente para descobrir
+        # se dá para rodar. Catálogo vazio é um aviso, do mesmo jeito que o CSV ausente é
+        # no caminho legado.
+        return Estimativa(detalhes={"aviso": str(e)})
     if params.limite:
         df = df.head(params.limite)
-    pendentes, feitas = _pendentes(df)
-    n = len(pendentes)
+    with db.sessao() as s:
+        feitas = repo_termo.codigos_ja_gerados(s)
+    n = sum(1 for _, r in df.iterrows() if (r["tipo"], r["codigo"]) not in feitas)
     preco = custo_por_chamada(ctx.config, params.provedor, forte=params.forte)
     return Estimativa(
         unidades=n, chamadas_llm=n,
         custo_usd=None if preco is None else n * preco,
         duracao_s=n / max(params.concurrency, 1) * 2,
-        detalhes={"codigos_no_catalogo": len(df), "já_feitos": len(feitas)},
-    )
-
-
-def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
-    if params.fonte == "banco":
-        return executar_no_banco(params, ctx)
-
-    cfg = ctx.config
-    msg = exigir(cfg, params.provedor)
-    if msg:
-        raise SystemExit(msg)
-
-    if params.regerar and SAIDA.exists():
-        resp = input(f"Apagar {SAIDA.name} e regerar do zero? (digite 'sim'): ")
-        if resp.strip().lower() == "sim":
-            SAIDA.unlink()
-        else:
-            raise SystemExit("Cancelado.")
-
-    df = carregar_catalogo()
-    if params.limite:
-        df = df.head(params.limite)
-
-    def criar_curador():
-        return Curador.from_provedor(cfg, params.provedor, forte=params.forte, max_retries=6)
-
-    modelo = "PASS2 (forte)" if params.forte else "PASS1"
-    ctx.log("debug", f"[dim][1] Provedor: {params.provedor} · modelo: {modelo}[/]")
-    n_ok, n_erros = gerar_por_item(df, criar_curador, params.concurrency, ctx)
-
-    checkpoint = _ler_checkpoint()
-    categorias = resolver_categorias(df, checkpoint)
-    escrever_csv(str(CATEGORIA_POR_CODIGO), COLS_CATEGORIA,
-                 [{"tipo": r["tipo"], "codigo": r["codigo"], "categoria": categorias[r["codigo"]]}
-                  for _, r in df.iterrows()])
-    ctx.log("info", f"[bold green][1] Gravado[/] {CATEGORIA_POR_CODIGO} "
-                    f"([bold]{len(df)}[/] itens, categoria nunca vazia).")
-
-    novas = agregar_por_termo(df, checkpoint, categorias, ctx)
-    final = mesclar_preservando_manual(novas, ctx)
-    escrever_csv(str(SAIDA), COLS_SAIDA, final)
-    ctx.log("info", f"[bold green][1] Gravado[/] {SAIDA} ([bold]{len(final)}[/] termos).")
-
-    return ResultadoEtapa(
-        processados=n_ok, erros=n_erros,
-        metricas={"itens_do_catalogo": len(df), "termos_gerados": len(final),
-                  "manuais_preservados": sum(1 for l in final if l.get("origem") == "manual")},
-        preview=final[:50],
+        detalhes={"codigos_no_catalogo": len(df),
+                  "já_feitos": len(feitas)},
     )
