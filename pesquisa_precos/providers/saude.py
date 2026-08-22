@@ -88,16 +88,19 @@ def checar_capacidade(capacidade: str, cfg: dict, *,
         resultado = sondar_url(resolucao.info.base_url)
     resultado.update(capacidade=capacidade, provedor=resolucao.info.nome,
                      base_url=resolucao.info.base_url, origem=resolucao.origem)
-    if sessao is not None:
+    # `provedor_status` é o cache de saúde dos provedores CONFIGURADOS NO BANCO — a FK aponta
+    # para `provedor`. Uma capacidade resolvida pelo `.env` não tem linha lá por definição
+    # (`capacidade_provedor` vazio é o estado normal de quem ainda não configurou nada pela
+    # interface), então não há o que atualizar: gravar tentaria violar a FK.
+    if sessao is not None and resolucao.origem == "banco":
         from pesquisa_precos.db.repos import execucao as repo
         try:
             repo.atualizar_status_provedor(sessao, resolucao.info.nome, resultado["saudavel"],
                                            resultado["latencia_ms"], resultado["mensagem"])
         except Exception as exc:  # noqa: BLE001 — ver abaixo
-            # O cache de status é conveniência, não o resultado. Um provedor resolvido pelo
-            # `.env` que ainda não existe na tabela `provedor` viola a FK aqui — e derrubar a
-            # sondagem por causa do registro dela inverteria a prioridade: quem pergunta
-            # "o serviço está de pé?" precisa da resposta, não do histórico.
+            # O cache é conveniência, não o resultado. Derrubar a sondagem por causa do
+            # registro dela inverteria a prioridade: quem pergunta "o serviço está de pé?"
+            # precisa da resposta, não do histórico.
             sessao.rollback()
             resultado["mensagem"] = (
                 f"{resultado['mensagem'] or ''} "
