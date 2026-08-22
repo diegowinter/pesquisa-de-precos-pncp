@@ -644,7 +644,9 @@ CREATE TABLE provedor (
     nome       text PRIMARY KEY,        -- 'gpu_caseira', 'openrouter', 'lm_studio'
     capacidades capacidade[] NOT NULL,
     base_url   text NOT NULL,
-    api_key_ref text,                   -- nome da env var, NUNCA a chave em si
+    api_key_cifrada bytea,              -- F14/ADR-022: AES-GCM; era `api_key_ref text`
+    api_key_last4   text,               -- só para a tela exibir `sk-or-…7b9d`
+    api_key_key_id  text,               -- qual chave-mestra cifrou (permite rotação)
     modelo_padrao text,
     batch_size int NOT NULL DEFAULT 32,
     rpm_limite int,
@@ -673,8 +675,13 @@ CREATE TABLE provedor_status (
 );
 ```
 
-> **Chave de API nunca vai para o banco.** `provedor.api_key_ref` guarda o *nome* da variável de
-> ambiente (ex.: `OPENROUTER_API_KEY`); o valor continua no `.env`, fora do git.
+> ⚠ **Revisto na Fase 14 ([ADR-022](07_DECISOES.md#adr-022)).** A regra acima era "chave de API
+> nunca vai para o banco": `api_key_ref` guardava o *nome* da env var e o valor ficava no `.env`.
+> O efeito colateral foi que cadastrar um provedor pela tela continuava impossível sem editar
+> arquivo e reiniciar. A chave passa a morar no banco **cifrada**: `api_key_ref` dá lugar a
+> `api_key_cifrada bytea` + `api_key_last4 text` + `api_key_key_id text`, decifradas só em
+> processo, por uma chave-mestra (`APP_SECRET_KEY`) que continua fora do banco, no ambiente do
+> serviço. A chave nunca volta pela API nem pelo HTML — a tela mostra os 4 últimos dígitos.
 
 ## 11. Retenção e limpeza
 

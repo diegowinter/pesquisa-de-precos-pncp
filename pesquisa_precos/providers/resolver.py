@@ -37,11 +37,27 @@ class FallbackProibidoEmbedError(ValueError):
     trava, para o caso de a linha ter sido editada direto no banco."""
 
 
-def _api_key_de(api_key_ref: str | None, default: str = "") -> str:
-    """`provedor.api_key_ref` guarda o NOME da env var, nunca a chave (§5.10 CONVENÇÕES)."""
-    if not api_key_ref:
+def _api_key_de(linha: dict, default: str = "") -> str:
+    """A chave de API de um provedor cadastrado, em claro — só para montar o adapter.
+
+    Duas origens, nesta ordem (Fase 14, ADR-022):
+      1. `provedor.api_key_cifrada` — o caminho novo: a chave mora no banco, cifrada em
+         AES-GCM, e `db.segredo` a decifra com a chave-mestra do ambiente.
+      2. `provedor.api_key_ref` — herança pré-ADR-022: o NOME de uma variável de ambiente,
+         com o valor no `.env`. Continua funcionando enquanto o bloco 4 da Fase 14 (seed +
+         migração de conteúdo) não roda, para que a virada não seja tudo-ou-nada.
+
+    Este é o ÚNICO ponto do código que devolve segredo em claro. Nada acima daqui — service,
+    API, template — pode chamar `db.segredo.decifrar`.
+    """
+    blob = linha.get("api_key_cifrada")
+    if blob:
+        from pesquisa_precos.db import segredo as seg
+        return seg.decifrar(bytes(blob), contexto=linha["provedor"])
+    ref = linha.get("api_key_ref")
+    if not ref:
         return default
-    return os.getenv(api_key_ref, default)
+    return os.getenv(ref, default)
 
 
 def _como_float(v: Any) -> float | None:
@@ -85,7 +101,7 @@ def resolver_capacidade(capacidade: str, cfg: dict, *, sessao: "Session | None" 
                 custo_out_por_mtok=_como_float(linha.get("custo_out_por_mtok")),
                 fallback_provedor=fallback,
             )
-            api_key = _api_key_de(linha.get("api_key_ref"))
+            api_key = _api_key_de(linha)
             return ResolucaoCapacidade(info=info, api_key=api_key, origem="banco")
     return _resolver_via_env(capacidade, cfg, provedor=provedor, forte=forte, remoto=remoto)
 

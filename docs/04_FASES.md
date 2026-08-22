@@ -481,6 +481,57 @@ Médio-baixo em código (é remoção, e o que fica já era o default desde a Fa
 operação**: sem banco de pé não há pipeline, e não sobra caminho degradado. O rollback é o
 repositório congelado, não uma flag.
 
+## Fase 14 — Configuração plugável: tudo pela tela, nada no `.env`
+
+> **Depende da Fase 7** (que criou `provedor`/`capacidade_provedor` e a resolução por
+> capacidade) e da **Fase 6** (`config_versao` versionada). É a fase que faz as duas
+> **chegarem ao operador**: hoje as tabelas existem, a resolução existe, e nenhuma rota escreve
+> nelas — a configuração real da aplicação segue num `.env` editado à mão.
+
+**Princípio:** o que é *configuração de operação* mora no banco e se edita pela tela; o `.env`
+guarda só o *bootstrap* — o que a aplicação precisa saber antes de conseguir ler o banco.
+
+| Sai do `.env` (vira tela + banco) | Fica no `.env` |
+|---|---|
+| `OPENAI_*`, `LOCAL_*` (modelo, base_url, chave) | `DATABASE_URL` |
+| `GPU_*`, `PDF_*`, `PAREAMENTO_*` | `APP_SECRET_KEY` (chave-mestra da cifra) |
+| `EMBEDDER_MODEL`, `RERANKER_MODEL` | |
+| `REJEITOR_THRESHOLD`, `RERANK_T_*`, `MIN_ITENS`, `TOP_N` | |
+| `CUSTO_USD_CHAMADA_*` | |
+
+**Blocos**
+
+1. **Cifra de segredo** ([ADR-022](07_DECISOES.md#adr-022)). Dep nova `cryptography`; migração
+   Alembic troca `provedor.api_key_ref` por `api_key_cifrada`/`api_key_last4`/`api_key_key_id`;
+   helper `db/segredo.py` (cifrar/decifrar/rotacionar). A app recusa subir sem `APP_SECRET_KEY`.
+2. **CRUD de provedores na tela.** `/provedores` deixa de ser só leitura: cadastrar/editar
+   provedor (nome, capacidades, `base_url`, modelo, `batch_size`, `rpm_limite`, custo/Mtok,
+   chave write-only) e apontar `capacidade → provedor`. Botão "testar agora" reusando
+   `providers/saude.py`. Passa por `services/`, nunca por `db/repos` direto.
+3. **Thresholds viram `Params`.** `rejeitor_threshold` (6a), `rerank_t_aceita`/`rerank_t_rejeita`
+   (6b), `min_itens`/`top_n` (7 — hoje já são `Params` com fallback para `ctx.config`; o
+   fallback sai). Ganham formulário de graça (`schema_parametros`) e entram em `config_versao`.
+   **Bumpar `VERSAO_CODIGO`** de cada etapa tocada: o valor efetivo muda de origem, e o
+   fingerprint precisa enxergar isso.
+4. **Seed + remoção do fallback.** Migração semeia `provedor`/`capacidade_provedor` e uma
+   `config_versao` inicial a partir do `.env` de hoje (uma vez, sem recadastro manual); depois
+   `_resolver_via_env` sai de `providers/resolver.py` e `carregar_config()` encolhe.
+   `tests/test_estrutura.py` ganha a guarda: nenhum módulo de `etapas/` lê threshold de
+   `ctx.config`.
+
+**Critério de aceite**
+
+Com o `.env` reduzido a `DATABASE_URL` + `APP_SECRET_KEY`, o operador troca o modelo do LLM, a
+URL do túnel da GPU e um threshold **inteiramente pela tela**, roda uma etapa, e o `run` aponta
+para a `config_versao` que registra exatamente esses valores. Nenhuma chave de API aparece em
+resposta de API, em HTML ou em `pg_dump` legível.
+
+**Risco**
+
+Médio. O bloco 4 é a virada dura (sem provedor cadastrado, nada roda) e vem **por último**, com
+os blocos 1-3 já validados. Reversível: o `downgrade` da migração restaura `api_key_ref` e o
+`.env` do operador continua no disco durante a transição.
+
 ## Fora de escopo (todas as fases)
 
 Registrado para que ninguém "melhore" o projeto nessa direção:
@@ -515,3 +566,4 @@ paralelismo entre runs · auto-avanço de etapas.
 | F11 Processamento externo | ▪▪▪ | médio | sim |
 | F12 Deploy | ▪▪ | médio | sim |
 | F13 Web-only | ▪▪▪ | médio-baixo | via repo congelado |
+| F14 Config plugável | ▪▪▪ | médio | via `downgrade` da migração |

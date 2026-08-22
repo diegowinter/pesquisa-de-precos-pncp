@@ -21,3 +21,7 @@ data/
 !tests/fixtures/**/*.csv
 
 .claude/
+
+# Backups do .env feitos durante a Fase 14 — contêm chaves em claro.
+.env.bak*
+.env.*.bak

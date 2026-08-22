@@ -38,6 +38,10 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",   # form POST (login, formulários de Params)
     "itsdangerous>=2.2",         # SessionMiddleware (cookie de sessão, docs §5)
+    # Fase 14 (ADR-022): a chave de API de cada provedor mora no banco, cifrada em AES-GCM.
+    # A chave-mestra (`APP_SECRET_KEY`) fica fora do banco, no ambiente do processo — um
+    # `pg_dump` sozinho não decifra nada. Ver `db/segredo.py`.
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

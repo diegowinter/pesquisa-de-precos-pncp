@@ -116,7 +116,16 @@ class Provedor(Base):
     nome: Mapped[str] = mapped_column(Text, primary_key=True)
     capacidades: Mapped[list[str]] = mapped_column(ARRAY(_enum("capacidade")), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
-    # NUNCA a chave em si: só o NOME da variável de ambiente (ADR-006 / §5.10).
+    # A chave de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
+    # criptograma é amarrado ao `nome` do provedor pelo AAD, então copiá-lo de uma linha para
+    # outra falha ao decifrar em vez de trocar de chave em silêncio. `last4` é o que a tela
+    # exibe; a chave em claro nunca sobe para API ou HTML.
+    api_key_cifrada: Mapped[bytes | None] = mapped_column(LargeBinary)
+    api_key_last4: Mapped[str | None] = mapped_column(Text)
+    api_key_key_id: Mapped[str | None] = mapped_column(Text)
+    api_key_atualizada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Herança pré-ADR-022: NOME da variável de ambiente, nunca a chave. Ainda lido pelo
+    # resolver enquanto o bloco 4 da Fase 14 (seed + migração de conteúdo) não roda.
     api_key_ref: Mapped[str | None] = mapped_column(Text)
     modelo_padrao: Mapped[str | None] = mapped_column(Text)
     batch_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default="32")

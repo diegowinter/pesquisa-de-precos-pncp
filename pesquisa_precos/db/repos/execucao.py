@@ -253,18 +253,54 @@ def diff_prompt(sessao: Session, nome: str, versao_a: int, versao_b: int) -> dic
 
 def upsert_provedor(sessao: Session, nome: str, capacidades: Sequence[str], base_url: str,
                     *, api_key_ref: str | None = None, modelo_padrao: str | None = None,
-                    permite_fallback: bool = False) -> None:
-    """`api_key_ref` guarda o NOME da variável de ambiente. A chave NUNCA vai ao banco (§5.10)."""
+                    permite_fallback: bool = False, batch_size: int | None = None,
+                    rpm_limite: int | None = None,
+                    custo_in_por_mtok: float | None = None,
+                    custo_out_por_mtok: float | None = None,
+                    ativo: bool = True) -> None:
+    """Cadastro/edição de provedor. NÃO toca na chave de API — para isso existe
+    `gravar_api_key`, que cifra (ADR-022). Separados de propósito: salvar o formulário sem
+    preencher o campo de chave não pode apagar a chave que já está lá."""
     sessao.execute(
-        text("INSERT INTO provedor (nome, capacidades, base_url, api_key_ref, "
-             "                      modelo_padrao, permite_fallback) "
-             "VALUES (:n, CAST(:c AS capacidade[]), :u, :k, :m, :f) "
+        text("INSERT INTO provedor (nome, capacidades, base_url, api_key_ref, modelo_padrao, "
+             "                      permite_fallback, batch_size, rpm_limite, "
+             "                      custo_in_por_mtok, custo_out_por_mtok, ativo) "
+             "VALUES (:n, CAST(:c AS capacidade[]), :u, :k, :m, :f, "
+             "        COALESCE(:b, 32), :r, :ci, :co, :a) "
              "ON CONFLICT (nome) DO UPDATE SET "
              "  capacidades = EXCLUDED.capacidades, base_url = EXCLUDED.base_url, "
              "  api_key_ref = EXCLUDED.api_key_ref, modelo_padrao = EXCLUDED.modelo_padrao, "
-             "  permite_fallback = EXCLUDED.permite_fallback, atualizado_em = now()"),
+             "  permite_fallback = EXCLUDED.permite_fallback, "
+             "  batch_size = EXCLUDED.batch_size, rpm_limite = EXCLUDED.rpm_limite, "
+             "  custo_in_por_mtok = EXCLUDED.custo_in_por_mtok, "
+             "  custo_out_por_mtok = EXCLUDED.custo_out_por_mtok, "
+             "  ativo = EXCLUDED.ativo, atualizado_em = now()"),
         {"n": nome, "c": list(capacidades), "u": base_url, "k": api_key_ref,
-         "m": modelo_padrao, "f": permite_fallback})
+         "m": modelo_padrao, "f": permite_fallback, "b": batch_size, "r": rpm_limite,
+         "ci": custo_in_por_mtok, "co": custo_out_por_mtok, "a": ativo})
+
+
+def gravar_api_key(sessao: Session, provedor: str, api_key: str) -> None:
+    """Cifra e grava a chave de API de um provedor (Fase 14, ADR-022). O nome do provedor entra
+    como AAD, então o criptograma só decifra na linha dele. Write-only: não existe função que
+    devolva a chave em claro para fora de `providers.resolver`."""
+    from pesquisa_precos.db import segredo as seg
+
+    sessao.execute(
+        text("UPDATE provedor SET api_key_cifrada = :b, api_key_last4 = :l, "
+             "  api_key_key_id = :k, api_key_atualizada_em = now(), atualizado_em = now() "
+             "WHERE nome = :n"),
+        {"n": provedor, "b": seg.cifrar(api_key, contexto=provedor),
+         "l": seg.ultimos4(api_key), "k": seg.key_id_atual()})
+
+
+def limpar_api_key(sessao: Session, provedor: str) -> None:
+    """Remove a chave gravada (provedor que deixou de exigir autenticação, ou limpeza antes de
+    recadastrar)."""
+    sessao.execute(
+        text("UPDATE provedor SET api_key_cifrada = NULL, api_key_last4 = NULL, "
+             "  api_key_key_id = NULL, api_key_atualizada_em = now(), atualizado_em = now() "
+             "WHERE nome = :n"), {"n": provedor})
 
 
 def apontar_capacidade(sessao: Session, capacidade: str, provedor: str,
@@ -511,6 +547,9 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
     em `providers.saude` (Fase 7)."""
     provedores = {p["nome"]: {**p, "capacidades_atendidas": []} for p in sessao.execute(
         text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, ativo, "
+             "       batch_size, rpm_limite, custo_in_por_mtok, custo_out_por_mtok, "
+             "       api_key_last4, api_key_key_id, api_key_atualizada_em, "
+             "       (api_key_cifrada IS NOT NULL) AS tem_api_key, "
              "       atualizado_em FROM provedor ORDER BY nome")).mappings().all()}
     for c in sessao.execute(
             text("SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor")
@@ -527,7 +566,8 @@ def capacidade_provedor_info(sessao: Session, capacidade: str) -> dict[str, Any]
     """
     linha = sessao.execute(
         text("SELECT cp.capacidade, cp.provedor, cp.modelo, cp.fallback, "
-             "       p.base_url, p.api_key_ref, p.modelo_padrao, p.batch_size, p.rpm_limite, "
+             "       p.base_url, p.api_key_ref, p.api_key_cifrada, p.modelo_padrao, "
+             "       p.batch_size, p.rpm_limite, "
              "       p.custo_in_por_mtok, p.custo_out_por_mtok, p.permite_fallback, p.ativo "
              "FROM capacidade_provedor cp JOIN provedor p ON p.nome = cp.provedor "
              "WHERE cp.capacidade = CAST(:c AS capacidade) AND p.ativo"),

@@ -644,3 +644,81 @@ um contrato, uma ata ou um `tipoDocumentoNome` — recebe arquivos, devolve text
   de ter uma forma canônica, e é o mesmo que a ADR-020 cobrou ao tirar a CLI.
 - **Rollback:** os módulos movidos estão no histórico deste repositório (o commit anterior a
   esta ADR) e vivos em `pncp-servicos-locais`. Nada foi perdido.
+
+---
+
+## ADR-022 — Configuração inteira no banco; segredo cifrado, com uma chave-mestra só
+
+**Data:** 2026-08-22 · **Status:** aceito · **Estende:** [ADR-014](#adr-014) ·
+**Revoga:** a nota "chave de API nunca vai para o banco" de docs/02_SCHEMA.md §10
+
+**Contexto**
+
+A ADR-014 mandou "modelo, provedor, URL da GPU, thresholds" para o banco, e a ADR-006 montou a
+resolução por capacidade lendo banco → `.env`. Na prática, nada disso chegou ao operador: o
+banco de provedores está vazio, `capacidade_provedor` nunca foi populada, e **não existe rota
+que escreva nessas tabelas** — `upsert_provedor`/`apontar_capacidade` só podem ser chamados por
+SQL na mão. `/provedores` é uma tela de leitura. O resultado é que a configuração real da
+aplicação — modelo do LLM, endereço do túnel da GPU, thresholds do reranker — mora num arquivo
+`.env` editado à mão, e trocar qualquer coisa exige acesso ao disco do servidor e reinício.
+
+Havia ainda uma segunda fronteira, definida no §10 do schema: `provedor.api_key_ref` guardava o
+*nome* de uma env var, nunca a chave. A intenção era boa (não vazar segredo em `pg_dump`), mas
+o efeito era que cadastrar um provedor novo pela tela continuava impossível sem editar o `.env`
+e reiniciar — a tela ficava a meio caminho, e o "plugável" nunca acontecia.
+
+**Decisão**
+
+**Toda a configuração vai para o banco, segredo incluído.** Fora do banco sobra exatamente uma
+coisa: a chave-mestra que decifra os segredos.
+
+1. `provedor.api_key_ref` é substituída por `api_key_cifrada bytea` + `api_key_last4 text` +
+   `api_key_key_id text`. A cifra é AES-GCM (`cryptography`), envelope simples: a chave de
+   dados é cifrada por uma **chave-mestra** (`APP_SECRET_KEY`), que vem do **ambiente do
+   processo** — não de arquivo no repositório. Um `pg_dump` sozinho não decifra nada.
+2. A chave **nunca** volta pela API nem pelo HTML. Campo write-only; a tela mostra
+   `sk-or-…7b9d` (`api_key_last4`) e a data da última troca. Decifrar só acontece em processo,
+   em `providers/resolver`, no momento de montar o adapter.
+3. `api_key_key_id` existe desde o primeiro dia para permitir **rotação** da chave-mestra sem
+   downtime: re-cifra linha a linha, com as duas chaves aceitas durante a janela.
+4. Os thresholds (`rejeitor_threshold`, `rerank_t_aceita`, `rerank_t_rejeita`, `min_itens`,
+   `top_n`) deixam de ser lidos de `ctx.config` e viram campos de `Params` da etapa que os usa.
+   Isso os coloca automaticamente no formulário gerado pelo Pydantic
+   (`services.config.schema_parametros`) e, o que importa mais, sob `config_versao` — versionado
+   e imutável, como a ADR-014 exige.
+5. `_resolver_via_env` **sai**. Provedor não configurado é erro na tela de provedores, não
+   silêncio com o modelo errado. Uma migração Alembic semeia `provedor`/`capacidade_provedor` a
+   partir do `.env` de hoje, uma vez, para que a virada não exija recadastro manual.
+
+**A linha de corte é "configurável vs. bootstrap"**, não "esvaziar o `.env`". O `.env`
+continua existindo e continua sendo o lugar certo para o que a aplicação precisa saber *antes*
+de conseguir ler o banco: `DATABASE_URL` e `APP_SECRET_KEY`. Nenhum dos dois é ajuste de
+operação — não se troca o banco da aplicação pela tela, e a chave-mestra não pode morar no que
+ela protege. Tudo o que resta no `.env` hoje (modelo, `base_url`, thresholds, batch, custos,
+chaves de provedor) é configuração de operação e vai para o banco. No destino (F12) os dois
+sobreviventes são variáveis de ambiente do serviço; o arquivo é conveniência de
+desenvolvimento.
+
+**Alternativas descartadas**
+
+- *Manter `api_key_ref` (env var por nome)*: é o estado atual, e é justamente o que impede
+  cadastrar provedor pela tela. Meia-medida: a tela existe mas não basta.
+- *Cofre de segredos (Vault/KMS/Secrets Manager)*: segurança melhor, infra incompatível com o
+  "servidor econômico" da ADR-021. Para um operador só, o ganho não paga o custo.
+- *Keyring do sistema operacional*: funciona na máquina do operador, dá dor de cabeça em
+  servidor headless — e o runner roda como subprocesso, que herda mal essas sessões.
+- *Digitar a chave-mestra ao subir o servidor*: máxima segurança, incompatível com um serviço
+  que precisa reiniciar sozinho.
+- *Guardar a chave em texto puro na coluna*: o `pg_dump` entre agregados (procedimento normal
+  aqui) passaria a carregar a chave viva em todo backup.
+
+**Consequências**
+
+- Dependência nova: `cryptography`. É a única adição de peso, e roda em qualquer servidor.
+- **Sem `APP_SECRET_KEY` não há provedor.** É a mesma dureza que a ADR-020 impôs com
+  `DATABASE_URL`: um caminho só, que falha alto. A app recusa subir sem ela.
+- `config/settings.py` encolhe para segredos e `DATABASE_URL`; `carregar_config()` deixa de ser
+  a fonte de thresholds e URLs. Bumpar `VERSAO_CODIGO` de toda etapa cujo threshold migrou —
+  o valor efetivo passa a vir de outro lugar, e o fingerprint tem de enxergar isso.
+- **Rollback:** a migração Alembic é reversível (`downgrade` restaura `api_key_ref`), e o `.env`
+  atual continua no disco do operador enquanto a virada não é confirmada.
