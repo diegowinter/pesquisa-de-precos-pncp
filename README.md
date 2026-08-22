@@ -1,133 +1,140 @@
-# Pipeline `itens-contratos-atas` v3
+# Pesquisa de preços PLASEG via PNCP
 
-Pesquisa de preços de itens de segurança pública via PNCP: parte do catálogo CATMAT/CATSER
-filtrado por allow-list, coleta contratos/atas do PNCP por conceito, e afunila com um funil
-de custo crescente (classificação → corte → rejeitor híbrido → reranker local → LLM só no
-ambíguo) até os **5 itens confirmados mais baratos** por código de catálogo.
+Pesquisa de preços de itens de segurança pública. Parte do catálogo CATMAT/CATSER filtrado por
+uma allow-list curada, coleta contratos e atas do PNCP por termo de busca, e afunila com um
+funil de custo crescente (classificação → corte → rejeitor híbrido → reranker local → LLM só
+no ambíguo) até as referências confirmadas mais baratas por código de catálogo.
 
-O desenho completo (regras de negócio, formatos de arquivo, convenções) está em
-[`GUIA_IMPLEMENTACAO_PIPELINE.md`](GUIA_IMPLEMENTACAO_PIPELINE.md). O projeto de
-transformação desta pipeline em aplicação (banco, API, web) está em [`docs/`](docs/).
+**O sistema inteiro é operado pelo navegador.** Não há CLI, não há script para encadear, e
+nenhuma etapa escreve arquivo: o PostgreSQL é o único meio de persistência.
 
-> **A "regra dos 5" descrita abaixo está DESATIVADA** (`MIN_ITENS=1`, `TOP_N=0` no `.env`).
-> Mais de 5 itens por código é comportamento esperado. Ver [`CLAUDE.md`](CLAUDE.md) e
-> [ADR-016](docs/07_DECISOES.md#adr-016).
+```
+uv sync
+uv run alembic upgrade head          # schema
+uv run python -m pesquisa_precos     # http://localhost:8001
+```
 
-> **v3 vs v2** — o v3 nasce como cópia do v2 (scripts + resultados + checkpoints), **sem**
-> `data/arquivos/` (os PDFs são re-baixados sob demanda pela etapa 2). Os patches retroativos
-> (ex.: `2b_corrigir_precos_homologados.py`) foram **aposentados**: o caminho base já coleta o
-> valor homologado inline, então há um caminho canônico só. Desde a Fase 0 o patch vive na tag
-> git `legado-2b-precos-homologados`, não mais em `legado/`. O v2 permanece intacto como
-> fallback.
+O desenho de engenharia está em [`docs/`](docs/) — comece por
+[`docs/README.md`](docs/README.md). As regras de negócio herdadas (formatos, heurísticas,
+armadilhas de cada etapa) estão em
+[`GUIA_IMPLEMENTACAO_PIPELINE.md`](GUIA_IMPLEMENTACAO_PIPELINE.md), que descreve o pipeline na
+época em que ele gravava CSV — a regra continua valendo, os caminhos de arquivo não.
+
+> **A "regra dos 5" está DESATIVADA** (`min_itens=1`, `top_n=0`). Mais de 5 itens por código é
+> comportamento esperado, não bug. Ver [ADR-016](docs/07_DECISOES.md#adr-016).
 
 ## Fluxo
 
-```
-0a  Catálogo + filtro allow-list (PDM / codigoServico)     → data/0a_catalogo_filtrado.csv
-1   Conceitos + termos de busca (LLM, versionado à mão)     → data/1_conceitos_termos.csv
-2   Coleta larga PNCP (busca → homologado → PDF → explode)   → data/2_itens_coletados.csv
-3   Classificação de categoria por item (LLM local)          → data/3_itens_classificados.csv
-4   Corte antecipado (regra dos 5, categorias < 5)           → data/4_itens_sobreviventes.csv
-5   Enriquecimento via PDF (parse/OCR → extração → âncora)   → data/5_itens_enriquecidos.csv
-6a  Pares (catálogo × item, mesma categoria) + rejeitor      → data/6a_pares_candidatos.csv
-6b  Reranker local (aceito / rejeitado / ambíguo)            → data/6b_pares_rerankeados.csv
-6c  LLM forte só nos ambíguos + acúmulo de rótulos           → data/6c_pares_validados.csv
-7   Agrupar por código, sanity de preço, top 5              → data/7_itens_agrupados.csv
-8   Export XLSX Plaseg                                       → data/8_itens_plaseg.xlsx
-```
+Onze etapas, na ordem que `pesquisa_precos/etapas/registry.py` declara. Cada uma lê e escreve
+no banco; a coluna "produz" é a tabela onde o resultado fica.
 
-**Regra dos 5**: cada código de catálogo precisa de 5 itens confirmados; ficam os 5 mais
-baratos por preço unitário. Pares nunca são deduplicados (item ambíguo é julgado em cada
-categoria). O corte da etapa 4 é a versão "matematicamente segura"; a contagem definitiva é
-na etapa 7, sobre confirmados e fora os outliers de preço.
-
-## Tabela etapa → entrada → saída
-
-Cada etapa é um módulo em `pesquisa_precos/etapas/`, executado com
-`python -m pesquisa_precos.etapas.<módulo>`.
-
-| Módulo | Entrada | Saída | LLM/GPU |
+| Etapa | O que faz | Produz | Custo |
 |---|---|---|---|
-| `e0a_catalogo` | Dados Abertos Compras.gov | `0a_catalogo_*` | — |
-| `e1_termos` | `0a_catalogo_filtrado.csv` | `1_conceitos_termos.csv` | LLM |
-| `e2_coletar` | `1_conceitos_termos.csv` | `2_itens_coletados.csv` + PDFs | — |
-| `e3_classificar` | `2_itens_coletados.csv` | `3_itens_classificados.csv` | LLM local |
-| `e4_cortar` | `2_*`, `3_*` | `4_itens_sobreviventes.csv` | — |
-| `e5a_ocr` | `4_*`, PDFs | `5_pdf_texto.csv` | OCR |
-| `e5b_extrair` | `4_*`, `5_pdf_texto.csv` | `5_itens_enriquecidos.csv`, `5_itens_destino.csv` | LLM |
-| `e6a_pares` | `4_*`, `5_*`, `0a_*`, `1_*` | `6a_pares_candidatos.csv` | GPU (embedder) |
-| `e6b_rerank` | `6a_*` | `6b_pares_rerankeados.csv` | GPU (reranker) |
-| `e6c_validar` | `6b_*` | `6c_pares_validados.csv`, `6_rotulos_acumulados.csv` | LLM |
-| `e7_agrupar` | `6b_*`, `6c_*`, `4_*`, `5_*`, `0a_*` | `7_itens_agrupados.csv` | — |
-| `e8_exportar` | `7_*` | `8_itens_plaseg.xlsx` | — |
+| `0a` | baixa CATMAT/CATSER e aplica a allow-list curada | `catalogo_raw`, `catalogo_item` | — |
+| `1` | gera os termos de busca por item de catálogo | `termo`, `termo_codigo` | LLM |
+| `2` | coleta larga no PNCP (busca → documento → itens) | `documento`, `item` | — |
+| `3` | classifica a categoria de cada item | `texto_classificacao`, `item_categoria` | LLM |
+| `4` | corta quem não tem categoria de conteúdo | `item.sobrevivente` | — |
+| `5` | baixa o PDF, extrai texto e enriquece o item | `documento_pagina`, `item_enriquecido` | PDF+OCR+LLM |
+| `6a` | pares catálogo × item da mesma categoria + rejeitor | `par` | GPU |
+| `6b` | reranker decide aceito / rejeitado / ambíguo | `par.score_rerank` | GPU |
+| `6c` | LLM julga só os ambíguos | `par.decisao_final`, `rotulo` | LLM |
+| `7` | agrupa por código, sanity de preço, ranking | `grupo_item` | — |
+| `8` | monta o XLSX PLASEG | `export.conteudo` | — |
 
-Caminho alternativo da etapa 5 (`rodar.py --caminho-5 alt`): `e5_alt_a_tabela` extrai a tabela
-do PDF por modelo de visão e `e5_alt_b_casar` casa cada item da API contra ela.
+O funil é a razão de ser do desenho: cada etapa é mais cara que a anterior e recebe menos
+itens. As etapas caras (3, 5, 6b, 6c) só processam o inédito — o dedup da 3, por exemplo, é
+permanente (`texto_classificacao` sobrevive entre runs, e um texto já pago nunca volta ao
+modelo). As baratas de agregação (4, 7, 8) recomputam o corpus inteiro, porque "mais barato
+por código" exige comparar o novo contra o antigo.
 
-## Convenções
+## Como se opera
 
-- Saídas prefixadas pela etapa que as produziu (`data/{N}{letra?}_*`). Checkpoints em
-  `data/checkpoints/{N}_*`; erros em `data/erros/{N}_erros.csv`. **Os caminhos não são
-  escritos à mão em lugar nenhum**: todos vivem em `pesquisa_precos/config/paths.py`.
-- Toda etapa que itera é **resumível**: relê as chaves já concluídas da própria saída e as
-  pula; falhas de registro vão para o log de erros sem derrubar a execução.
-- Todo I/O de texto é utf-8 explícito (defesa contra o bug de acentos cp1252 no Windows).
-- **GPU (6 GB)**: embedder, reranker, OCR e LLM local **nunca rodam simultaneamente**. As
-  etapas são sequenciais e cada uma carrega seu modelo no início e libera ao final.
+Tudo pela web, em `localhost:8001`:
+
+- **Runs** — crie um run (com teto de custo, se quiser) e dê play etapa por etapa. O grafo
+  mostra o estado de cada uma; a tela da etapa traz progresso ao vivo, log, erros por item, a
+  estimativa antes de gastar e o que fica desatualizado se você refizer.
+- **Configuração** — os parâmetros de cada etapa, num formulário gerado dos próprios `Params`
+  Pydantic. Salvar cria uma `config_versao` nova; runs apontam para uma versão.
+- **Prompts** — versionados, com diff e ativação.
+- **Provedores** — sonda `chat`/`embed`/`rerank`/`ocr`/`pdf`/`pareamento`. É o primeiro lugar a
+  olhar quando uma etapa reprova antes de começar.
+- **Custo**, **Exports** (download do XLSX), **Diff entre runs**, **Recalibrar** thresholds.
+
+Há também uma superfície JSON no mesmo processo, sob `/api` (protegida por `X-API-Token`, se
+`API_TOKEN` estiver definido). Mesmos serviços, outra representação.
+
+## Invariantes que não se negociam
+
+- **O processo web nunca executa etapa na própria thread** (ADR-002). Dar play grava a intenção
+  e sobe `runner/processo.py` como subprocesso, com lock, heartbeat, lease e custo no banco.
+  A rota volta na hora.
+- **Nenhuma etapa toca em disco** (ADR-018/ADR-020). Não importa `config/paths.py`, não expõe
+  `Path`. `tests/test_estrutura.py` guarda isso.
+- **Toda etapa é resumível**, e o checkpoint é derivado do próprio dado (`par.score_rerank IS
+  NULL`, `documento.estado`), não de um arquivo à parte. Matar o processo no meio e retomar não
+  reprocessa nem duplica.
+- **Erro de unidade não derruba a etapa**: vai para `erro_item` e o laço segue. Só falha de
+  infraestrutura aborta.
+- **GPU (6 GB)**: embedder, reranker, OCR e LLM local nunca rodam ao mesmo tempo. As etapas são
+  sequenciais e cada uma carrega o modelo no início e libera no fim.
 
 ## Configuração
 
-Copie `.env.example` para `.env` e preencha (OpenRouter, LM Studio, OCR, modelos e
-thresholds — ver seção 1.5 do guia). Instale o pacote em modo editável:
+Copie `.env.example` para `.env`. O mínimo é `DATABASE_URL`; sem banco de pé não há pipeline.
 
 ```
-uv sync                 # ou:  pip install -e ".[dev]"
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/pesquisa_precos
+WEB_PORT=8001        # opcional
+WEB_SENHA=           # vazio desliga o login (conveniente local; obrigatório se expuser)
+API_TOKEN=           # vazio desliga a checagem das rotas /api
 ```
 
-As dependências vivem no `pyproject.toml` (o `requirements.txt` ficou obsoleto na Fase 0).
-`sentence-transformers` e `rank-bm25` só são necessárias para as etapas 6a/6b; `pymupdf` para
-a 5.
+Chaves de provedor, modelos e thresholds também vivem no `.env`, mas o que estiver no banco
+(`config_valor`, `capacidade_provedor`) tem precedência — é o que a interface edita.
 
-Rodar uma etapa isolada:
-
-```
-python -m pesquisa_precos.etapas.e3_classificar --provedor local --concurrency 8
-python -m pesquisa_precos.etapas.e8_exportar --novos
-```
-
-## Orquestração
-
-`rodar.py` encadeia as etapas, para no primeiro erro e reporta:
+Processamento pesado pode rodar na própria máquina ou como serviço externo (ADR-019). Para
+rodar localmente, instale o extra:
 
 ```
-python rodar.py --completo   [--provedor openrouter] [--remoto] [--caminho-5 base|alt]
-python rodar.py --atualizar  [--provedor openrouter] [--remoto] [--sem-catalogo]
-python rodar.py --atualizar --de 3          # retoma a partir de uma etapa
-python rodar.py --completo  --dry-run        # só imprime a sequência
+uv sync --extra localmente     # pymupdf, rank-bm25, sentence-transformers
 ```
 
-No `--atualizar`: a 0a rebaixa o catálogo (detecta PDMs novos/removidos → delta) e a 2 roda com
-`--atualizar` (para no watermark + revisita pendentes); as demais são resumíveis/agregadoras e só
-tocam o novo. O desenho do incremental está em [`CLAUDE.md`](CLAUDE.md).
+Sem ele, defina `PDF_BASE_URL` / `PAREAMENTO_BASE_URL` / `GPU_BASE_URL` apontando para os
+servidores (`servidor_pdf.py`, `servidor_pareamento.py`, `servidor_gpu.py`, `servidor_ocr.py`).
+
+## Estado atual
+
+O acervo real — **1,6 milhão de itens** — ainda não foi migrado: ele vive nos CSVs de `data/`,
+e `migracao/` (21 passos, com `COPY`) é o que o leva para o Postgres.
+
+```
+uv run python -m migracao                  # lista os passos e o estado de cada um
+uv run python -m migracao.m04_catalogo     # um por vez, com pg_dump entre agregados
+uv run python -m migracao.validar          # contagens + integridade referencial
+```
+
+Enquanto isso não roda, o banco tem schema e configuração, mas quase nenhum dado de domínio.
 
 ## Utilitários
 
-- `limpar.py --etapa N` — apaga saídas/checkpoints da etapa N em diante (preserva os ativos
-  caros: `0a_*`, `1_conceitos_termos.csv`, `6_rotulos_acumulados.csv`). Também `--arquivos`
-  (PDFs) e `--tudo`.
-- `ferramentas/calibrar_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável
-  e sugere `REJEITOR_THRESHOLD`, `RERANK_T_ACEITA`, `RERANK_T_REJEITA` a partir dela.
-- `pytest` — guarda estrutural: confere que os caminhos das etapas continuam apontando para
-  `data/` e que o pacote inteiro importa.
+- `ferramentas/calibrar_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável e
+  sugere `REJEITOR_THRESHOLD`, `RERANK_T_ACEITA`, `RERANK_T_REJEITA`. A tela **Recalibrar** faz
+  o mesmo cálculo sobre `rotulo`, sem gravar nada.
+- `ferramentas/regressao.py` — precisão/recall dos thresholds vigentes.
+- `pytest` — guardas estruturais e de regra de negócio. Os testes de banco pulam sozinhos sem
+  Postgres.
 
-Todas as etapas de LLM aceitam `--provedor local|openrouter` e a maioria um `--limite N` para
-validação barata.
+## Rollback e legado
 
-## Legado
+`../pipeline-csv-congelado/` guarda o pipeline CSV-only anterior a toda a refatoração, com os
+20,87 GB de `data/` verificados. É autossuficiente. Desde a Fase 13 é a única forma de voltar
+ao caminho de arquivos — não existe mais flag. Cuidado: o `CLAUDE.md` de lá é histórico, e a
+6c daquele código cai no **modelo caro** por padrão.
 
-O código da v1 fica em
-[`../itens-via-script/itens-contratos-atas/`](../itens-via-script/itens-contratos-atas/) e
-dados antigos em [`data/legado/`](data/legado/). Os 111 GB de PDFs herdados continuam em
-`../itens-via-script/itens-contratos-atas-v2/data/arquivos/` — ver [`CLAUDE.md`](CLAUDE.md). A curadoria do catálogo por LLM (antiga etapa 0b) foi
-**aposentada** e substituída pela allow-list em `pesquisa_precos/core/catalogo/local.py`
-(`PDMS_MATERIAIS`, `CODIGOS_SERVICOS`).
+Os 111 GB de PDFs herdados do v2 continuam em
+`../itens-via-script/itens-contratos-atas-v2/data/arquivos/`, referenciados por caminho
+absoluto nos dados antigos — ver [`CLAUDE.md`](CLAUDE.md). A curadoria do catálogo por LLM
+(antiga etapa 0b) foi aposentada e substituída pela allow-list, que hoje é dado editável
+(`pdm_permitido`, `grupo_permitido`), não código.

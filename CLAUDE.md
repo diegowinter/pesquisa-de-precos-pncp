@@ -12,43 +12,43 @@ Desde 2026-08-16 existe também **[docs/](docs/)** — o projeto de engenharia d
 desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fase, comece por
 [docs/README.md](docs/README.md) e [docs/08_CONVENCOES.md](docs/08_CONVENCOES.md).
 
-## Estrutura: a Fase 0 já foi aplicada
-
-Os scripts numerados na raiz **não existem mais**. Desde a Fase 0
-([docs/04_FASES.md](docs/04_FASES.md)) o código vive num pacote instalável:
+## Estrutura: um pacote, uma superfície
 
 ```
 pesquisa_precos/
-  config/    paths.py (TODOS os caminhos de dados) · settings.py (.env)
+  __main__.py  ← `python -m pesquisa_precos` sobe TUDO (HTML + /api) numa porta só
+  config/    settings.py (.env) · paths.py (só do importador, ver abaixo)
   etapas/    e0a_catalogo · e1_termos · e2_coletar · e3_classificar · e4_cortar
-             e5a_ocr · e5b_extrair · e5_alt_a_tabela · e5_alt_b_casar
-             e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
-  core/      regras, io_seguro, paralelo, prompts, coleta PNCP, catálogo, classificação
-  providers/ llm_curador · embedder_local · reranker_local · gpu_remoto · ocr_pdf
-  db/ runner/ api/ web/ cli/ estrategias/   ← vazios, placeholders das fases seguintes
+             e5_extrair · e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
+  core/      regras, paralelo, prompts, coleta PNCP, catálogo, classificação, pareamento
+  providers/ chat · embed · rerank · ocr · pdf · pareamento (resolver + adapters)
+  estrategias/ janela · completa · visao (implementações plugáveis da etapa 5)
+  db/        modelos, repos, sessão (SQLAlchemy 2.x; migrations em alembic/)
+  runner/    executor, lock, fingerprint, processo, ContextoBanco, ContextoNulo
+  services/  a camada que web e api compartilham — nenhuma rota fala com o banco direto
+  api/       routers JSON, montados sob /api na app da web
+  web/       app FastAPI + templates Jinja2 + static (HTMX/Alpine, sem bundler)
 ```
 
-Uma etapa roda como módulo: `python -m pesquisa_precos.etapas.e3_classificar --provedor local`.
-`rodar.py` e `limpar.py` continuam na raiz e já apontam para os módulos novos.
+Cada etapa expõe `Params` (Pydantic) + `executar(params, ctx)` + `estimar(params, ctx)`. A
+ordem e as dependências vêm de `pesquisa_precos/etapas/registry.py`; os `Params` geram o
+formulário de configuração da web. Ao mudar a lógica de uma etapa, **bumpe o `VERSAO_CODIGO`
+do módulo** — é o que alimenta o fingerprint que marca as dependentes como desatualizadas.
 
-Desde a **Fase 1** cada etapa expõe `Params` (Pydantic) + `executar(params, ctx)` +
-`estimar(params, ctx)`, e o `main()` é só uma casca. Existe uma CLI equivalente, com as flags
-geradas a partir dos próprios `Params`:
+### Não existe CLI (Fase 13, ADR-020)
 
-```
-python -m pesquisa_precos.cli etapa 3 --concurrency 8   # mesma coisa que o -m da etapa
-python -m pesquisa_precos.cli estimar 3                 # escopo/custo, sem gastar nada
-python -m pesquisa_precos.cli grafo                     # ordem e dependências (registry)
-```
+Desde 2026-08-22 a web é a **única** superfície. Saíram: `pesquisa_precos/cli/`, `rodar.py`,
+`limpar.py`, o `main()` de cada etapa, e o segundo processo da API. Saiu também o
+`--fonte banco|csv`: **nenhuma etapa lê ou escreve arquivo**, o banco é o único meio de
+persistência. `runner/processo.py` é o único ponto de entrada de execução, e quem o sobe é a
+web, como subprocesso (ADR-002).
 
-A ordem das etapas e "quem aceita qual flag" vêm de `pesquisa_precos/etapas/registry.py` e dos
-`Params` — `rodar.py` não tem mais tabela própria. Ao mudar a lógica de uma etapa, **bumpe o
-`VERSAO_CODIGO` do módulo** (é o que vai alimentar o fingerprint na Fase 3).
+Consequência prática: **sem `DATABASE_URL` de pé não há pipeline.** Não sobrou caminho
+degradado. O rollback é o repositório congelado (ver abaixo), não uma flag.
 
-**Nunca escreva um caminho de `data/` literal.** Todos estão em
-[pesquisa_precos/config/paths.py](pesquisa_precos/config/paths.py); um caminho solto que
-divirja não levanta exceção — a etapa só não acha o checkpoint, reprocessa do zero e recobra
-o LLM. `tests/test_estrutura.py` guarda exatamente isso.
+**`config/paths.py` não é mais "todos os caminhos do projeto"** — é o mapa dos CSVs que
+`migracao/` ainda lê. Nenhum módulo de `etapas/` pode importá-lo, e `tests/test_estrutura.py`
+guarda essa regra (ela era o inverso até a Fase 13).
 
 ## Fase 2 (banco) — implementada, migração ainda NÃO rodada
 
@@ -84,13 +84,17 @@ que o PNCP devolve (473 de 8.154 linhas na amostra). Só isso; nenhuma outra cé
 
 ## Regra nº 1: quem roda a pipeline é o usuário
 
-**Claude NÃO dispara etapas da pipeline** (`pesquisa_precos/etapas/*`, `rodar.py`). O usuário
-roda tudo no terminal dele (via `uv run`) — a ideia é human-in-the-loop, com ele visualizando o
-progresso ao vivo. O papel do Claude é: explicar o que esperar antes de cada etapa, ler código
-e ajudar a debugar quando algo falha, inspecionar resultados depois (Bash/Python **read-only**
-é OK), e implementar correções/features pontuais quando pedido. Ferramentas auxiliares de
-leitura/diagnóstico (`ferramentas/`, inspeção de CSV, `pytest`, `ruff`) o Claude pode rodar
-livremente.
+**Claude NÃO dispara etapas da pipeline.** Isso não mudou na Fase 13 — mudou só a forma. O
+usuário sobe a web (`uv run python -m pesquisa_precos`) e dá play em cada etapa pelo navegador,
+acompanhando progresso e log ao vivo; a ideia continua sendo human-in-the-loop.
+
+Na prática, para o Claude: **não subir o servidor e não chamar rota que dispara etapa**
+(`POST .../executar`, `.../aprovar`). O papel é explicar o que esperar antes de cada etapa, ler
+código e ajudar a debugar quando algo falha, inspecionar resultados depois (SQL/Python
+**read-only** é OK), e implementar correções/features pontuais quando pedido.
+
+Livres: `ferramentas/`, consultas de leitura ao banco, `pytest`, `ruff`, e subir a app num
+`TestClient` para conferir que uma rota responde (não é execução de etapa).
 
 ## Restrição crítica de custo de LLM
 
@@ -99,8 +103,11 @@ o modelo barato (`OPENAI_MODEL_PASS1`, `inclusionai/ling-2.6-flash`).
 
 Até a Fase 0 isso dependia de lembrar de digitar `--fraco` na **etapa 6c** — sem a flag, ela
 caía no modelo caro. **A Fase 1 inverteu** (ADR-004): o barato é o padrão e o caro exige
-`--forte` explícito. `--fraco` continua sendo aceito, sem efeito, para não quebrar o comando
-que já está no histórico do terminal. **Nunca sugerir rodar 6c com `--forte`.**
+`forte` explícito. Hoje `forte` é um campo do `Params` da 6c, ou seja, uma caixa no formulário
+da web; `fraco` sobrevive como campo sem efeito. **Nunca sugerir marcar `forte` na 6c.**
+
+O teto de custo por run (`teto_custo_usd`) é a segunda rede: ele aborta a etapa de forma limpa
+ao ser ultrapassado, e vale a pena preenchê-lo ao criar o run.
 
 ## "Regra dos 5" — foi removida intencionalmente
 
@@ -165,10 +172,17 @@ refazer tudo do zero. Peças desse desenho, reaproveitáveis como padrão:
   snapshot manualmente a partir do baseline que ele realmente quer usar como "já entregue"
   (ex.: as chaves do último export oficial), não tratar como bug.
 
-## Estado da validação (atualizado em 2026-08-16)
+## Estado da validação (atualizado em 2026-08-22)
 
-Todo o pipeline (0a → 8) já foi validado end-to-end pelo usuário, rodando o fluxo
-`--atualizar` script por script, reaproveitando os dados migrados do v2:
+⚠ **A tabela abaixo é histórica: ela descreve o pipeline rodando sobre CSV**, validado
+end-to-end pelo usuário script por script, reaproveitando os dados migrados do v2. Esse
+caminho não existe mais (Fase 13). O que ela ainda prova é que a **regra de negócio** de cada
+etapa está certa — não que o caminho de banco já rodou sobre o acervo real.
+
+**O que falta, e é o próximo passo real:** migrar o acervo (`uv run python -m migracao`, passo
+a passo, com `pg_dump` entre agregados; depois `migracao.validar`) e então rodar um ciclo
+0a → 8 pela web. Hoje o banco tem o schema e as configurações, mas praticamente nenhum dado de
+domínio — os 1,6 milhão de itens seguem só nos CSVs.
 
 | Etapa | Status | Observação |
 |---|---|---|
@@ -185,24 +199,44 @@ Todo o pipeline (0a → 8) já foi validado end-to-end pelo usuário, rodando o 
 | 7 (agrupar) | ✅ | sem LLM, recomputa tudo |
 | 8 (exportar) | ✅ | feature nova `--novos` (delta incremental) implementada e testada |
 
-Não há mais nenhuma etapa pendente de validação **do mecanismo**. Pendente agora é só o aceite
-da Fase 0: rodar um ciclo `--atualizar` pelos comandos novos e conferir que as saídas em
-`data/` saem idênticas às de antes. O que já foi verificado é o proxy — as 79 constantes de
-caminho resolvem para os mesmos arquivos e o pacote inteiro importa (`pytest`).
+O caminho de banco (`--fonte banco`, hoje o único) foi validado ponta a ponta num banco
+descartável com amostra de 60 mil itens, com o export saindo idêntico pelos dois caminhos —
+mas nunca sobre os 1,6 milhão reais.
+
+**Falhas conhecidas de `pytest` neste momento (6 failed, 28 errors):** todas do banco local
+com o schema atrás do código — falta `alembic upgrade head` (o enum `capacidade` não tem
+`pdf`/`pareamento`, `documento` não tem `numero_sequencial`). Não são regressão da Fase 13;
+estavam iguais antes dela.
 
 ## Onde ficam as coisas úteis para debugar
 
 - `ferramentas/` — scripts de apoio pontuais (correção de schema, seed de watermark,
   calibração de thresholds). Não fazem parte do fluxo normal.
-- `tests/` — por ora só a guarda estrutural da Fase 0 (`pytest` roda em segundos).
-- `data/checkpoints/` — estado de resumo por etapa (chaves já concluídas).
-- `data/erros/` — falhas de registro por etapa, não derrubam a execução.
+- `tests/` — guardas estruturais + regra de negócio (`pytest` roda em segundos; os testes de
+  banco pulam sozinhos sem Postgres).
+- **Estado de execução vive no banco**, não em `data/`: `run`/`run_etapa` (progresso, custo,
+  status), `run_log` (log estruturado) e `erro_item` (falha por item, que não derruba a etapa).
+  `data/checkpoints/` e `data/erros/` são do pipeline antigo.
+- **A tela `/provedores`** é o primeiro lugar a olhar quando uma etapa reprova antes de começar:
+  ela sonda cada capacidade na ordem banco → `.env`.
 - `.env` — nunca commitar (está no `.gitignore`); tem chaves de API e a URL do túnel ngrok da
   GPU remota (`GPU_BASE_URL`), que muda de tempos em tempos.
 - `legado/` **saiu do repositório** na Fase 0. O patch aposentado
   `2b_corrigir_precos_homologados.py` está na tag `legado-2b-precos-homologados`:
   `git show legado-2b-precos-homologados:legado/2b_corrigir_precos_homologados.py`.
   (O CSV de 41 MB que morava junto nunca esteve no git e continua no disco.)
+
+## Rollback: o repositório congelado
+
+`../pipeline-csv-congelado/` é o pipeline CSV-only no commit anterior a toda a refatoração
+(`8f0279c`, preservado com hash e data originais, tag `v3-arquivos`), com os **20,87 GB de
+`data/` copiados e verificados** — 9.043 arquivos, checksums conferidos. É autossuficiente:
+dá para rodar a pipeline inteira de lá.
+
+Desde a Fase 13 ele é a ÚNICA forma de voltar ao caminho de arquivos — não existe mais flag.
+Atenção ao usá-lo: o `CLAUDE.md` que vive lá é o histórico, descreve a "regra dos 5" como ativa
+e é anterior à inversão `--fraco`/`--forte`, ou seja, **a 6c de lá cai no modelo caro por
+padrão**.
 
 ## Dívida conhecida da Fase 0
 

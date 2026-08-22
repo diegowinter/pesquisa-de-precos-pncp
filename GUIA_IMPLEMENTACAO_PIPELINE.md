@@ -1,5 +1,35 @@
 # Guia de implementação — Pipeline `itens-contratos-atas` v2
 
+> ## ⚠ Leia isto antes de seguir qualquer instrução deste guia
+>
+> **Este documento é a referência de REGRA DE NEGÓCIO, não de mecânica.** Ele foi escrito
+> quando a pipeline era um conjunto de scripts que gravavam CSV em `data/`. Desde a Fase 13
+> (ADR-020) nada disso é verdade: não há scripts numerados, não há CLI, nenhuma etapa escreve
+> arquivo, e o sistema é operado pela web. Ver [README.md](README.md) e [docs/](docs/).
+>
+> **O que continua valendo** (e é o motivo de este arquivo existir): as regras de cada etapa —
+> como montar `item_key`, o que conta como valor homologado, por que o preço do PDF vence o da
+> API, as heurísticas de extração, os limiares, e a lista de armadilhas conhecidas. Essas
+> regras foram transportadas para o código intactas.
+>
+> **O que NÃO vale mais, onde quer que apareça abaixo:**
+>
+> | O guia diz | Hoje é |
+> |---|---|
+> | `data/{N}_*.csv` como saída de etapa | uma tabela no Postgres (ver [docs/02_SCHEMA.md](docs/02_SCHEMA.md)) |
+> | `python -m pesquisa_precos.etapas.eN_*` | dar play na etapa pela web |
+> | caminhos em `config/paths.py` | `paths.py` é só do importador `migracao/` |
+> | checkpoint em `data/checkpoints/` | derivado do próprio dado (`par.score_rerank IS NULL`) |
+> | erros em `data/erros/{N}_erros.csv` | tabela `erro_item` |
+> | `data/erros`, `--dry-run`, `--limite N` como flags | campos do `Params`, no formulário |
+> | etapas `5a`/`5b` e `5_alt_*` separadas | uma etapa `5` com estratégias plugáveis (ADR-010) |
+> | allow-list em `core/catalogo/local.py` | dado editável: `pdm_permitido`, `grupo_permitido` |
+> | "regra dos 5" / top 5 por código | **desativada** (`min_itens=1`, `top_n=0`, ADR-016) |
+>
+> Quando este guia e o código divergirem sobre MECÂNICA, o código está certo. Quando
+> divergirem sobre REGRA, é provável que o guia esteja certo e valha investigar.
+
+
 Guia para implementação completa da nova pipeline de pesquisa de preços de itens de segurança pública via PNCP. Este documento é autossuficiente: descreve cada script a criar, cada módulo auxiliar, entradas, saídas, convenções e regras de negócio. **Não reescreva do zero o que já existe e funciona** — a seção "Migração do código existente" mapeia o que reaproveitar.
 
 > **Legenda de status** (atualizada em 2026-07-09):

@@ -500,3 +500,74 @@ responsabilidade de quem tem o documento em mãos, e o servidor deixa de trafega
   *orquestração e estado*; só o processamento sai.
 - Os serviços externos precisam de endereço estável. O túnel ngrok da máquina do usuário
   serve para desenvolvimento, **não** para o servidor em produção.
+
+---
+
+## ADR-020 — Uma superfície só: a web. Sem CLI, sem `--fonte`, sem `data/`
+
+**Data:** 2026-08-22 · **Status:** aceito · **Fase:** 13
+
+**Contexto.** O projeto acumulou **três** superfícies de operação para a mesma pipeline — a CLI
+Typer (`pesquisa_precos/cli/`), o orquestrador de terminal (`rodar.py`) e a web em dois
+processos (`web/` na 8001 + `api/` na 8000) — e **dois** meios de persistência, escolhidos por
+`--fonte banco|csv` em cada etapa.
+
+Isso não foi acidente: era a estratégia de migração. O ADR-018 pôs o banco como fonte da
+verdade e a Fase 10 fez `banco` virar o default nas 12 etapas, mantendo `csv` como escape hatch
+e rollback. Cumprido o papel, o custo de manter passou a superar o seguro:
+
+- toda mudança de regra tinha que ser escrita duas vezes, nos dois ramos;
+- a divergência entre os ramos **não levanta exceção** — produz um resultado diferente, tarde.
+  A coluna `Unidade` divergindo em 473 de 8.154 linhas foi descoberta por comparação manual,
+  não por erro;
+- todo `Params` carregava um campo que só faz sentido em um dos ramos, e esse campo aparecia
+  no formulário de configuração da web como se fosse uma escolha do operador;
+- o ADR-002 já dizia que o processo web nunca executa etapa na própria thread. Com a CLI
+  existindo em paralelo, havia dois jeitos de disparar a mesma etapa, e só um deles passava
+  por lock, heartbeat, teto de custo e registro de custo.
+
+**Decisão.** Uma superfície só.
+
+1. **Um processo, uma porta.** `python -m pesquisa_precos` sobe a app da web, que monta os
+   routers JSON sob `/api`. `api/app.py` deixa de existir; os routers ficam.
+2. **A CLI sai inteira** — `cli/`, `rodar.py`, `limpar.py`, e o `main()` de cada etapa. O único
+   ponto de entrada de execução é `runner/processo.py`, subido como subprocesso pela web.
+3. **`--fonte csv` sai das 12 etapas.** Nenhuma etapa lê ou escreve arquivo. `VERSAO_CODIGO`
+   vai a 2.0.0 em todas — o fingerprint tem que refletir que a origem dos dados mudou.
+4. **`Params` fica.** Ele deixa de gerar flags e passa a gerar só o formulário da web
+   (`services.config.schema_parametros`). Uma fonte, uma superfície.
+
+**O que substitui o rollback que o `--fonte csv` era.** O repositório congelado
+`../pipeline-csv-congelado/` — o pipeline CSV-only no commit anterior à refatoração, com os
+20,87 GB de `data/` copiados e verificados. Voltar deixa de ser uma flag e passa a ser um
+`git clone`; em compensação, o que se mantém no dia a dia é um caminho só.
+
+**O que NÃO sai.** `config/paths.py` e `migracao/` (21 passos): 1,6 milhão de itens ainda vivem
+só nos CSVs, e `migracao/` é o único código que sabe lê-los. Saem juntos, depois que o acervo
+estiver no Postgres e validado. Enquanto isso, `paths.py` é do importador — nenhum módulo de
+`etapas/` pode voltar a importá-lo, e `tests/test_estrutura.py` guarda essa regra (invertendo
+a que existia antes, "todo caminho da etapa cai dentro de `data/`").
+
+**Alternativas descartadas**
+- *Manter a CLI para debug*: é o argumento que sustentou os dois caminhos por três fases. Na
+  prática, "debug" vira o caminho de produção de quem tem pressa — e esse caminho não registra
+  custo nem respeita lock.
+- *Apagar a API JSON também*: os routers são cascas finas sobre `services/` e custam quase
+  nada; sem eles não sobra nenhuma forma programática de comandar a pipeline.
+- *Remover o CSV só depois de migrar o acervo*: seria a ordem ideal, e continua sendo a
+  recomendação para EXECUTAR a migração. Mas o código do importador é independente do das
+  etapas — segurar a limpeza pela migração só prolongaria a duplicação.
+
+**Consequências**
+- `core/io_seguro.py` (o `EscritorSeguro` append-only) perde todos os usuários e sai; o
+  equivalente SQL é `db/repos/escrita.py`.
+- `ContextoConsole` dá lugar a `ContextoNulo`: `estimar()` roda fora de um run e não precisa
+  de `rich`. `ContextoBanco` continua sendo o contexto de execução real.
+- `registry.caminho_erros` sai — erro por item já vive em `erro_item`.
+- `typer` sai das dependências.
+- **A Regra nº 1 do CLAUDE.md muda de forma, não de conteúdo:** quem opera a pipeline continua
+  sendo o usuário, e o Claude continua sem disparar etapa. O que muda é que o usuário dá play
+  no navegador em vez de digitar `uv run python -m ...` etapa por etapa.
+- **Custo:** sem banco de pé, não há pipeline. Antes havia um caminho degradado; agora
+  `DATABASE_URL` é pré-requisito duro. É o mesmo custo que o ADR-018 já havia aceitado, agora
+  sem rede.

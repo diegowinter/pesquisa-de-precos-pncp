@@ -82,8 +82,11 @@ Cada etapa expõe:
 def executar(params: ParamsDaEtapa, ctx: ContextoExecucao) -> ResultadoEtapa: ...
 ```
 
-CLI, API e runner chamam **a mesma função**. Não existe lógica duplicada entre "o jeito CLI" e
-"o jeito servidor". Ver [03_ETAPAS.md](03_ETAPAS.md).
+A web e o runner chamam **a mesma função**. Ver [03_ETAPAS.md](03_ETAPAS.md).
+
+> Até a Fase 13 havia também uma CLI, que chamava essa mesma função — a frase era "não existe
+> lógica duplicada entre o jeito CLI e o jeito servidor". Ela saiu (ADR-020): a superfície é
+> uma só, e `runner/processo.py` é o único ponto de entrada de execução.
 
 Uma etapa pode ter **mais de uma implementação** com a mesma saída — é o caso da etapa 5
 (estratégias `janela`, `completa`, `visao`). Quem consome a saída não sabe qual rodou.
@@ -257,10 +260,9 @@ pesquisa_precos/
   providers/            # chat / embed / rerank / ocr + adapters
   db/                   # models SQLAlchemy, repositórios, migrations (alembic)
   runner/               # orquestração, lock, progresso, retomada, fingerprint
-  api/                  # rotas JSON
-  web/                  # templates Jinja2 + static
-  cli/                  # Typer — casca fina sobre etapas/
-  config/               # settings, paths, resolução de parâmetros em camadas
+  api/                  # routers JSON, montados sob /api na app da web
+  web/                  # app FastAPI (HTML + /api), templates Jinja2 + static
+  config/               # settings, resolução de parâmetros; `paths.py` é só do importador
 ferramentas/            # scripts de apoio pontuais (mantidos)
 migracao/               # scripts one-shot CSV → Postgres
 tests/
@@ -273,6 +275,9 @@ docs/
 - `etapas/` pode importar `core/`, `db/`, `providers/`.
 - `api/` e `web/` importam apenas `services/` e `db/` — **nunca** `etapas/` diretamente.
 - `web/` e `api/` consomem **os mesmos serviços**. Nenhuma página acessa o banco direto.
+- `etapas/` **não importa `config/paths.py`** e não expõe nenhum `Path` (ADR-020). Um caminho
+  de volta ali é o começo do caminho paralelo de novo: um arquivo que a web não serve, que o
+  container não persiste e que ninguém lembra de migrar.
 
 Essa última regra é o que preserva a saída: se um dia quiser um front separado, aponta para
 `/api/*` e apaga os templates. Custo de migração ≈ zero.

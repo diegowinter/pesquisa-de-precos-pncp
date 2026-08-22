@@ -21,12 +21,17 @@ F0 Fundação ──► F1 Núcleo ──► F2 Banco ──► F3 Execução �
                                     F10 Banco total ──┬──► F12 Deploy em servidor
                                                       │
                                     F11 Processamento externo
+
+                                    F10 ──► F13 Consolidação web-only
 ```
 
 As fases 0-9 assumem execução na máquina do usuário. As fases 10-12 mudam essa premissa: o
 banco passa a ser o único meio de persistência (ADR-018), todo processamento pesado vira serviço
 externo (ADR-019) e a pipeline roda em servidor. F10 e F11 são independentes entre si e podem
 ser feitas em paralelo; F12 depende das duas.
+
+A F13 recolhe o andaime: com o banco já sendo o default, ela remove o caminho CSV, a CLI e o
+segundo processo, deixando a web como superfície única (ADR-020). Depende só da F10.
 
 ---
 
@@ -307,6 +312,9 @@ qualquer execução em servidor (ADR-018).
 chama por ele). O `csv` permanece como escape hatch para rodar fora do servidor, e como
 rollback se uma etapa der problema no meio de uma execução real.
 
+> **Revisto na Fase 13 (ADR-020):** o escape hatch cumpriu o papel e SAIU. O rollback deixou de
+> ser uma flag e passou a ser o repositório congelado `../pipeline-csv-congelado/`.
+
 ### Entrega
 
 **Bloco A — schema (o único desenho novo)**
@@ -349,7 +357,7 @@ rollback se uma etapa der problema no meio de uma execução real.
 
 ### Risco
 **Alto.** É a fase que mexe em todas as etapas do pipeline de uma vez. Mitigações: `--fonte
-csv` preservado o tempo todo; ordem do grafo (A→B→C→D), nunca fora dela — fazer a 3 antes da 2
+csv` preservado o tempo todo (até a Fase 13); ordem do grafo (A→B→C→D), nunca fora dela — fazer a 3 antes da 2
 exigiria um adaptador temporário lendo CSV para alimentar tabela; `pg_dump` antes de cada
 bloco, como na Fase 2.
 
@@ -401,7 +409,7 @@ um HTTP. O risco real é operacional: dependência de disponibilidade e de ender
    dependências de orquestração.
 2. `alembic upgrade head` como release command — **schema sim, dados não**: a execução em
    nuvem começa do zero, sem migrar o acervo local.
-3. Bind em `$PORT` (hoje `web/__main__.py` fixa `WEB_PORT=8001`).
+3. Bind em `$PORT` (hoje `__main__.py` fixa `WEB_PORT=8001`).
 4. Normalização do `DATABASE_URL`: o provedor entrega `postgresql://`, o código exige
    `postgresql+psycopg://`.
 5. **Segurança não-opcional em produção:** `WEB_SENHA` obrigatório (vazio desliga o login,
@@ -418,7 +426,60 @@ um HTTP. O risco real é operacional: dependência de disponibilidade e de ender
 - Login exigido; nenhuma rota de comando acessível sem sessão.
 
 ### Risco
-Médio. Reversível — o fluxo local por `--fonte csv` continua existindo o tempo todo.
+Médio. Reversível pelo snapshot congelado (`../pipeline-csv-congelado/`) — até a Fase 13 a
+reversão era o fluxo local por `--fonte csv`, que não existe mais.
+
+---
+
+## Fase 13 — Consolidação web-only
+
+**Objetivo:** uma superfície de operação só. Um processo, uma porta, um meio de persistência.
+O sistema inteiro é operado pelo navegador — inclusive rodando na máquina do usuário.
+
+> Depende da Fase 10 (que fez `banco` virar o default nas 12 etapas). É a fase que RECOLHE o
+> andaime das anteriores: os dois caminhos existiam para migrar com segurança, não para durar.
+> Ver ADR-020 para o raciocínio completo.
+
+### Entrega
+1. **Um processo, uma porta.** Os routers de `api/routers/` são montados na app da web sob
+   `/api`; `api/app.py`, `api/__main__.py` e `web/__main__.py` saem. Entrada única:
+   `python -m pesquisa_precos`.
+2. **A CLI sai** — `cli/`, `rodar.py`, `limpar.py`, `rodar_etapa3.ps1` e o `main()` de cada
+   etapa. `typer` sai das dependências. `runner/processo.py` vira o único ponto de entrada de
+   execução, subido como subprocesso pela web (ADR-002).
+3. **`--fonte csv` sai das 12 etapas**, junto com os params que só existiam para ele
+   (`--refiltar` na 6a, `--entrada-legado` na 3). `VERSAO_CODIGO` vai a 2.0.0 em todas.
+4. **Some o que só servia ao CSV:** `core/io_seguro.py`, o carregador de parquet de
+   `core/catalogo/local.py`, `texto_catalogo`/`descricao_itens` de `core/textos.py`,
+   `registry.caminho_erros` e o `ContextoConsole` (que vira `ContextoNulo`, para `estimar()`).
+5. **`config/paths.py` fica**, reduzido ao que `migracao/` lê — é o mapa do acervo ainda não
+   migrado. O teste estrutural inverte: de "todo caminho da etapa cai dentro de `data/`" para
+   "**nenhuma** etapa expõe caminho".
+6. **Telas para o que só a CLI tinha:** `/provedores` (era `cli providers saude`) e, na tela
+   da etapa, o que fica desatualizado ao refazer (era `cli grafo`). O download de export passa
+   a servir `export.conteudo`, a última rota que dependia do disco.
+
+### Pré-requisito operacional
+**Migrar o acervo antes de usar em produção.** O banco tem o schema mas quase nenhum dado de
+domínio; os 1,6 milhão de itens vivem só nos CSVs. `migracao/` continua intacto justamente
+para isso. Remover o código do CSV não impede a migração (o importador tem leitores próprios),
+mas depois dela não sobra mais nada para comparar os dois caminhos.
+
+### Critério de aceite
+- `python -m pesquisa_precos` sobe **um** processo; `localhost:8001` opera um ciclo 0a → 8
+  inteiro sem tocar em terminal.
+- Uma execução completa não cria nenhum arquivo em `data/`.
+- `grep -rn "typer" pesquisa_precos/` não devolve nada, e nenhum módulo de `etapas/`,
+  `runner/`, `web/` ou `api/` tem `argparse`.
+  (Os três `main()` de `argparse` em `core/coleta/` FICAM: são sondas manuais da API do
+  PNCP — `--termo`, `--tipo`, um número de controle — read-only, sem relação com run,
+  banco ou custo. São ferramenta de diagnóstico, não superfície de operação.)
+- `pytest` e `ruff check pesquisa_precos` limpos.
+
+### Risco
+Médio-baixo em código (é remoção, e o que fica já era o default desde a Fase 10), **alto em
+operação**: sem banco de pé não há pipeline, e não sobra caminho degradado. O rollback é o
+repositório congelado, não uma flag.
 
 ## Fora de escopo (todas as fases)
 
@@ -453,3 +514,4 @@ paralelismo entre runs · auto-avanço de etapas.
 | F10 Banco total | ▪▪▪▪▪ | **alto** | via `--fonte csv` |
 | F11 Processamento externo | ▪▪▪ | médio | sim |
 | F12 Deploy | ▪▪ | médio | sim |
+| F13 Web-only | ▪▪▪ | médio-baixo | via repo congelado |

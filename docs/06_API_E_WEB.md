@@ -2,8 +2,16 @@
 
 ## 1. Princípio
 
-Um processo, duas superfícies. `api/` devolve JSON, `web/` devolve HTML, **ambos consomem os
-mesmos `services/`**. Nenhuma página acessa o banco diretamente.
+Um processo, duas superfícies — desde a Fase 13, literalmente um processo e **uma porta**:
+`python -m pesquisa_precos` sobe a app de `web/app.py`, que serve o HTML e monta os routers de
+`api/routers/` sob `/api`. Os dois **consomem os mesmos `services/`**. Nenhuma página acessa o
+banco diretamente.
+
+A autenticação difere porque os clientes diferem: o HTML é protegido por sessão de cookie
+(`web/auth.py`), as rotas `/api` por `X-API-Token` (`api/auth.py`).
+
+**Não existe mais CLI** (ADR-020). Tudo que se opera, opera-se por aqui — inclusive rodando na
+máquina do próprio usuário, em `localhost`.
 
 Isso é o que preserva a saída: se um dia quiser um front separado, ele aponta para `/api/*` e os
 templates são apagados. Custo de migração ≈ zero.
@@ -30,7 +38,8 @@ Sem npm, sem bundler, sem CDN externo. CSS e JS ficam em `web/static/`.
 
 ```
 GET  /api/health                       → banco, disco, versão
-GET  /api/providers/status             → saúde por provedor (chat/embed/rerank/ocr)
+GET  /api/providers/status             → provedores configurados no banco
+     (a SONDAGEM ao vivo das capacidades é a tela `/provedores`)
 
 GET  /api/runs                         → lista, mais recentes primeiro
 GET  /api/runs/{id}                    → run + todas as etapas + estado do grafo

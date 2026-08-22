@@ -2,7 +2,7 @@
 
 ## 1. O contrato
 
-Toda etapa é um módulo em `etapas/` que expõe **exatamente** esta interface. CLI, API e runner
+Toda etapa é um módulo em `etapas/` que expõe **exatamente** esta interface. Web, API e runner
 chamam a mesma função — não existe caminho alternativo.
 
 ```python
@@ -37,8 +37,8 @@ Cada módulo de etapa define:
 
 ```python
 class Params(BaseModel):
-    """Schema Pydantic — fonte única de: validação, flags do CLI (Typer),
-    formulário da web, body da API e documentação."""
+    """Schema Pydantic — fonte única de: validação, formulário da web, body da
+    API e documentação. (Gerava também as flags do CLI, até a Fase 13.)"""
     ...
 
 def estimar(params: Params, ctx: ContextoExecucao) -> Estimativa:
@@ -61,10 +61,12 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
    Só erro de infraestrutura (banco fora, provedor inacessível) aborta.
 5. **`estimar()` nunca gasta.** Se precisar de amostra, usa dados já no banco.
 6. **Nenhuma etapa lê `.env` diretamente.** Tudo vem de `ctx.config` e `ctx.provedores`.
+7. **Nenhuma etapa toca em disco** (ADR-018/ADR-020). Não importa `config/paths.py`, não expõe
+   `Path`, não lê nem escreve arquivo — o banco é o único meio de persistência.
 
 ## 2. O registry
 
-`etapas/registry.py` é a fonte única da ordem, das dependências e dos metadados. Runner, CLI e
+`etapas/registry.py` é a fonte única da ordem, das dependências e dos metadados. Runner, web e
 API descobrem etapas por aqui — **ninguém hardcoda a sequência `0a → 8`**.
 
 ```python
@@ -120,7 +122,7 @@ Precedência crescente. Resolvida uma vez, no início da etapa, e gravada em
 | Domínio | `min_itens`, `top_n`, thresholds, faixas de preço | `config_valor`, versionado |
 | Execução | ação (`atualizar`/`retomar`/`refazer`), `limite` | override do run |
 | Custo/modelo | provedor, modelo, teto de USD | **política**, não flag livre |
-| Debug | `dry_run`, `limite_docs` | só CLI, oculto na interface |
+| Debug | `dry_run`, `limite_docs` | `Params`, discreto no formulário |
 
 ## 4. Especificação por etapa
 

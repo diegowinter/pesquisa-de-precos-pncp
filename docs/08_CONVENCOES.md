@@ -133,7 +133,7 @@ do projeto.
 - Contabilidade de custo e teto.
 
 ### Não testar
-Templates, formatação de log, wrappers finos de CLI.
+Templates, formatação de log, wrappers finos de rota.
 
 ### Fixtures
 `tests/fixtures/` com amostras reais e pequenas: 20 documentos, 200 itens, 50 pares.
