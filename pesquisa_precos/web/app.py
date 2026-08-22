@@ -1,10 +1,13 @@
 """
 Interface web — Jinja2 + HTMX + Alpine.js, sem bundler (ADR-003, docs/04_FASES.md Fase 5).
 "Um processo, duas superfícies" (docs/06_API_E_WEB.md §1): esta app importa só `services/` e
-`db/` — nunca `etapas/`/`runner/` direto — e usa exatamente os mesmos serviços que `api/`.
+`db/` — nunca `etapas/`/`runner/` direto.
 
-Suba com `python -m pesquisa_precos.web` ou `uvicorn pesquisa_precos.web.app:app --reload`.
-Porta sugerida 8001, para conviver com a API (Fase 4) na 8000 durante desenvolvimento.
+Fase 13 (ADR-020): as duas superfícies passam a viver no MESMO processo e na MESMA porta. Os
+routers JSON de `api/routers/` são montados aqui sob `/api`, protegidos por `X-API-Token`; o
+HTML é protegido por sessão de cookie. Não existe mais `api/app.py` nem uma segunda porta.
+
+Suba com `python -m pesquisa_precos` (ou `uvicorn pesquisa_precos.web.app:app --reload`).
 """
 
 from __future__ import annotations
@@ -14,11 +17,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from pesquisa_precos.api.auth import exigir_token
+from pesquisa_precos.api.routers import config as router_config
+from pesquisa_precos.api.routers import notificacoes as router_notificacoes
+from pesquisa_precos.api.routers import runs as router_runs
+from pesquisa_precos.db import sessao as db
 from pesquisa_precos.services import config as servico_config
 from pesquisa_precos.services import diff as servico_diff
 from pesquisa_precos.services import execucao as servico
@@ -42,9 +50,56 @@ from pesquisa_precos.web.estado import CLASSE_ETAPA, ICONE_ETAPA
 
 RAIZ_WEB = Path(__file__).resolve().parent
 
-app = FastAPI(title="Pesquisa de Preços PLASEG — Web")
+app = FastAPI(title="Pesquisa de Preços PLASEG", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEB_SECRET_KEY") or os.urandom(32).hex())
 app.mount("/static", StaticFiles(directory=RAIZ_WEB / "static"), name="static")
+
+# ── Superfície JSON (ex-`api/app.py`, Fase 4) ────────────────────────────────────────
+# Mesmos `services/` que o HTML consome; o que muda é só a representação e a autenticação.
+for _router in (router_runs.router, router_config.router, router_notificacoes.router):
+    app.include_router(_router, prefix="/api", dependencies=[Depends(exigir_token)])
+
+
+def _erro_json(codigo: str, mensagem: str, status_code: int) -> JSONResponse:
+    """Formato de erro estável de docs/06_API_E_WEB.md §3.3: `{erro: {codigo, mensagem}}`,
+    com `codigo` legível para o cliente decidir o que fazer sem parsear texto livre."""
+    return JSONResponse(status_code=status_code,
+                        content={"erro": {"codigo": codigo, "mensagem": mensagem}})
+
+
+# Os handlers são registrados na app inteira, mas as rotas HTML já tratam essas exceções por
+# dentro (`_redirecionar_com_erro`) — na prática só as rotas `/api` chegam aqui.
+_ERROS_JSON: tuple[tuple[type[Exception], str, int], ...] = (
+    (ExecucaoEmAndamento, "EXECUCAO_EM_ANDAMENTO", 409),
+    (DependenciaNaoSatisfeita, "DEPENDENCIA_NAO_SATISFEITA", 422),
+    (RefazerSemConfirmacao, "CONFIRMACAO_NECESSARIA", 422),
+    (RunInexistente, "NAO_ENCONTRADO", 404),
+)
+
+for _excecao, _codigo, _status in _ERROS_JSON:
+    def _handler(request: Request, exc: Exception, _c=_codigo, _s=_status):
+        return _erro_json(_c, str(exc), _s)
+
+    app.add_exception_handler(_excecao, _handler)
+
+
+@app.exception_handler(KeyError)
+async def _tratar_chave_invalida(request: Request, exc: KeyError):
+    return _erro_json("NAO_ENCONTRADO", str(exc).strip("'\""), 404)
+
+
+@app.get("/api/health")
+def health():
+    """Sem autenticação — é o endpoint que um monitor externo bate antes de saber se vale a
+    pena mandar um token."""
+    ok, mensagem = db.esta_disponivel()
+    return {"status": "ok" if ok else "erro", "banco": mensagem, "versao": app.version}
+
+
+@app.get("/api/providers/status")
+def providers_status(_: None = Depends(exigir_token)):
+    return {"provedores": servico.listar_provedores()}
+
 
 templates = Jinja2Templates(directory=RAIZ_WEB / "templates")
 templates.env.globals["icone_etapa"] = ICONE_ETAPA

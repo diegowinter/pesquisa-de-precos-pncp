@@ -52,8 +52,8 @@ def diff_config_versoes(id_a: int, id_b: int) -> dict[str, Any]:
 def schema_parametros() -> dict[str, Any]:
     """Um bloco por etapa com os campos do `Params` Pydantic (nome, tipo, default, descrição) —
     é o que a tela de configuração usa para gerar o formulário (docs/06_API_E_WEB.md §4.5:
-    "formulário por etapa, gerado do Pydantic"). Mesma fonte que `cli/flags.py` usa para as
-    flags — mudar um `Params` nunca exige lembrar de atualizar um formulário à parte."""
+    "formulário por etapa, gerado do Pydantic"). Desde a Fase 13 é a ÚNICA superfície de
+    configuração — mudar um `Params` chega aqui sozinho, sem formulário à parte para lembrar."""
     from pesquisa_precos.etapas import registry
 
     saida: dict[str, Any] = {}

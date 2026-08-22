@@ -228,13 +228,3 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         metricas={**decisoes, "t_aceita": cfg["rerank_t_aceita"],
                   "t_rejeita": cfg["rerank_t_rejeita"]},
     )
-
-
-def main() -> None:
-    from pesquisa_precos.cli.app import rodar_etapa_isolada
-
-    rodar_etapa_isolada(CHAVE)
-
-
-if __name__ == "__main__":
-    main()

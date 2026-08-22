@@ -373,13 +373,3 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                   "rotulos_novos_do_rerank": novos_rotulos,
                   "modelo": "PASS2 (caro)" if forte else "PASS1 (barato)"},
     )
-
-
-def main() -> None:
-    from pesquisa_precos.cli.app import rodar_etapa_isolada
-
-    rodar_etapa_isolada(CHAVE)
-
-
-if __name__ == "__main__":
-    main()

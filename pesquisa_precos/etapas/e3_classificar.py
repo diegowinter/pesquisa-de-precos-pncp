@@ -395,13 +395,3 @@ def executar_no_banco(params: Params, ctx: ContextoExecucao,
         preview=[{"descricao": g["descricao"][:200], "itens": g["n_itens"]}
                  for g in tarefas[:30]],
     )
-
-
-def main() -> None:
-    from pesquisa_precos.cli.app import rodar_etapa_isolada
-
-    rodar_etapa_isolada(CHAVE)
-
-
-if __name__ == "__main__":
-    main()

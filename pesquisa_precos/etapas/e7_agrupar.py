@@ -330,13 +330,3 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
         preview=relatorio.sort_values("n_confirmados", ascending=False)
                          .head(50).to_dict("records"),
     )
-
-
-def main() -> None:
-    from pesquisa_precos.cli.app import rodar_etapa_isolada
-
-    rodar_etapa_isolada(CHAVE)
-
-
-if __name__ == "__main__":
-    main()

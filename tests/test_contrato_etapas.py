@@ -2,7 +2,7 @@
 Guarda da Fase 1: o contrato de etapa e o registry estão de pé.
 
 O modo de falha específico desta fase é silencioso do mesmo jeito que o da Fase 0: uma etapa
-que não expõe `executar`, um `Params` cujo campo não vira flag, ou uma dependência escrita
+que não expõe `executar`, um `Params` cujo campo não vira campo de formulário, ou uma dependência escrita
 errada no registry não quebram nada até alguém rodar a etapa — provavelmente depois de já ter
 pago pela anterior. Estes testes fazem isso aparecer em segundos.
 
@@ -14,7 +14,6 @@ import inspect
 import pytest
 from pydantic import BaseModel
 
-from pesquisa_precos.cli import flags
 from pesquisa_precos.etapas import registry
 from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
 from pesquisa_precos.runner.contexto_console import ContextoConsole
@@ -43,11 +42,15 @@ def test_params_tem_defaults_para_tudo(chave):
 
 
 @pytest.mark.parametrize("chave", CHAVES)
-def test_toda_flag_do_cli_vem_de_um_campo_de_params(chave):
-    """As flags são geradas do schema; um campo sem flag correspondente é regressão."""
+def test_todo_campo_de_params_aparece_no_formulario(chave):
+    """Fase 13: o formulário da web é a ÚNICA superfície de configuração (não há mais flag de
+    CLI). Um campo de `Params` que não chega a `schema_parametros` fica inconfigurável — e o
+    sintoma seria a etapa rodar com o default sem ninguém perceber."""
+    from pesquisa_precos.services.config import schema_parametros
+
     modelo = registry.obter(chave).params_model
-    parametros = flags.parametros_typer(modelo)
-    assert [p.name for p in parametros] == list(modelo.model_fields)
+    campos = schema_parametros()[chave]["campos"]
+    assert list(campos) == list(modelo.model_fields)
 
 
 def test_ordem_topologica_resolve_e_e_completa():

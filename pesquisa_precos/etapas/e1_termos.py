@@ -533,13 +533,3 @@ def executar(params: Params, ctx: ContextoExecucao) -> ResultadoEtapa:
                   "manuais_preservados": sum(1 for l in final if l.get("origem") == "manual")},
         preview=final[:50],
     )
-
-
-def main() -> None:
-    from pesquisa_precos.cli.app import rodar_etapa_isolada
-
-    rodar_etapa_isolada(CHAVE)
-
-
-if __name__ == "__main__":
-    main()

@@ -14,9 +14,9 @@ dependencies = [
     "python-dotenv",
     "rich",
     "openpyxl",
-    # Fase 1: contrato de etapa (Params/Estimativa/ResultadoEtapa) e CLI gerada a partir dele.
+    # Fase 1: contrato de etapa (Params/Estimativa/ResultadoEtapa). Desde a Fase 13 o mesmo
+    # schema alimenta SÓ o formulário da web — `typer` saiu junto com a CLI (ADR-020).
     "pydantic>=2",
-    "typer>=0.12",
     "langchain-openai",
     "langchain-core",
     "unidecode",
@@ -32,6 +32,7 @@ dependencies = [
     "alembic>=1.19.1",
     "psycopg[binary]>=3",
     # Fase 4: API — o processo web nunca executa etapa (ADR-002), só comanda/observa por HTTP.
+    # Fase 13: HTML e JSON saem do MESMO app e da mesma porta (`python -m pesquisa_precos`).
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     # Fase 5: interface web — Jinja2 + HTMX + Alpine.js, sem bundler (ADR-003).

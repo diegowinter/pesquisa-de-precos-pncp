@@ -1271,7 +1271,6 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "sqlalchemy" },
-    { name = "typer" },
     { name = "unidecode" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1310,7 +1309,6 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sentence-transformers", marker = "extra == 'localmente'" },
     { name = "sqlalchemy", specifier = ">=2" },
-    { name = "typer", specifier = ">=0.12" },
     { name = "unidecode" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]

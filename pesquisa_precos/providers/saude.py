@@ -98,7 +98,7 @@ def checar_capacidade(capacidade: str, cfg: dict, *,
 def checar_capacidades(capacidades: list[str], cfg: dict, *,
                        sessao: "Session | None" = None) -> list[dict[str, Any]]:
     """Uma checagem por capacidade pedida — usada por `runner.executor` antes do play e por
-    `cli providers saude` para diagnóstico manual (leitura/diagnóstico é sempre permitido,
+    a tela `/provedores` para diagnóstico manual (leitura/diagnóstico é sempre permitido,
     CLAUDE.md "Regra nº 1")."""
     return [checar_capacidade(c, cfg, sessao=sessao) for c in capacidades]
 
