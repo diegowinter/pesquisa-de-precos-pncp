@@ -541,11 +541,24 @@ def erros_do_run(sessao: Session, run_id: int, *, etapa: str | None = None,
     return [dict(linha) for linha in linhas]
 
 
+def _capacidades_como_lista(valor: Any) -> list[str]:
+    """`capacidade[]` lido por SQL cru volta como o literal do Postgres (`'{embed,rerank}'`),
+    não como lista: o `text()` não passa pelo tipo do ORM, então psycopg entrega a string
+    crua. Sem esta normalização, um `list(...)` do outro lado quebra em caracteres — e o dano
+    é silencioso (um `for c in capacidades` no template simplesmente não marca nada)."""
+    if valor is None:
+        return []
+    if isinstance(valor, (list, tuple)):
+        return list(valor)
+    return [c for c in str(valor).strip("{}").split(",") if c]
+
+
 def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
     """Registro de `provedor`/`capacidade_provedor` (ADR-006), sem probe ao vivo — para o
     resultado da sondagem (`provedor_status`), ver `checar_todos_ativos`/`checar_capacidade`
     em `providers.saude` (Fase 7)."""
-    provedores = {p["nome"]: {**p, "capacidades_atendidas": []} for p in sessao.execute(
+    provedores = {p["nome"]: {**p, "capacidades": _capacidades_como_lista(p["capacidades"]),
+                              "capacidades_atendidas": []} for p in sessao.execute(
         text("SELECT nome, capacidades, base_url, modelo_padrao, permite_fallback, ativo, "
              "       batch_size, rpm_limite, custo_in_por_mtok, custo_out_por_mtok, "
              "       api_key_last4, api_key_key_id, api_key_atualizada_em, "

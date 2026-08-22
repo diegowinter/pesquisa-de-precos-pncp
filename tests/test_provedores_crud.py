@@ -1,0 +1,199 @@
+"""
+CRUD de provedores (Fase 14 bloco 2, ADR-022). Mesmo padrão de
+`tests/test_notificacao_destinatarios.py`: pulados sem Postgres.
+
+O que estes testes protegem, além do CRUD em si, é a promessa que permitiu a chave sair do
+`.env`: ela entra, é cifrada, e **não volta** — nem pelo service, nem pelo HTML, nem pela lista.
+"""
+
+import pytest
+from sqlalchemy import text
+
+from pesquisa_precos.db import segredo as seg
+from pesquisa_precos.db import sessao as db
+from pesquisa_precos.services import provedores as servico
+from pesquisa_precos.services.provedores import (
+    FallbackProibido,
+    ProvedorInexistente,
+    ProvedorInvalido,
+)
+
+_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
+pytestmark = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
+
+PREFIXO = "teste-f14-"
+
+
+def _limpar():
+    with db.sessao() as sessao:
+        sessao.execute(text("DELETE FROM capacidade_provedor WHERE provedor LIKE :p"),
+                       {"p": f"{PREFIXO}%"})
+        sessao.execute(text("DELETE FROM provedor_status WHERE provedor LIKE :p"),
+                       {"p": f"{PREFIXO}%"})
+        sessao.execute(text("DELETE FROM provedor WHERE nome LIKE :p"), {"p": f"{PREFIXO}%"})
+
+
+@pytest.fixture(autouse=True)
+def _provedores_de_teste_limpos(monkeypatch):
+    monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
+    _limpar()
+    yield
+    _limpar()
+
+
+# ── validação (não chega ao banco) ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("nome,base_url,caps", [
+    ("", "http://x", ["chat"]),
+    (f"{PREFIXO}a", "", ["chat"]),
+    (f"{PREFIXO}a", "http://x", []),
+    (f"{PREFIXO}a", "http://x", ["capacidade-que-nao-existe"]),
+])
+def test_formulario_incompleto_recusado(nome, base_url, caps):
+    with pytest.raises(ProvedorInvalido):
+        servico.salvar(nome, caps, base_url)
+
+
+def test_base_url_vazia_nao_significa_roda_aqui():
+    """ADR-021: `base_url` vazio é erro de configuração, não caminho em processo."""
+    with pytest.raises(ProvedorInvalido, match="base_url"):
+        servico.salvar(f"{PREFIXO}gpu", ["embed"], "   ")
+
+
+# ── CRUD ─────────────────────────────────────────────────────────────────────────────
+
+def test_criar_e_editar():
+    servico.salvar(f"{PREFIXO}or", ["chat"], "https://openrouter.ai/api/v1",
+                   modelo_padrao="modelo-barato", custo_in_por_mtok=0.01)
+    p = servico.obter(f"{PREFIXO}or")
+    assert p["base_url"] == "https://openrouter.ai/api/v1"
+    assert p["modelo_padrao"] == "modelo-barato"
+    assert float(p["custo_in_por_mtok"]) == 0.01
+
+    servico.salvar(f"{PREFIXO}or", ["chat"], "https://novo.example/v1")
+    assert servico.obter(f"{PREFIXO}or")["base_url"] == "https://novo.example/v1"
+
+
+def test_definir_ativo_preserva_os_demais_campos():
+    """Desativar não pode ser um upsert que zera batch_size/modelo pelo caminho."""
+    servico.salvar(f"{PREFIXO}gpu", ["embed", "rerank"], "http://gpu:8100",
+                   modelo_padrao="bge-m3", batch_size=64)
+    servico.definir_ativo(f"{PREFIXO}gpu", False)
+    p = servico.obter(f"{PREFIXO}gpu")
+    assert p["ativo"] is False
+    assert p["modelo_padrao"] == "bge-m3" and p["batch_size"] == 64
+
+
+def test_apontar_capacidade():
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x")
+    servico.apontar("chat", f"{PREFIXO}or", modelo="modelo-x")
+    with db.sessao() as sessao:
+        from pesquisa_precos.db.repos import execucao as repo
+        assert repo.capacidade_provedor_info(sessao, "chat")["provedor"] == f"{PREFIXO}or"
+
+
+def test_apontar_provedor_inexistente():
+    with pytest.raises(ProvedorInexistente):
+        servico.apontar("chat", f"{PREFIXO}nao-existe")
+
+
+def test_fallback_proibido_em_embed():
+    """ADR-006: trocar de provedor de embedding no meio mistura espaços vetoriais."""
+    servico.salvar(f"{PREFIXO}a", ["embed"], "http://a")
+    servico.salvar(f"{PREFIXO}b", ["embed"], "http://b")
+    with pytest.raises(FallbackProibido):
+        servico.apontar("embed", f"{PREFIXO}a", fallback=f"{PREFIXO}b")
+    servico.apontar("rerank", f"{PREFIXO}a", fallback=f"{PREFIXO}b")   # permitido fora de embed
+
+
+# ── a chave entra e não volta ────────────────────────────────────────────────────────
+
+def test_chave_e_cifrada_e_nao_volta_pela_listagem():
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
+    p = servico.obter(f"{PREFIXO}or")
+    assert p["tem_api_key"] is True
+    assert p["api_key_last4"] == "reta"
+    # nenhum campo da listagem carrega o segredo
+    assert "supersecreta" not in str(p)
+    assert "api_key_cifrada" not in p
+
+
+def test_chave_no_banco_nao_e_legivel():
+    """O ponto inteiro da ADR-022: `pg_dump` do bytea não pode conter a chave em claro."""
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
+    with db.sessao() as sessao:
+        blob = bytes(sessao.execute(
+            text("SELECT api_key_cifrada FROM provedor WHERE nome = :n"),
+            {"n": f"{PREFIXO}or"}).scalar_one())
+    assert b"supersecreta" not in blob and b"sk-or" not in blob
+
+
+def test_resolver_decifra_a_chave_gravada():
+    """A ponta a ponta que importa: o adapter tem de receber a chave certa, em claro."""
+    from pesquisa_precos.providers.resolver import resolver_capacidade
+
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta",
+                   modelo_padrao="modelo-x")
+    servico.apontar("chat", f"{PREFIXO}or")
+    with db.sessao() as sessao:
+        r = resolver_capacidade("chat", {}, sessao=sessao)
+    assert r.origem == "banco"
+    assert r.api_key == "sk-or-v1-supersecreta"
+
+
+def test_salvar_sem_chave_nao_apaga_a_existente():
+    """O campo do formulário nasce vazio a cada edição — se branco apagasse, editar a
+    `base_url` destruiria a chave."""
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://y")
+    assert servico.obter(f"{PREFIXO}or")["tem_api_key"] is True
+
+
+def test_limpar_chave():
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
+    servico.limpar_api_key(f"{PREFIXO}or")
+    p = servico.obter(f"{PREFIXO}or")
+    assert p["tem_api_key"] is False and p["api_key_last4"] is None
+
+
+def test_gravar_chave_em_provedor_inexistente():
+    with pytest.raises(ProvedorInexistente):
+        servico.gravar_api_key(f"{PREFIXO}nao-existe", "sk-x")
+
+
+def test_sem_chave_mestra_nao_grava_provedor_pela_metade(monkeypatch):
+    """Falhar ANTES do INSERT: gravar o provedor e perder a chave em silêncio é o pior caso."""
+    monkeypatch.delenv(seg.VAR_CHAVE, raising=False)
+    with pytest.raises(seg.ChaveMestraAusente):
+        servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-x")
+    assert servico.obter(f"{PREFIXO}or") is None
+
+
+# ── rotação da chave-mestra ──────────────────────────────────────────────────────────
+
+def test_rotacao_lista_e_recifra(monkeypatch):
+    antiga = seg.gerar_chave_mestra()
+    monkeypatch.setenv(seg.VAR_CHAVE, antiga)
+    servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
+    assert servico.chaves_a_recifrar() == []
+
+    monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
+    monkeypatch.setenv(seg.VAR_CHAVE_ANTIGA, antiga)
+    assert f"{PREFIXO}or" in servico.chaves_a_recifrar()
+
+    assert servico.recifrar_tudo() >= 1
+    assert servico.chaves_a_recifrar() == []
+
+    # e a chave continua correta depois de re-cifrada, já sem a antiga no ambiente
+    monkeypatch.delenv(seg.VAR_CHAVE_ANTIGA)
+    servico.apontar("chat", f"{PREFIXO}or")
+    from pesquisa_precos.providers.resolver import resolver_capacidade
+    with db.sessao() as sessao:
+        assert resolver_capacidade("chat", {}, sessao=sessao).api_key == "sk-or-v1-supersecreta"
+
+
+def test_diagnostico_chave_mestra(monkeypatch):
+    assert servico.diagnostico_chave_mestra()["configurada"] is True
+    monkeypatch.delenv(seg.VAR_CHAVE, raising=False)
+    diag = servico.diagnostico_chave_mestra()
+    assert diag["configurada"] is False and diag["key_id"] is None

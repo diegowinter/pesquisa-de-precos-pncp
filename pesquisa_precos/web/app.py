@@ -27,11 +27,13 @@ from pesquisa_precos.api.routers import config as router_config
 from pesquisa_precos.api.routers import notificacoes as router_notificacoes
 from pesquisa_precos.api.routers import runs as router_runs
 from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db.segredo import ChaveMestraAusente, SegredoInvalido
 from pesquisa_precos.services import config as servico_config
 from pesquisa_precos.services import diff as servico_diff
 from pesquisa_precos.services import execucao as servico
 from pesquisa_precos.services import notificacao_destinatarios as servico_destinatarios
 from pesquisa_precos.services import prompts as servico_prompts
+from pesquisa_precos.services import provedores as servico_provedores
 from pesquisa_precos.services.config import ConfigVersaoInexistente
 from pesquisa_precos.services.diff import RunSemRankingError
 from pesquisa_precos.services.execucao import (
@@ -45,6 +47,11 @@ from pesquisa_precos.services.notificacao_destinatarios import (
     DestinatarioSemCanal,
 )
 from pesquisa_precos.services.prompts import PromptInexistente
+from pesquisa_precos.services.provedores import (
+    FallbackProibido,
+    ProvedorInexistente,
+    ProvedorInvalido,
+)
 from pesquisa_precos.web import auth
 from pesquisa_precos.web.estado import CLASSE_ETAPA, ICONE_ETAPA
 
@@ -329,11 +336,125 @@ def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
         headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 
 
-# ── Saúde dos provedores (Fase 13 — era `cli providers saude`) ───────────────────────
+# ── Provedores: saúde + CRUD (Fase 13 / Fase 14 bloco 2, ADR-022) ────────────────────
+#
+# A tela era só leitura: sondava as capacidades e mostrava o resultado. Com a Fase 14 ela vira
+# a superfície onde se CONFIGURA quem atende cada capacidade — modelo, base_url e chave de API
+# deixam de exigir editar `.env` e reiniciar o servidor.
+#
+# A chave de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
+# o que volta para o template é `tem_api_key`/`api_key_last4`. Nenhuma rota daqui devolve
+# segredo em claro, e `tests/test_segredo.py::test_so_o_resolver_decifra` guarda a regra.
+
+_FORM_CAPACIDADES = Form(default=[])
+
+
+def _contexto_provedores(**extra: Any) -> dict[str, Any]:
+    return {
+        "resultados": servico.saude_provedores(),
+        "provedores": servico_provedores.listar(),
+        "capacidades": servico_provedores.CAPACIDADES,
+        "chave_mestra": servico_provedores.diagnostico_chave_mestra(),
+        "a_recifrar": servico_provedores.chaves_a_recifrar(),
+        "editando": None, **extra}
+
+
+def _num(valor: str) -> float | None:
+    """Campo numérico de formulário HTML chega como string, e vazio é `''`, não `None`."""
+    try:
+        return float(valor) if (valor or "").strip() else None
+    except ValueError:
+        return None
+
 
 @app.get("/provedores")
-def tela_provedores(request: Request, usuario: str = Depends(auth.exigir_login)):
-    return _render(request, "provedores.html", {"resultados": servico.saude_provedores()})
+def tela_provedores(request: Request, editar: str | None = None,
+                    usuario: str = Depends(auth.exigir_login)):
+    editando = servico_provedores.obter(editar) if editar else None
+    return _render(request, "provedores.html", _contexto_provedores(editando=editando))
+
+
+@app.post("/provedores")
+def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form(""),
+                    capacidades: list[str] = _FORM_CAPACIDADES, modelo_padrao: str = Form(""),
+                    batch_size: str = Form(""), rpm_limite: str = Form(""),
+                    custo_in_por_mtok: str = Form(""), custo_out_por_mtok: str = Form(""),
+                    ativo: str = Form("on"), api_key: str = Form(""),
+                    usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_provedores.salvar(
+            nome, capacidades, base_url, modelo_padrao=modelo_padrao or None,
+            batch_size=int(batch_size) if batch_size.strip() else None,
+            rpm_limite=int(rpm_limite) if rpm_limite.strip() else None,
+            custo_in_por_mtok=_num(custo_in_por_mtok),
+            custo_out_por_mtok=_num(custo_out_por_mtok),
+            ativo=ativo == "on", api_key=api_key or None)
+    except (ProvedorInvalido, ChaveMestraAusente) as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/{nome}/chave")
+def gravar_chave_provedor(request: Request, nome: str, api_key: str = Form(""),
+                          usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_provedores.gravar_api_key(nome, api_key)
+    except (ProvedorInvalido, ProvedorInexistente, ChaveMestraAusente) as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/{nome}/chave/limpar")
+def limpar_chave_provedor(request: Request, nome: str,
+                          usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_provedores.limpar_api_key(nome)
+    except ProvedorInexistente as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/{nome}/ativo")
+def alternar_ativo_provedor(request: Request, nome: str, ativo: str = Form("on"),
+                            usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_provedores.definir_ativo(nome, ativo == "on")
+    except (ProvedorInexistente, ProvedorInvalido) as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/{nome}/testar")
+def testar_provedor(request: Request, nome: str, usuario: str = Depends(auth.exigir_login)):
+    """Sondagem HTTP leve — não gasta e não dispara etapa, então não fere a regra nº 1 do
+    CLAUDE.md ("quem roda a pipeline é o usuário")."""
+    try:
+        servico_provedores.testar(nome)
+    except ProvedorInexistente as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/capacidades")
+def apontar_capacidade(request: Request, capacidade: str = Form(""),
+                       provedor: str = Form(""), modelo: str = Form(""),
+                       fallback: str = Form(""),
+                       usuario: str = Depends(auth.exigir_login)):
+    try:
+        servico_provedores.apontar(capacidade, provedor, modelo or None, fallback or None)
+    except (ProvedorInvalido, ProvedorInexistente, FallbackProibido) as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
+
+
+@app.post("/provedores/recifrar")
+def recifrar_chaves(request: Request, usuario: str = Depends(auth.exigir_login)):
+    """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na chave anterior (ADR-022)."""
+    try:
+        servico_provedores.recifrar_tudo()
+    except (ChaveMestraAusente, SegredoInvalido) as exc:
+        return _redirecionar_com_erro("/provedores", exc)
+    return RedirectResponse("/provedores", status_code=303)
 
 
 # ── Diff entre runs (Fase 9) ─────────────────────────────────────────────────────────

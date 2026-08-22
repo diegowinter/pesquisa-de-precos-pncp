@@ -101,3 +101,6 @@ form.linha { display: inline; }
 .dim { color: var(--texto-fraco); }
 .ok { color: var(--ok); font-weight: 600; }
 .erro { color: var(--erro); font-weight: 600; }
+
+/* Formulário de uma ação só (botão em linha dentro de uma célula de tabela). */
+form.inline { display: inline; }
