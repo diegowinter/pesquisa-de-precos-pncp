@@ -78,7 +78,7 @@ def config_versao_por_id(sessao: Session, config_version_id: int) -> dict[str, A
 
 
 def diff_config(sessao: Session, id_a: int, id_b: int) -> dict[str, Any]:
-    """Diferença key a key entre duas `config_version` (docs/06_API_E_WEB.md
+    """Diferença chave a chave entre duas `config_version` (docs/06_API_E_WEB.md
     `GET /api/config/versions/{id}/diff/{outro_id}`). Só reporta chaves que mudaram — key
     ausente de um lado aparece com value `None` do lado que não a define."""
     valores_a = ler_config(sessao, id_a)
@@ -137,7 +137,7 @@ def run_aberto_ou_criar(sessao: Session, label: str) -> int:
 
 def upsert_prompt(sessao: Session, name: str, description: str, capability: str,
                   template: str, version: int = 1, active: bool = True) -> int:
-    """Registra o prompt e uma versão. `ux_prompt_ativa` garante no máximo uma active por name.
+    """Registra o prompt e uma versão. `ux_prompt_ativa` garante no máximo um ativo por name.
 
     Por isso o UPDATE que desativa as outras vem ANTES do insert: inserir uma segunda active
     violaria o índice único parcial e derrubaria a transação inteira.
@@ -169,7 +169,7 @@ def prompt_versao_ativa(sessao: Session, name: str) -> int | None:
 
 
 def template_prompt_ativo(sessao: Session, name: str) -> dict[str, Any] | None:
-    """`(id, template)` da versão active — é o que `core.prompts_resolver` usa para montar o
+    """`(id, template)` da versão ativo — é o que `core.prompts_resolver` usa para montar o
     prompt de verdade em tempo de execução. `None` quando o prompt não existe no banco ainda
     (step cai no fallback hardcoded de `core/prompts.py`, ver docstring do resolver)."""
     linha = sessao.execute(
@@ -217,7 +217,7 @@ def proxima_versao_prompt(sessao: Session, name: str) -> int:
 def criar_prompt_versao(sessao: Session, name: str, template: str, *,
                         created_by: str | None = None, notes: str | None = None) -> int:
     """Cria uma versão NOVA, inativa (histórico — ADR-007/ADR-014: editar cria versão, nunca
-    sobrescreve). `ativar_prompt_versao` é quem promove uma versão a active."""
+    sobrescreve). `ativar_prompt_versao` é quem promove uma versão o ativo."""
     version = proxima_versao_prompt(sessao, name)
     return sessao.execute(
         text("INSERT INTO prompt_version (prompt_name, version, template, active, created_by, "
@@ -228,8 +228,8 @@ def criar_prompt_versao(sessao: Session, name: str, template: str, *,
 
 
 def ativar_prompt_versao(sessao: Session, name: str, version: int) -> bool:
-    """Promove `version` a active e desativa qualquer outra do mesmo prompt — `ux_prompt_ativa`
-    garante no máximo uma active por name, então o UPDATE que desativa vem antes do que active."""
+    """Promove `version` o ativo e desativa qualquer outra do mesmo prompt — `ux_prompt_ativa`
+    garante no máximo um ativo por name, então o UPDATE que desativa vem antes do que active."""
     sessao.execute(
         text("UPDATE prompt_version SET active = false WHERE prompt_name = :n AND active"),
         {"n": name})
@@ -259,9 +259,9 @@ def upsert_provedor(sessao: Session, name: str, capabilities: Sequence[str], bas
                     cost_out_per_mtok: float | None = None,
                     cost_usd_per_call: float | None = None,
                     active: bool = True) -> None:
-    """Cadastro/edição de provider. NÃO toca na key de API — para isso existe
+    """Cadastro/edição de provider. NÃO toca na chave de API — para isso existe
     `gravar_api_key`, que cifra (ADR-022). Separados de propósito: salvar o formulário sem
-    preencher o campo de key não pode apagar a key que já está lá."""
+    preencher o campo de key não pode apagar a chave que já está lá."""
     sessao.execute(
         text("INSERT INTO provider (name, capabilities, base_url, api_key_ref, default_model, "
              "                      allows_fallback, batch_size, rpm_limit, "
@@ -285,9 +285,9 @@ def upsert_provedor(sessao: Session, name: str, capabilities: Sequence[str], bas
 
 
 def gravar_api_key(sessao: Session, provider: str, api_key: str) -> None:
-    """Cifra e grava a key de API de um provider (Fase 14, ADR-022). O name do provider entra
+    """Cifra e grava a chave de API de um provedor (Fase 14, ADR-022). O name do provedor entra
     como AAD, então o criptograma só decifra na linha dele. Write-only: não existe função que
-    devolva a key em claro para fora de `providers.resolver`."""
+    devolva a chave em claro para fora de `providers.resolver`."""
     from pesquisa_precos.db import secret as seg
 
     sessao.execute(
@@ -299,7 +299,7 @@ def gravar_api_key(sessao: Session, provider: str, api_key: str) -> None:
 
 
 def limpar_api_key(sessao: Session, provider: str) -> None:
-    """Remove a key gravada (provider que deixou de exigir autenticação, ou limpeza antes de
+    """Remove a chave gravada (provider que deixou de exigir autenticação, ou limpeza antes de
     recadastrar)."""
     sessao.execute(
         text("UPDATE provider SET api_key_encrypted = NULL, api_key_last4 = NULL, "
@@ -328,7 +328,7 @@ def apontar_capacidade(sessao: Session, capability: str, provider: str,
 # ── run_step: ciclo de vida de uma execução (Fase 3, docs/04_FASES.md) ──────────────
 #
 # Tudo aqui é chamado pelo `runner/` (processo.py, contexto_banco.py), nunca pela step em
-# si — a step só enxerga `RunContext` (docs/03_ETAPAS.md §1). `run.cost_cap_usd` é
+# si — a etapa só enxerga `RunContext` (docs/03_ETAPAS.md §1). `run.cost_cap_usd` é
 # lido por `runner.launcher`, não por aqui.
 
 
@@ -415,7 +415,7 @@ def marcar_cancelada(sessao: Session, run_etapa_id: int) -> None:
 def solicitar_cancelamento(sessao: Session, run_etapa_id: int) -> bool:
     """Gate/CLI só faz um UPDATE (ADR-005) — não há processo para "avisar" diretamente. O
     subprocesso em execução observa isto no próprio `ctx.cancelado()`, que reconsulta o status
-    a cada heartbeat. Só tem efeito sobre uma step que ainda está `executando`."""
+    a cada heartbeat. Só tem efeito sobre uma etapa que ainda está `executando`."""
     linha = sessao.execute(
         text("UPDATE run_step SET status = 'cancelled' "
              "WHERE id = :id AND status = 'running' RETURNING id"),
@@ -431,7 +431,7 @@ def marcar_aguardando_aprovacao(sessao: Session, run_etapa_id: int) -> None:
 
 def pular(sessao: Session, run_etapa_id: int, motivo: str | None = None) -> bool:
     """Gate: `pular` (docs/06_API_E_WEB.md §3.2). Só tem efeito partindo de
-    `aguardando_aprovacao` — pular uma step já em outro estado não faz sentido e é ignorado
+    `aguardando_aprovacao` — pular uma etapa já em outro estado não faz sentido e é ignorado
     (devolve False) em vez de sobrescrever silenciosamente."""
     linha = sessao.execute(
         text("UPDATE run_step SET status = 'skipped', error_message = :m, finished_at = now() "
@@ -442,7 +442,7 @@ def pular(sessao: Session, run_etapa_id: int, motivo: str | None = None) -> bool
 
 def abortar_run(sessao: Session, run_id: int) -> bool:
     """`abortar run` (ADR-005: gate não segura lock, run não avança sozinho). Marca o run
-    `abortado` e sinaliza cancelamento para a step que porventura esteja `executando` — o
+    `abortado` e sinaliza cancelamento para a etapa que porventura esteja `executando` — o
     mesmo mecanismo de `solicitar_cancelamento` (o subprocesso observa via `ctx.cancelado()`)."""
     sessao.execute(
         text("UPDATE run_step SET status = 'cancelled' "
@@ -492,7 +492,7 @@ def leases_expiradas(sessao: Session, timeout_s: int) -> list[dict[str, Any]]:
 
 
 def liberar_lease_expirada(sessao: Session, run_etapa_id: int) -> None:
-    """Devolve à fila: `falhou` com uma message que explica por quê — não `nao_iniciada`
+    """Devolve à fila: `falhou` com uma mensagem que explica por quê — não `nao_iniciada`
     direto, para não apagar o rastro de que algo morreu. `retomar` resume dali normalmente
     (o checkpoint por unidade de trabalho já garante que nada é perdido nem duplicado)."""
     sessao.execute(
@@ -580,7 +580,7 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
 def capacidade_provedor_info(sessao: Session, capability: str) -> dict[str, Any] | None:
     """Uma capability + o `provider` que a atende, já com os campos do adapter (base_url,
     batch_size, custo por Mtok, `api_key_ref`...). `None` quando `provider_capability` ainda
-    não tem linha para esta capability — quem chama (`providers.resolver`) cai no `.env`.
+    não tem linha para esta capacidade — quem chama (`providers.resolver`) cai no `.env`.
     """
     linha = sessao.execute(
         text("SELECT cp.capability, cp.provider, cp.model, cp.fallback, "
@@ -618,7 +618,7 @@ def status_provedores(sessao: Session) -> list[dict[str, Any]]:
 
 def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
                         error_type: str, message: str) -> None:
-    """Erro de UMA unidade de trabalho — não derruba a step (docs/03_ETAPAS.md §1.1 regra 4).
+    """Erro de UMA unidade de trabalho — não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4).
     Reaproveita a linha em nova tentativa em vez de acumular duplicata por `key`."""
     existente = sessao.execute(
         text("SELECT id, attempts FROM item_error "
@@ -641,11 +641,11 @@ def registrar_llm_chamada(sessao: Session, *, run_id: int | None, step: str | No
                           key: str | None = None, tokens_in: int = 0, tokens_out: int = 0,
                           cost_usd: float = 0.0, duration_ms: int | None = None,
                           success: bool = True, prompt_version_id: int | None = None) -> int:
-    """Toda chamada a provider pago (docs/02_SCHEMA.md §9). É o que sustenta estimativa, teto
+    """Toda chamada o provedor pago (docs/02_SCHEMA.md §9). É o que sustenta estimativa, teto
     e dashboard de custo — sem isto não há teto que funcione (ADR-004).
 
     Quem chama isto na prática são os adapters de provider da Fase 7 (`providers/`); nesta
-    fase o mecanismo de contabilidade e teto que a step já enxerga é `ctx.gastar(usd)`, que
+    fase o mecanismo de contabilidade e teto que a etapa já enxerga é `ctx.gastar(usd)`, que
     incrementa `run_step.cost_usd`/`run.cost_usd` sem o detalhe por chamada.
     """
     return sessao.execute(
@@ -661,7 +661,7 @@ def registrar_llm_chamada(sessao: Session, *, run_id: int | None, step: str | No
 def incrementar_custo(sessao: Session, run_etapa_id: int, run_id: int, usd: float) -> Decimal:
     """Soma `usd` em `run_step.cost_usd` e `run.cost_usd` no mesmo commit da unidade que
     gastou (docs/08_CONVENCOES.md §5.3). Devolve o total acumulado do RUN — é contra ele que
-    `run.cost_cap_usd` é comparado, não contra a step isolada."""
+    `run.cost_cap_usd` é comparado, não contra a etapa isolada."""
     sessao.execute(
         text("UPDATE run_step SET cost_usd = cost_usd + :u WHERE id = :id"),
         {"u": usd, "id": run_etapa_id})
@@ -738,8 +738,8 @@ def export_por_id(sessao: Session, export_id: int) -> dict[str, Any] | None:
 
 def ultimo_fingerprint_concluido(sessao: Session, step: str) -> str | None:
     """Fingerprint da última execução CONCLUÍDA desta step, em qualquer run — é contra isto
-    que uma step dependente calcula se está `desatualizada` (ADR-009). Não escopado a um
-    `run_id` porque `atualizar` é incremental entre runs; a última execução real da step é
+    que uma etapa dependente calcula se está `desatualizada` (ADR-009). Não escopado a um
+    `run_id` porque `atualizar` é incremental entre runs; a última execução real da etapa é
     sempre a que vale, não a do run corrente."""
     return sessao.execute(
         text("SELECT fingerprint FROM run_step WHERE step = :e AND status = 'finished' "

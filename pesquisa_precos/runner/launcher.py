@@ -3,7 +3,7 @@ Orquestração de uma execução de step (Fase 3) — o que decide QUEM sobe o s
 QUAIS parâmetros e sob QUAL lock. O que roda DENTRO do subprocesso é `runner.worker`.
 
 Chamado pela CLI (comandos `run *`) e, nas fases seguintes, pela API — é o único caminho de
-"dar play numa step via banco" (ADR-002: o processo web nunca executa a step na própria
+"dar play numa step via banco" (ADR-002: o processo web nunca executa a etapa na própria
 thread, sempre sobe um subprocesso).
 
 Fluxo de `tocar()`:
@@ -33,15 +33,15 @@ from pesquisa_precos.runner import lock
 
 
 class ProvedorIndisponivel(RuntimeError):
-    """Health check pré-play (docs/04_FASES.md §Fase 7 item 6) achou um provider fora do ar
-    para uma capability que a step precisa. Levantado ANTES de subir o subprocesso — é a
+    """Health check pré-play (docs/04_FASES.md §Fase 7 item 6) achou um provedor fora do ar
+    para uma capacidade que a etapa precisa. Levantado ANTES de subir o subprocesso — é a
     diferença entre saber agora e descobrir 40 minutos depois, no meio da 6a."""
 
 
 def recuperar_travados(timeout_s: int = lock.LEASE_PADRAO_S) -> list[int]:
     """Devolve à fila `run_step` presas (heartbeat parado há mais que `timeout_s`). Chamar
     antes de qualquer tentativa de lock — é o que garante que uma máquina reiniciada no meio
-    de uma step não deixe o sistema "trancado" para sempre esperando um heartbeat que não
+    de uma etapa não deixe o sistema "trancado" para sempre esperando um heartbeat que não
     vem mais (docs/04_FASES.md §Fase 3 item 3)."""
     recuperados: list[int] = []
     with db.session() as sessao:
@@ -65,7 +65,7 @@ def preparar(run_id: int, key: str, *,
         run_etapa_id = repo.obter_ou_criar_run_etapa(sessao, run_id, key)
         config_valores = repo.ler_config(sessao, run["config_version_id"])
         defaults = definicao.params_model().model_dump()
-        # só entram valores de config que a step de fato declara em `Params` — config_value
+        # só entram valores de config que a etapa de fato declara em `Params` — config_value
         # é compartilhado entre todas as etapas (thresholds, min_itens, top_n, ...).
         camada_config = {k: v for k, v in config_valores.items() if k in defaults}
         effective_params = definicao.params_model(**{**defaults, **camada_config, **override}) \
@@ -76,9 +76,9 @@ def preparar(run_id: int, key: str, *,
 
 
 def checar_saude_previa(key: str) -> list[dict]:
-    """Sonda as capabilities que a step declara no registry (Fase 7) ANTES do play. Só sonda
+    """Sonda as capacidades que a etapa declara no registry (Fase 7) ANTES do play. Só sonda
     capabilities que têm linha em `provider_capability` — enquanto o banco de provedores está
-    vazio (estado de hoje, ver CLAUDE.md), a step resolve pelo `.env` como sempre resolveu, e
+    vazio (estado de hoje, ver CLAUDE.md), a etapa resolve pelo `.env` como sempre resolveu, e
     esta checagem fica muda: ela é uma feature de quem já configurou provider pela interface,
     não um bloqueio novo para quem nunca usou.
 
@@ -102,9 +102,9 @@ def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "update",
     `lock.LockOcupado` se já existe uma execução em andamento (lease ainda válida) — o
     chamador (CLI/API) decide o que fazer com isso, não este módulo.
 
-    Antes de subir o subprocesso, sonda a saúde dos provedores que a step vai usar
+    Antes de subir o subprocesso, sonda a saúde dos provedores que a etapa vai usar
     (`checar_saude_previa`) e levanta `ProvedorIndisponivel` com uma mensagem clara se algum
-    estiver fora do ar — em vez de deixar a step começar e falhar no meio (Fase 7, critério de
+    estiver fora do ar — em vez de deixar a etapa começar e falhar no meio (Fase 7, critério de
     aceite "health check detecta o túnel caído antes do play, não 40 minutos depois").
     """
     if not pular_checagem_saude:
@@ -153,7 +153,7 @@ def tocar(run_id: int, key: str, *, acao: str = "update",
 
 def cancelar(run_etapa_id: int) -> bool:
     """`UPDATE` puro (ADR-005) — o subprocesso em execução é quem observa isto, no próprio
-    `ctx.cancelado()`. Devolve `False` se a step não estava `executando` (nada a cancelar)."""
+    `ctx.cancelado()`. Devolve `False` se a etapa não estava `executando` (nada a cancelar)."""
     with db.session() as sessao:
         return repo.solicitar_cancelamento(sessao, run_etapa_id)
 

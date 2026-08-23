@@ -2,16 +2,16 @@
 Fingerprint de step (ADR-009) — a alternativa ao grafo de invalidação.
 
 `fingerprint = sha256(versao_codigo || effective_params || fingerprints_das_dependências)`.
-Comparar o valor gravado da última execução concluída de uma step contra o recalculado agora
-responde sozinho "esta step está desatualizada?" — sem manter à mão um grafo do tipo "refazer
+Comparar o valor gravado da última execução concluída de uma etapa contra o recalculado agora
+responde sozinho "esta etapa está desatualizada?" — sem manter à mão um grafo do tipo "refazer
 a 3 invalida 4→8", que é frágil e cresce rápido.
 
 Duas coisas importantes que este módulo NÃO faz:
-  - não decide o que fazer com uma step desatualizada. Invalidar nunca apaga (ADR-009): quem
+  - não decide o que fazer com uma etapa desatualizada. Invalidar nunca apaga (ADR-009): quem
     lê `esta_desatualizada()` marca `⚠` na UI/CLI e deixa o usuário decidir.
   - não olha `run_id`. O fingerprint de uma dependência é o da sua última execução CONCLUÍDA em
     QUALQUER run — `atualizar` é incremental entre runs, então a execução que vale é sempre a
-    mais recente da step, não a do run corrente (ver `execucao.ultimo_fingerprint_concluido`).
+    mais recente da etapa, não a do run corrente (ver `execucao.ultimo_fingerprint_concluido`).
 """
 
 import hashlib
@@ -45,7 +45,7 @@ def calcular_para_etapa(sessao: Session, key: str, effective_params: dict) -> st
 
 
 def esta_desatualizada(sessao: Session, key: str, effective_params: dict) -> bool:
-    """`True` só quando a step JÁ rodou concluída antes e o fingerprint recalculado agora
+    """`True` só quando a etapa JÁ rodou concluída antes e o fingerprint recalculado agora
     diverge do gravado — ou seja: código, params ou alguma dependência mudaram desde a última
     vez. Etapa que nunca rodou não é "outdated", é `nao_iniciada` (outro estado)."""
     gravado = repo.ultimo_fingerprint_concluido(sessao, key)

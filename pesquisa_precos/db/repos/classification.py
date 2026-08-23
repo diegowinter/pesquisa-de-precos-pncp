@@ -2,7 +2,7 @@
 Repositório de classificação (`texto_classificacao`, `item_categoria`).
 
 A tabela cara é chaveada por TEXTO, não por item: 320 mil linhas em vez de 1,6 milhão. É o
-dedup de ~5x da step 3, que aqui deixa de ser intra-execução e vira permanente (ADR-007) —
+dedup de ~5x da etapa 3, que aqui deixa de ser intra-execução e vira permanente (ADR-007) —
 um texto classificado hoje não volta a custar nada nunca mais.
 
 `item_categoria` é derivada e barata: `recomputar_item_categoria()` a reconstrói inteira por
@@ -28,7 +28,7 @@ COLUNAS = ("texto_hash", "description", "unidade", "categorias", "confianca",
 # marca de uma chamada que falhou.
 #
 # Fonte ÚNICA da escala: a migração `m08` importa daqui. Duas tabelas de conversão divergindo
-# fariam o mesmo texto ter confiança diferente conforme tivesse vindo do CSV ou da step.
+# fariam o mesmo texto ter confiança diferente conforme tivesse vindo do CSV ou da etapa.
 CONFIANCA_ORDINAL: dict[str, float | None] = {
     "alta": 1.0, "media": 0.6, "média": 0.6, "baixa": 0.3, "erro": None,
 }
@@ -48,14 +48,14 @@ def gravar(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
 
     `DO NOTHING`: reclassificar um texto já classificado é exatamente o gasto que esta tabela
     existe para evitar. Trocar de prompt/model é uma operação explícita (apagar as linhas da
-    versão antiga), nunca um efeito colateral de rodar a step de novo.
+    versão antiga), nunca um efeito colateral de rodar a etapa de novo.
     """
     return copy.copiar(conn, "texto_classificacao", COLUNAS, linhas,
                         conflito=("texto_hash",))
 
 
 def hashes_ja_classificados(sessao: Session) -> set[str]:
-    """Todos os `texto_hash` já pagos — o filtro de "o que ainda falta" da step 3."""
+    """Todos os `texto_hash` já pagos — o filtro de "o que ainda falta" da etapa 3."""
     return set(sessao.scalars(text("SELECT texto_hash FROM texto_classificacao")).all())
 
 
@@ -73,7 +73,7 @@ SQL_TEXTOS_PENDENTES = """
 def textos_pendentes(sessao: Session, limite: int | None = None) -> list[dict]:
     """Textos ÚNICOS ainda não classificados, do mais repetido para o menos.
 
-    É o dedup da step 3 virando consulta: no CSV era preciso carregar 1,6 milhão de linhas
+    É o dedup da etapa 3 virando consulta: no CSV era preciso carregar 1,6 milhão de linhas
     em memória e agrupar por `(description, unidade)`; aqui o `texto_hash` já foi calculado na
     ingestão (step 2) e o agrupamento é do banco.
 

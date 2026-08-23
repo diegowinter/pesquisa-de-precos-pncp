@@ -6,7 +6,7 @@ repo `pncp-servicos-locais`):
   - RerankerRemoto.score_pares(list[tuple[str, str]]) -> np.ndarray
 
 O embedder guarda em memória, por hash de texto, o que já pediu: dentro de uma execução, texto
-repetido não volta pela rede. `liberar()` é no-op — o model vive no servidor.
+repetido não volta pela rede. `liberar()` é no-op — o modelo vive no servidor.
 """
 
 import hashlib

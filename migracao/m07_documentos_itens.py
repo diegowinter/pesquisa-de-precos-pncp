@@ -10,7 +10,7 @@ cada item). Duas passadas em STREAMING, nunca `pd.read_csv` (docs/08_CONVENCOES.
               passada 2 é separada.
   Passada 2 — itens. Uma linha por item, com o `texto_hash` calculado AQUI.
 
-`texto_hash = core.text.texto_hash(descricao_api, unidade)`. É a mesma função que a step 3
+`texto_hash = core.text.texto_hash(descricao_api, unidade)`. É a mesma função que a etapa 3
 usa para agrupar. Uma diferença mínima entre as duas pontas invalidaria o dedup permanente e
 mandaria 320 mil textos já pagos de volta ao LLM (docs/08_CONVENCOES.md §5.4).
 
@@ -109,7 +109,7 @@ def passada_documentos(rel: Relatorio, total: int) -> dict[str, set[str]]:
                     None,                                # data_atualizacao_pncp: não existe na v2
                     url_documento(nc, tipo_doc) or None,
                     # Só as linhas coletadas a partir da Fase 8 trazem os sequenciais; as
-                    # herdadas da v2 vêm vazias, e a step 5 cai no fluxo de rebaixar por
+                    # herdadas da v2 vêm vazias, e a etapa 5 cai no fluxo de rebaixar por
                     # `url_pncp`. Não é perda nova — a v2 nunca gravou esses campos.
                     txt(r.get("numero_sequencial")),
                     txt(r.get("numero_sequencial_ata")),

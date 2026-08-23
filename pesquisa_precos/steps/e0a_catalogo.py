@@ -138,7 +138,7 @@ def _linha_raw(tipo: str, reg: dict) -> tuple | None:
     """Registro da API → tupla na ordem de `curadoria.COLUNAS_RAW`.
 
     O mapeamento é o MESMO de `gerar_catalogo_filtrado()` — material e serviço têm nomes de
-    campo diferentes na source, e é aqui que eles viram um formato só. Manter os dois lugares
+    campo diferentes na origem, e é aqui que eles viram um formato só. Manter os dois lugares
     é a única — o caminho de parquet/CSV saiu na Fase 13.
     """
     if tipo == "material":

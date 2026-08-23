@@ -5,7 +5,7 @@ Objetivo: detectar o túnel caído (ou o servidor de GPU fora) ANTES de dar play
 não 40 minutos depois, no meio da 6a. Uma checagem é uma sondagem HTTP leve (GET, timeout
 curto) contra `base_url`; nunca uma chamada de verdade (não gasta, não é chat/embed/rerank).
 
-`checar_capacidade` resolve a capability (banco → `.env`, mesma regra de `resolver.py`) e
+`checar_capacidade` resolve a capacidade (banco → `.env`, mesma regra de `resolver.py`) e
 grava o resultado em `provider_status` quando há sessão — é o que a tela de provedores
 (docs/06_API_E_WEB.md) e `runner.launcher` leem antes do play.
 """

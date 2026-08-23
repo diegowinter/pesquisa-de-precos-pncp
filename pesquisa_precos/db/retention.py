@@ -2,7 +2,7 @@
 Política de retenção — implementação da tabela de docs/02_SCHEMA.md §11.
 
 Decidida na Fase 2 e não depois, porque `documento_pagina` cresce sem limite: 888 mil linhas e
-2,6 GB de texto já hoje, e a step 5 acrescenta a cada coleta. Sem política, o banco vira o
+2,6 GB de texto já hoje, e a etapa 5 acrescenta a cada coleta. Sem política, o banco vira o
 novo problema dos 111 GB de PDF.
 
 O que **não** é apagado, nunca, e o motivo (ADR-007 — reprocessar é perda):

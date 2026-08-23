@@ -33,7 +33,7 @@ def listar_runs(limite: int = Query(50, le=200)):
 @router.get("/runs/diff")
 def diff_runs(run_a: int, run_b: int, limiar_variacao: float = 0.0):
     """Fase 9, item 2: "o que mudou do export de ontem para o de hoje" — generaliza o
-    `--novos` da step 8 para comparar dois runs quaisquer (não só run × snapshot)."""
+    `--novos` da etapa 8 para comparar dois runs quaisquer (não só run × snapshot)."""
     try:
         return service_diff.diff_runs(run_a, run_b, limiar_variacao=limiar_variacao)
     except RunSemRankingError as exc:

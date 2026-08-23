@@ -1,9 +1,9 @@
 """
 Repositório de termos de busca (`termo`, `termo_codigo`, `collection_watermark`).
 
-`termo_norm` é a key de dedup (UNIQUE) e vem de `core.text.normalizar_termo`, que
+`termo_norm` é a chave de dedup (UNIQUE) e vem de `core.text.normalizar_termo`, que
 **preserva o acento** — ao contrário de `normalizar_texto`, usada no `texto_hash`. Não é
-inconsistência: "ambulancia" e "ambulância" são duas buscas diferentes no PNCP e a step 1 as
+inconsistência: "ambulancia" e "ambulância" são duas buscas diferentes no PNCP e a etapa 1 as
 gera de propósito. A justificativa completa está na docstring de `normalizar_termo`.
 """
 
@@ -64,9 +64,9 @@ def id_por_norm(sessao: Session) -> dict[str, int]:
 
 
 def watermarks(sessao: Session) -> dict[tuple[int, str], str]:
-    """`(termo_id, tipo_doc) → watermark ISO` — o `carregar_watermark()` da step 2 em SQL.
+    """`(termo_id, tipo_doc) → watermark ISO` — o `carregar_watermark()` da etapa 2 em SQL.
 
-    Devolve string ISO, não `datetime`: a step compara com `data_atualizacao_pncp` como vem
+    Devolve string ISO, não `datetime`: a etapa compara com `data_atualizacao_pncp` como vem
     da API, que é texto. Converter dos dois lados só criaria uma chance a mais de erro de
     fuso numa comparação que hoje é lexicográfica e funciona.
     """
@@ -111,8 +111,8 @@ def geracoes(sessao: Session) -> dict[tuple[str, str], dict]:
 def gravar_geracao(sessao: Session, tipo: str, codigo: str, termos: Sequence[str],
                    categoria_llm: str | None, *, model: str | None = None,
                    provider: str | None = None, run_id: int | None = None) -> None:
-    """Cache da chamada de LLM de UM item do catálogo. É a marca de resumo da step 1:
-    item presente aqui não volta ao model."""
+    """Cache da chamada de LLM de UM item do catálogo. É a marca de resumo da etapa 1:
+    item presente aqui não volta ao modelo."""
     sessao.execute(text("""
         INSERT INTO termo_geracao (tipo, codigo, termos, categoria_llm, model, provider, run_id)
         VALUES (CAST(:t AS tipo_catalogo), :c, :termos, :cat, :model, :prov, :run)
@@ -125,7 +125,7 @@ def gravar_geracao(sessao: Session, tipo: str, codigo: str, termos: Sequence[str
 
 
 def codigos_ja_gerados(sessao: Session) -> set[tuple[str, str]]:
-    """Chave de resumo da step 1 — o que `ler_chaves_concluidas()` fazia sobre o CSV."""
+    """Chave de resumo da etapa 1 — o que `ler_chaves_concluidas()` fazia sobre o CSV."""
     return {(t, c) for t, c in sessao.execute(
         text("SELECT tipo::text, codigo FROM termo_geracao")).all()}
 

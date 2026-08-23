@@ -84,7 +84,7 @@ def recomputar_decisao_final(sessao: Session) -> int:
     """`confirmado` = decisao='aceito' OU veredito='sim'; `rejeitado` quando há sinal
     contrário dos dois lados; `pendente` enquanto falta informação.
 
-    Derivada e recomputável — nunca gravada à mão por uma step (docs/02_SCHEMA.md §7).
+    Derivada e recomputável — nunca gravada à mão por uma etapa (docs/02_SCHEMA.md §7).
     """
     return sessao.execute(text("""
         UPDATE par SET final_decision = CASE
@@ -103,7 +103,7 @@ def recomputar_decisao_final(sessao: Session) -> int:
 
 
 def confirmados(sessao: Session) -> list[dict]:
-    """Pares confirmados com os metadados do item — a entrada da step 7.
+    """Pares confirmados com os metadados do item — a entrada da etapa 7.
 
     Substitui `e7.confirmados()` + o merge com `4_itens_sobreviventes.csv`. Preço vem como
     `Decimal` (numeric no banco), nunca `float` — docs/08_CONVENCOES.md §5.8.
@@ -138,7 +138,7 @@ def gravar_embeddings(conn: psycopg.Connection, provider: str, model: str,
     """Grava vetores como float16 little-endian em `bytea`.
 
     A key inclui provider+model+dimensão (ADR-006 §1). Chavear só por texto misturaria
-    espaços vetoriais em silêncio quando o provider mudasse — o bug caro que a Fase 7 herda
+    espaços vetoriais em silêncio quando o provedor mudasse — o bug caro que a Fase 7 herda
     se isto estiver errado agora.
 
     float16 e não float32: os vetores são L2-normalizados e usados só para cosseno; meia

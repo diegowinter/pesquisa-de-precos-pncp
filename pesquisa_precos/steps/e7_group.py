@@ -62,7 +62,7 @@ class Params(BaseModel):
 def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
     """Pares confirmados + metadados do item, direto do banco. Devolve (df, run_id).
 
-    Um SELECT só, no repositório — a step não escreve SQL (regra da Fase 2). As colunas
+    Um SELECT só, no repositório — a etapa não escreve SQL (regra da Fase 2). As colunas
     saem com os MESMOS nomes que o caminho CSV usa (`numeroControlePNCP`, `numeroItem`…),
     para que todo o resto da função `executar` seja literalmente o mesmo código. Renomear
     aqui é mais barato que manter duas versões da regra de menor preço.

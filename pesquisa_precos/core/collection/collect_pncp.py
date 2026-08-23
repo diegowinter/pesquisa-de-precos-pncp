@@ -29,7 +29,7 @@ from pesquisa_precos.core.collection import search_pncp, fetch_files, fetch_item
 # Fontes de documento suportadas (tipo_doc na saída da etapa 2).
 FONTES = ["contrato", "ata"]
 
-# Colunas da saída da etapa 2 (data/2_itens_coletados.csv). item_key é a key universal
+# Colunas da saída da etapa 2 (data/2_itens_coletados.csv). item_key é a chave universal
 # do item daqui pra frente (numeroControlePNCP + "::" + numeroItem).
 COLUNAS_ITENS = [
     "item_key", "tipo_doc", "numeroControlePNCP", "numeroItem", "descricao_api",

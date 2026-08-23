@@ -1,12 +1,12 @@
 """
 m15 — Grupos: `7_itens_agrupados.csv` → `grupo_item`.
 
-O CSV da step 7 já é o resultado do corte: só os confirmados não-sinalizados dos códigos que
+O CSV da etapa 7 já é o resultado do corte: só os confirmados não-sinalizados dos códigos que
 fecharam, ordenados por preço unitário crescente. O que ele **não** traz é a coluna `posicao` —
 o ranking está implícito na ordem das linhas.
 
 `posicao` é reconstruída aqui, contando a ordem de aparição dentro de cada código. Isso funciona
-porque a step 7 ordena por preço com `mergesort` (estável) antes de gravar: a ordem do arquivo
+porque a etapa 7 ordena por preço com `mergesort` (estável) antes de gravar: a ordem do arquivo
 É o ranking. Recalcular por preço aqui daria empates resolvidos de outro jeito e produziria um
 ranking ligeiramente diferente do que já foi entregue ao cliente.
 

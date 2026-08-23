@@ -8,7 +8,7 @@ a vir daqui, editáveis pela interface sem deploy.
 A peça central é `derivar_catalogo_item()`: `catalogo_item` deixa de ser carregado de um CSV já
 filtrado e passa a ser **derivado** de `catalogo_raw ∩ pdm_permitido` por SQL. Isso é o que
 torna a recuradoria barata — mudar a allow-list na tela e reprojetar o catálogo é um comando,
-não uma reexecução da step 0a (que rebaixaria o catálogo inteiro da API).
+não uma reexecução da etapa 0a (que rebaixaria o catálogo inteiro da API).
 
 Assimetria que atravessa o módulo inteiro: o `codigo` de `pdm_permitido` casa com
 `catalogo_raw.codigo_pdm` para material e com `catalogo_raw.codigo` para serviço. É herança da
@@ -223,8 +223,8 @@ ON CONFLICT (tipo, codigo) DO UPDATE
 """
 
 # Item que saiu do escopo (o PDM foi revogado) some do `catalogo_item`? NÃO: vira inativo.
-# `catalogo_item.categoria` vem da step 1 e é cara (LLM); apagar a linha jogaria fora esse
-# trabalho, e o código continua sendo a source de linhas de export já entregues.
+# `catalogo_item.categoria` vem da etapa 1 e é cara (LLM); apagar a linha jogaria fora esse
+# trabalho, e o código continua sendo a origem de linhas de export já entregues.
 DESATIVACAO = """
 UPDATE catalogo_item c
    SET active = false, updated_at = now()
@@ -243,9 +243,9 @@ def derivar_catalogo_item(sessao: Session) -> dict[str, int]:
     """Recomputa `catalogo_item` a partir do catálogo completo e da allow-list active.
 
     Chamada pela step 0a e por qualquer edição de curadoria na interface — é o que faz
-    "mudei a allow-list" ter efeito sem reexecutar a step (que rebaixaria a API inteira).
+    "mudei a allow-list" ter efeito sem reexecutar a etapa (que rebaixaria a API inteira).
 
-    NÃO toca em `categoria`: ela vem da step 1, custa LLM e não é derivável daqui. O
+    NÃO toca em `categoria`: ela vem da etapa 1, custa LLM e não é derivável daqui. O
     `ON CONFLICT DO UPDATE` lista as colunas uma a uma exatamente por isso — um
     `SET (...) = (EXCLUDED...)` genérico apagaria a categoria de todo código a cada
     rederivação.
@@ -311,7 +311,7 @@ def delta_catalogo(sessao: Session) -> dict[str, int]:
 
     Primeira execução (sem snapshot anterior): estabelece a linha de base e devolve delta
     ZERO. Isso é deliberado e igual ao caminho em disco — marcar um catálogo inteiro já
-    coletado como "novo" é a armadilha que o comentário original da step já registrava.
+    coletado como "novo" é a armadilha que o comentário original da etapa já registrava.
     """
     from datetime import UTC, datetime
 

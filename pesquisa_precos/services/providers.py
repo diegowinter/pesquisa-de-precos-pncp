@@ -6,8 +6,8 @@ escrevia nessas tabelas: só dava para popular por SQL na mão, e por isso a con
 aplicação continuou num `.env` editado a dedo. Este módulo é o que faz a promessa da ADR-014
 ("model, provider, URL da GPU é config, não código") chegar ao operador.
 
-Regra que atravessa o arquivo inteiro: **a key de API entra, nunca sai.** `gravar_api_key`
-cifra e grava; nada aqui devolve a key em claro — quem precisa dela é `providers.resolver`,
+Regra que atravessa o arquivo inteiro: **a chave de API entra, nunca sai.** `gravar_api_key`
+cifra e grava; nada aqui devolve a chave em claro — quem precisa dela é `providers.resolver`,
 para montar o adapter, e ele a lê do repo direto. A tela recebe `has_api_key`/`api_key_last4`,
 que não reconstroem nada.
 """
@@ -53,7 +53,7 @@ def _validar(name: str, base_url: str, capabilities: list[str]) -> None:
 
 
 def listar() -> list[dict[str, Any]]:
-    """Providers cadastrados + as capabilities que cada um atende. Sem key em claro e sem
+    """Providers cadastrados + as capacidades que cada um atende. Sem key em claro e sem
     sondagem ao vivo (para o probe, ver `saude_provedores` em `services.execution`)."""
     with db.session() as sessao:
         return repo.listar_provedores(sessao)
@@ -72,16 +72,16 @@ def salvar(name: str, capabilities: list[str], base_url: str, *,
            cost_out_per_mtok: float | None = None,
            cost_usd_per_call: float | None = None, active: bool = True,
            api_key: str | None = None) -> None:
-    """Cria ou atualiza um provider. `api_key` vazio/None **não apaga** a key existente — o
+    """Cria ou atualiza um provedor. `api_key` vazio/None **não apaga** a chave existente — o
     campo do formulário vem sempre em branco (nunca se preenche com o valor atual, que a tela
-    não conhece), então tratar branco como "apagar" destruiria a key a cada edição de
+    não conhece), então tratar branco como "apagar" destruiria a chave a cada edição de
     `base_url`. Para remover de propósito existe `limpar_api_key`."""
     name = name.strip()
     base_url = base_url.strip()
     _validar(name, base_url, capabilities)
     if api_key:
-        # Falha ANTES do INSERT se a key-mestra não estiver no ambiente: gravar o provider e
-        # perder a key em silêncio seria o pior dos dois mundos.
+        # Falha ANTES do INSERT se a chave-mestra não estiver no ambiente: gravar o provedor e
+        # perder a chave em silêncio seria o pior dos dois mundos.
         seg.key_id_atual()
     with db.session() as sessao:
         repo.upsert_provedor(
@@ -122,7 +122,7 @@ def definir_ativo(name: str, active: bool) -> None:
 
 def apontar(capability: str, provider: str, model: str | None = None,
             fallback: str | None = None) -> None:
-    """Quem atende cada capability. É esta linha que o `resolver` lê — cadastrar um provider
+    """Quem atende cada capability. É esta linha que o `resolver` lê — cadastrar um provedor
     sem apontá-lo não muda nada no comportamento das etapas."""
     if capability not in CAPACIDADES:
         raise InvalidProvider(f"capability desconhecida: {capability!r}")
@@ -137,9 +137,9 @@ def apontar(capability: str, provider: str, model: str | None = None,
 
 
 def testar(name: str) -> dict[str, Any]:
-    """Sondagem HTTP leve contra a `base_url` do provider — o botão "testar agora" da tela.
-    Não gasta e não chama o model: só prova que o endereço responde (um 401 conta como
-    saudável; credencial errada a step acusa na hora, com mensagem clara)."""
+    """Sondagem HTTP leve contra a `base_url` do provedor — o botão "testar agora" da tela.
+    Não gasta e não chama o modelo: só prova que o endereço responde (um 401 conta como
+    saudável; credencial errada a etapa acusa na hora, com mensagem clara)."""
     from pesquisa_precos.providers import health
 
     p = obter(name)
@@ -164,7 +164,7 @@ def diagnostico_chave_mestra() -> dict[str, Any]:
 
 
 def keys_a_recifrar() -> list[str]:
-    """Providers cujo `api_key_key_id` não é o da key-mestra atual — o que falta re-cifrar
+    """Providers cujo `api_key_key_id` não é o da chave-mestra atual — o que falta re-cifrar
     depois de uma rotação de `APP_SECRET_KEY`."""
     if not seg.configurada():
         return []
@@ -174,12 +174,12 @@ def keys_a_recifrar() -> list[str]:
 
 
 def recifrar_tudo() -> dict[str, Any]:
-    """Re-cifra com a key-mestra atual toda linha que ainda está numa anterior. Requer
+    """Re-cifra com a chave-mestra atual toda linha que ainda está numa anterior. Requer
     `APP_SECRET_KEY_ANTIGA` no ambiente durante a janela.
 
     Devolve `{"recifradas": n, "falharam": [nomes]}`. Uma linha que não decifra **não aborta as
-    outras**: ela pode ter sido cifrada por uma key-mestra que já não existe (duas rotações
-    sem re-cifrar no meio, ou um restore de dump antigo), e nesse caso a key dela está
+    outras**: ela pode ter sido cifrada por uma chave-mestra que já não existe (duas rotações
+    sem re-cifrar no meio, ou um restore de dump antigo), e nesse caso a chave dela está
     perdida de qualquer forma — deixar isso bloquear a rotação das demais transformaria um
     problema de uma linha num problema de todas. Quem falha aparece na tela para ser
     recadastrado, que é a única saída real.

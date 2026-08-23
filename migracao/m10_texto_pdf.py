@@ -50,7 +50,7 @@ def normalizar_caminho(caminho: str) -> str:
 
 
 def mapa_pasta_para_controle(rel: Relatorio) -> dict[str, str]:
-    """`pasta_arquivos normalizada → numeroControlePNCP`, lido em streaming do CSV da step 2.
+    """`pasta_arquivos normalizada → numeroControlePNCP`, lido em streaming do CSV da etapa 2.
 
     Não vem do banco de propósito: `pasta_arquivos` NÃO é migrada (ADR-012). Este mapa é a
     última vez que o caminho absoluto é usado no projeto.
@@ -143,7 +143,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
         for key, value in contagens.items():
             rel.mais(f"{key} no banco", value)
 
-    # Divergência esperada e MEDIDA, não suposta: `5_pdf_texto.csv` é append-only e a step 5a
+    # Divergência esperada e MEDIDA, não suposta: `5_pdf_texto.csv` é append-only e a etapa 5a
     # rodou mais de uma vez sobre os mesmos documentos, então a mesma (documento, arquivo,
     # página) aparece repetida — com texto idêntico. A PK do destino dedupa. Aferido na
     # amostra do acervo: fator ~2. Isso explica a diferença contra as 888.656 linhas do CSV

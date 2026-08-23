@@ -1,5 +1,5 @@
 """
-Adapters concretos das capabilities (Fase 7) — cada um embrulha um cliente já validado atrás
+Adapters concretos das capacidades (Fase 7) — cada um embrulha um cliente já validado atrás
 dos `Protocol` de `protocolos.py`, sem reescrever a lógica de chamada.
 
 **Todo adapter aqui é CLIENTE DE UM SERVIÇO.** Desde a ADR-021 não existe mais versão "em

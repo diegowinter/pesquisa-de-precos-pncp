@@ -1,8 +1,8 @@
 """
-Camada de curadoria com LLM via LangChain (um provider OpenAI-compatível).
+Camada de curadoria com LLM via LangChain (um provedor OpenAI-compatível).
 
 Os prompts e as categorias ficam em `scripts/prompts.py`; aqui fica só a lógica de
-chamada ao model e o parsing da resposta. Os nomes de prompts/categorias são
+chamada ao modelo e o parsing da resposta. Os nomes de prompts/categorias são
 reexportados abaixo para manter compatibilidade com quem importa deste módulo.
 
 Para cada item candidato do catálogo, decide UMA categoria:
@@ -64,7 +64,7 @@ def _extrair_json(texto: str) -> dict:
 
 
 def _sem_acento(s: str) -> str:
-    """Remove acentos p/ casar a resposta do model (ex.: 'MUNIÇÃO') com o id ascii."""
+    """Remove acentos p/ casar a resposta do modelo (ex.: 'MUNIÇÃO') com o id ascii."""
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
@@ -131,7 +131,7 @@ class Curador:
 
     def _invocar_json(self, prompt: str) -> dict:
         """
-        Invoca o model esperando JSON puro. Faz 1 retry em resposta inválida (JSONDecodeError).
+        Invoca o modelo esperando JSON puro. Faz 1 retry em resposta inválida (JSONDecodeError).
         Levanta a última exceção se as duas tentativas falharem — quem chama trata/loga o erro.
         """
         ultimo_erro = None
@@ -201,7 +201,7 @@ class Curador:
 
     def extrair_tabela_pdf(self, png_bytes: bytes) -> list[dict]:
         """
-        Etapa 5_alt_a — envia a IMAGEM de UMA página a um model de VISÃO e recebe a
+        Etapa 5_alt_a — envia a IMAGEM de UMA página a um modelo de VISÃO e recebe a
         tabela de itens da página, "as it is" (lista de linhas estruturadas). Uma imagem
         por chamada (nunca o doc inteiro). Nunca levanta: em erro devolve [].
         """
@@ -331,8 +331,8 @@ class Curador:
 
     def extrair_itens(self, texto: str) -> str:
         """
-        Extrai os itens de uma ata (texto corrido de `parsear_pdfs.py`) usando o model de
-        visão/extração (tipicamente um model pequeno, ex. 7B). Nunca levanta: em erro,
+        Extrai os itens de uma ata (texto corrido de `parsear_pdfs.py`) usando o modelo de
+        visão/extração (tipicamente um modelo pequeno, ex. 7B). Nunca levanta: em erro,
         retorna "" (quem chama decide o fallback/status).
         """
         prompt = montar_prompt_extrair_itens(texto)

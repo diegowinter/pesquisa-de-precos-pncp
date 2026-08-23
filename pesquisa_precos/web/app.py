@@ -338,7 +338,7 @@ def baixar_export(export_id: int, user: str = Depends(auth.exigir_login)):
 
 # ── Providers: saúde + CRUD (Fase 13 / Fase 14 bloco 2, ADR-022) ────────────────────
 #
-# A tela era só leitura: sondava as capabilities e mostrava o resultado. Com a Fase 14 ela vira
+# A tela era só leitura: sondava as capacidades e mostrava o resultado. Com a Fase 14 ela vira
 # a superfície onde se CONFIGURA quem atende cada capability — model, base_url e key de API
 # deixam de exigir editar `.env` e reiniciar o servidor.
 #
@@ -451,14 +451,14 @@ def apontar_capacidade(request: Request, capability: str = Form(""),
 
 @app.post("/providers/recrypt")
 def recifrar_chaves(request: Request, user: str = Depends(auth.exigir_login)):
-    """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na key anterior (ADR-022)."""
+    """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na chave anterior (ADR-022)."""
     try:
         resultado = service_providers.recifrar_tudo()
     except ChaveMestraAusente as exc:
         return _redirecionar_com_erro("/providers", exc)
     if resultado["falharam"]:
         # Falha parcial é informação, não erro: o resto foi re-cifrado, e estas linhas não
-        # decifram com nenhuma key disponível — a saída é recadastrar a key delas.
+        # decifram com nenhuma key disponível — a saída é recadastrar a chave delas.
         return _redirecionar_com_erro("/providers", RuntimeError(
             f"{resultado['recifradas']} re-cifradas. NÃO foi possível decifrar: "
             f"{', '.join(resultado['falharam'])} — recadastre a key desses provedores "

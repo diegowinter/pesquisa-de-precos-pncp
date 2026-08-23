@@ -7,7 +7,7 @@ configurado pela tela `/providers`. Até a Fase 14 havia uma segunda, o `.env`, 
 `provider_capability` estivesse vazia. Ela saiu na ADR-022, pela mesma razão que a ADR-020
 tirou o `--fonte csv` e a ADR-021 tirou o caminho em processo: **dois caminhos para o mesmo
 resultado divergem em silêncio**, e o do `.env` era o default de quem não configurou nada — ou
-seja, o modo em que um erro de configuração vira, sem erro nenhum, a etapa rodando com o model
+seja, o modo em que um erro de configuração vira, sem erro nenhum, a etapa rodando com o modelo
 errado e a conta chegando depois.
 
 Capacidade sem linha em `provider_capability` agora levanta `CapabilityNotConfigured`, e a
@@ -34,7 +34,7 @@ CAPACIDADES = ("chat", "embed", "rerank", "pdf", "matching")
 
 
 class CapabilityNotConfigured(RuntimeError):
-    """Nenhum provider aponta para esta capability (Fase 14, ADR-022). Antes isso caía para o
+    """Nenhum provider aponta para esta capacidade (Fase 14, ADR-022). Antes isso caía para o
     `.env`; hoje é erro de configuração, resolvido na tela `/providers`."""
 
 
@@ -46,14 +46,14 @@ class FallbackProibidoEmbedError(ValueError):
 
 
 def _api_key_de(linha: dict, default: str = "") -> str:
-    """A key de API de um provider cadastrado, em claro — só para montar o adapter.
+    """A key de API de um provedor cadastrado, em claro — só para montar o adapter.
 
     Este é o ÚNICO ponto do código que devolve segredo em claro. Nada acima daqui — service,
     API, template — pode chamar `db.secret.decifrar`, e
     `tests/test_segredo.py::test_so_o_resolver_decifra` guarda a regra.
 
     O `api_key_ref` (name de env var) que existia antes da ADR-022 sumiu junto com o caminho
-    `.env`: a key mora no banco, cifrada.
+    `.env`: a chave mora no banco, cifrada.
     """
     blob = linha.get("api_key_encrypted")
     if not blob:
@@ -68,7 +68,7 @@ def _como_float(v: Any) -> float | None:
 
 @dataclass
 class ResolucaoCapacidade:
-    """O que `resolver_capacidade` devolve: info + a key de API já resolvida (nunca o
+    """O que `resolver_capacidade` devolve: info + a chave de API já resolvida (nunca o
     `api_key_ref` cru) + de onde veio (log/diagnóstico — dashboard de provedores)."""
 
     info: ProviderInfo
@@ -183,8 +183,8 @@ class Providers:
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def resolucao(self, capability: str) -> ResolucaoCapacidade:
-        """Resolve a capability SEM instanciar o adapter — para quem só precisa saber quem vai
-        atendê-la (name do provider para log, ou uma decisão de comportamento por provider como
+        """Resolve a capacidade SEM instanciar o adapter — para quem só precisa saber quem vai
+        atendê-la (name do provedor para log, ou uma decisão de comportamento por provider como
         o `reasoning_effort` da etapa 3) sem pagar o custo de montar o cliente."""
         return resolver_capacidade(capability, sessao=self._sessao)
 

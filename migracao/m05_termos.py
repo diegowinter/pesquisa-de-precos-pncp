@@ -14,7 +14,7 @@ mais no catálogo filtrado são contados e descartados, não migrados com FK que
 `termo_norm` é `core.text.normalizar_termo`: minúsculo e espaços colapsados, **com acento
 preservado**. Isso diverge de docs/05_MIGRACAO.md §m05, que manda dobrar o acento aqui também —
 e a divergência é deliberada: medido no acervo, dobrar acento colapsa os 499 termos em 338,
-porque a step 1 gera de propósito o par com/sem acento de TODO termo
+porque a etapa 1 gera de propósito o par com/sem acento de TODO termo
 (`core/classificacao/variacoes.py`). A busca do PNCP é sensível a acento, então "ambulancia" e
 "ambulância" são duas buscas com resultados diferentes. Seguir o documento apagaria 161 termos
 em silêncio, e o sintoma — coleta trazendo menos documentos — só apareceria meses depois.

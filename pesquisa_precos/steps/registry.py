@@ -72,7 +72,7 @@ ETAPAS: tuple[StepDefinition, ...] = (
                    ("2",), "pago", True, False, ("chat",)),
     StepDefinition("4", "Cortar / definir escopo", "e4_cut",
                    ("3",), "gratis", True, True),
-    # Fase 11 (ADR-019): `pdf` e `pareamento` são capabilities de primeira classe — é o que faz
+    # Fase 11 (ADR-019): `pdf` e `pareamento` sãa capacidades de primeira classe — é o que faz
     # o health check pré-play reprovar a etapa ANTES de começar quando o serviço está fora do
     # ar. ADR-021: `ocr` NÃO é declarado pela 5 e `embed` não é declarado pela 6a — os dois
     # rodam DENTRO dos serviços de `pdf` e `pareamento`, na máquina deles. Sondá-los daqui

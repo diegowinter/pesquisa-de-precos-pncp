@@ -1,5 +1,5 @@
 """
-Ponto de entrada do subprocesso de uma step (ADR-002) — o que `runner.launcher` sobe.
+Ponto de entrada do subprocesso de uma etapa (ADR-002) — o que `runner.launcher` sobe.
 
 Uso: `python -m pesquisa_precos.runner.worker <run_etapa_id>`
 
@@ -10,7 +10,7 @@ O `run_step` já existe e já está `executando` quando este processo começa (�
 
 Duas sessões abertas o processo inteiro, pelo motivo documentado em `contexto_banco`:
 `sessao_execucao` carrega o `pg_advisory_lock` e é usada só pela contabilidade do runner;
-`db_etapa` é a que a step recebe em `ctx.db` para o próprio domínio.
+`db_etapa` é a que a etapa recebe em `ctx.db` para o próprio domínio.
 
 Código de saída: 0 = concluída (ou cancelada — não é falha), 1 = erro, 2 = teto de custo
 excedido. Nenhum deles é usado por quem chama hoje (a CLI de imediato só espera o processo
@@ -35,7 +35,7 @@ def _notificar_best_effort(run_id: int, step: str, evento: str, detalhe: str = "
     pode fazer o `run_step` parecer concluído/falho antes de o banco de fato refletir isso).
     Envolvida numa exceção genérica: `notifications.notificar_evento` já é best-effort por
     dentro, mas esta é a segunda rede — nenhuma falha aqui pode propagar para o `except`
-    principal e mascarar o motivo real de uma step ter falhado."""
+    principal e mascarar o motivo real de uma etapa ter falhado."""
     try:
         notifications.notificar_evento(run_id, step, evento, detalhe=detalhe)
     except Exception:  # noqa: BLE001 — ver docstring

@@ -6,7 +6,7 @@ Roda UMA vez, na virada. Depois dela, quem configura provider é a tela `/proved
 `.env` fica só com `DATABASE_URL` e `APP_SECRET_KEY`.
 
 Por que aqui e não numa migração Alembic (como a ADR-022 previa): semear depende de duas coisas
-que uma migração não deveria exigir — o `.env` de source e a key-mestra no ambiente. Migração
+que uma migração não deveria exigir — o `.env` de source e a chave-mestra no ambiente. Migração
 que precisa de segredo para rodar quebra em qualquer máquina que não seja a do operador, e o
 `downgrade` dela não teria como desfazer a cifra. `tools/` é exatamente o lugar de script
 de apoio pontual (ver CLAUDE.md), e este é pontual por definição.
@@ -48,8 +48,8 @@ def plano() -> tuple[list[dict], list[dict], list[str]]:
     avisos: list[str] = []
 
     # ── chat: OpenRouter ────────────────────────────────────────────────────────────
-    # Só PASS1 vira provider. PASS2 é o model caro, e a ADR-004 já o tirou do caminho
-    # padrão: semeá-lo criaria um provider pronto para ser apontado por engano, contra a
+    # Só PASS1 vira provider. PASS2 é o modelo caro, e a ADR-004 já o tirou do caminho
+    # padrão: semeá-lo criaria um provedor pronto para ser apontado por engano, contra a
     # restrição de custo registrada no CLAUDE.md. Se um dia houver orçamento, cadastra-se
     # pela tela, conscientemente.
     if _env("OPENAI_BASE_URL") and _env("OPENAI_MODEL_PASS1"):

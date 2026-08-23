@@ -43,10 +43,10 @@ class Params(BaseModel):
 # ── Validação no banco (Fase 10) ────────────────────────────────────────────────────
 #
 # O veredito volta para a MESMA linha de `par` (ADR-013) e `recomputar_decisao_final()` fecha
-# a decisão. `rotulo` continua sendo append-only: é o active de calibração do projeto e nunca
+# a decisão. `rotulo` continua sendo append-only: é o ativo de calibração do projeto e nunca
 # pode ser truncado.
 #
-# RESTRIÇÃO DE CUSTO Nº 1 (ADR-004) vale igual aqui: o model barato é o padrão, `--forte`
+# RESTRIÇÃO DE CUSTO Nº 1 (ADR-004) vale igual aqui: o modelo barato é o padrão, `--forte`
 # exige gesto explícito.
 
 def _exigir_banco():
@@ -136,7 +136,7 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
         contagens = repo_par.contar(s)
 
     # `rotulo` acumula TODA decisão final (aceites/rejeições extremas do 6b + vereditos do 6c).
-    # É o active de calibração do projeto — append-only, nunca truncado.
+    # É o ativo de calibração do projeto — append-only, nunca truncado.
     n_rotulos = _acumular_rotulos(db)
 
     cor = "yellow" if n_erros[0] else "green"

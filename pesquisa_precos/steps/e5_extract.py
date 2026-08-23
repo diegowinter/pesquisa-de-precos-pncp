@@ -7,7 +7,7 @@ Substitui o par `e5a_ocr.py` (parse/OCR) + `e5b_extrair.py` (janela) e o embriã
 
     baixa PDF → extrai texto (nativo + OCR nas páginas escaneadas)
               → grava data/5_pdf_texto.csv
-              → DESCARTA o PDF (ADR-012: url_pncp + hash preservados, texto é o active)
+              → DESCARTA o PDF (ADR-012: url_pncp + hash preservados, texto é o ativo)
               → aplica a estratégia (janela | completa | visao | auto)
               → grava item_enriquecido (contrato único, independente de estratégia)
 
@@ -226,7 +226,7 @@ def _documentos_alvo(params: Params) -> set[str]:
 
 
 def _identificadores(doc_ctrl: str, item0: dict) -> dict:
-    """Os campos que a capability `pdf` precisa para achar o arquivo (ADR-012).
+    """Os campos que a capacidade `pdf` precisa para achar o arquivo (ADR-012).
 
     `url_pncp` sozinha aponta para a PÁGINA do documento no portal, não para o PDF — quem
     resolve o arquivo é `listar_arquivos()`, a partir dos sequenciais que a etapa 2 preserva
@@ -249,7 +249,7 @@ def _extrair_texto(provedor_pdf, doc_ctrl: str, item0: dict,
 
     Fase 11 (ADR-019): substitui `_baixar_pdfs` + `_parsear_e_ocr`, que baixavam o PDF numa
     pasta local e rodavam PyMuPDF aqui dentro. Agora quem baixa, parseia, rasteriza e chama o
-    OCR é a capability `pdf` — a etapa recebe texto. Com `PDF_BASE_URL` vazio o trabalho
+    OCR é a capacidade `pdf` — a etapa recebe texto. Com `PDF_BASE_URL` vazio o trabalho
     acontece em processo, exatamente como antes; com serviço configurado, o container nunca vê
     o PDF.
     """
@@ -415,7 +415,7 @@ def _grava_paginas(linhas: list[dict]) -> None:
 
 
 def _marcar_documento_extraido(linhas_doc: list[dict]) -> None:
-    """`documento.estado` é a key de resumo da etapa no banco (ADR-018).
+    """`documento.estado` é a chave de resumo da etapa no banco (ADR-018).
 
     Sem isso o documento voltaria à fila na execução seguinte, repagando OCR e LLM — que é
     exatamente o gasto que o checkpoint por documento existe para evitar. O estado carrega o

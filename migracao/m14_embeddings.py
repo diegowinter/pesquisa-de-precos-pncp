@@ -66,7 +66,7 @@ def migrar(provider: str = PROVEDOR_PADRAO, model: str | None = None) -> Relator
 
     # Medido, não assumido. Uma dimensão diferente da esperada significa que o parquet foi
     # gerado por outro model — e migrá-lo sob o name errado é exatamente o bug silencioso
-    # que a key composta existe para evitar.
+    # que a chave composta existe para evitar.
     rel.mais("dimensões distintas", len(dimensoes))
     if dimensoes != {DIMENSAO_ESPERADA}:
         rel.aviso(f"dimensão MEDIDA no parquet: {sorted(dimensoes)} (esperado "

@@ -94,7 +94,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 #
 # O dedup por texto — o que segura o custo desta etapa, a mais cara do ciclo — deixa de ser
 # intra-execução e vira PERMANENTE (ADR-007): `texto_classificacao` sobrevive entre runs, e
-# um texto já pago nunca mais volta ao model. No CSV, o agrupamento era refeito a cada
+# um texto já pago nunca mais volta ao modelo. No CSV, o agrupamento era refeito a cada
 # execução sobre 1,6 milhão de linhas em memória; aqui o `texto_hash` já veio calculado da
 # ingestão da etapa 2 e o agrupamento é do banco.
 

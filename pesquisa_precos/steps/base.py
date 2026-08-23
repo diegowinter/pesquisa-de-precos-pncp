@@ -7,7 +7,7 @@ por conta própria:
   - montar a própria `rich.Progress`  → `ctx.progresso(...)`;
   - gravar erro de item à mão         → `ctx.erro_item(...)`.
 
-`RunContext` é um `Protocol`: a step nunca importa a implementação, só o contrato. Quem
+`RunContext` é um `Protocol`: a etapa nunca importa a implementação, só o contrato. Quem
 implementa é `runner/contexto_banco.py` (durante um run) e `runner/contexto_nulo.py` (para
 `estimar()`, fora de um run).
 
@@ -37,7 +37,7 @@ class TetoDeCustoExcedido(RuntimeError):
 
 
 class Estimate(BaseModel):
-    """Resposta de `estimar()`: o que a step faria, sem fazer nada.
+    """Resposta de `estimar()`: o que a etapa faria, sem fazer nada.
 
     `cost_usd` fica `None` enquanto não houver preço por chamada configurado
     (`CUSTO_USD_CHAMADA_PASS1/PASS2` no `.env`). Medição real de custo é a Fase 3 — até lá,
@@ -62,7 +62,7 @@ class StepResult(BaseModel):
 
 @runtime_checkable
 class RunContext(Protocol):
-    """Tudo que a step precisa do mundo externo. Injetado por quem executa.
+    """Tudo que a etapa precisa do mundo externo. Injetado por quem executa.
 
     `db` (a sessão de domínio) ainda não é injetado: as etapas abrem a própria via `db.session()`.
     `provedores` expõe `.chat`/`.embed`/`.rerank`/`.pdf`/`.matching`, resolvidos do banco —
@@ -75,13 +75,13 @@ class RunContext(Protocol):
 
     def progresso(self, processed: int, total: int | None = None,
                   descricao: str | None = None) -> None:
-        """Avanço da unidade principal da step. Chamar por lote, nunca por item."""
+        """Avanço da unidade principal da etapa. Chamar por lote, nunca por item."""
 
     def log(self, nivel: str, msg: str, **contexto: Any) -> None:
         """Mensagem para o operador. `msg` pode conter markup do rich."""
 
     def item_error(self, key: str, exc: object, *, tipo: str = "", name: str = "") -> None:
-        """Falha de UMA unidade. Não derruba a step (docs/03_ETAPAS.md §1.1 regra 4)."""
+        """Falha de UMA unidade. Não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4)."""
 
     def cancelado(self) -> bool:
         """Checar em todo laço externo."""
@@ -94,7 +94,7 @@ def subprogresso(ctx: RunContext, processed: int | None = None,
                  total: Any = MANTER, descricao: str | None = None) -> None:
     """Barra secundária, quando o contexto oferece uma (só o de console oferece).
 
-    Existe porque a step 2 mostra duas coisas ao mesmo tempo — buscas (termo×fonte) e
+    Existe porque a etapa 2 mostra duas coisas ao mesmo tempo — buscas (termo×fonte) e
     documentos da busca atual — e essa granularidade é o que deixa visível que a coleta está
     andando dentro de um termo demorado. Contexto que não implementa simplesmente ignora.
     """

@@ -11,7 +11,7 @@ isso. Com a CLI fora, `rich` não tem mais para onde imprimir: quem consome a es
 formulário da web, que lê o `Estimate` de volta.
 
 `gastar()` continua contando e continua respeitando o teto (ADR-004): `estimar` não deveria
-gastar nada, e se uma step gastar, o teto ainda a interrompe.
+gastar nada, e se uma etapa gastar, o teto ainda a interrompe.
 """
 
 from pesquisa_precos.steps.base import MANTER, TetoDeCustoExcedido

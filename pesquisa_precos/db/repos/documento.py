@@ -32,7 +32,7 @@ def gravar_documentos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]])
 
     `DO UPDATE` só nos campos que a API pode revisar. `estado` fica FORA: ele é estado de
     processamento nosso (extraído/suspeito/ilegível), e uma recoleta não pode rebaixar um
-    documento já processado de volta para 'descoberto' — isso mandaria a step 5 reprocessar
+    documento já processado de volta para 'descoberto' — isso mandaria a etapa 5 reprocessar
     e repagar o LLM.
     """
     return copy.copiar(
@@ -63,7 +63,7 @@ def ligar_termos(conn: psycopg.Connection,
 
 
 def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
-    """Resultado da step 4. Recebe as chaves em lote e usa `unnest` — uma consulta, não N.
+    """Resultado da etapa 4. Recebe as chaves em lote e usa `unnest` — uma consulta, não N.
 
     Só marca; NÃO desmarca o que ficou de fora. A step 4 recomputa o corpus inteiro, então
     quem quiser um recorte limpo chama `limpar_sobreviventes()` antes, explicitamente.
@@ -85,7 +85,7 @@ def marcar_sobreviventes_por_categoria(sessao: Session) -> dict[str, int]:
     porque "sobrevivente" é ATRIBUTO do item, não um conjunto à parte (ADR-018): não existe
     tabela de sobreviventes para ficar fora de sincronia com `item`.
 
-    O `UPDATE` desmarca quem deixou de ter categoria — a step 4 sempre recomputa o corpus
+    O `UPDATE` desmarca quem deixou de ter categoria — a etapa 4 sempre recomputa o corpus
     inteiro (o corte depende de tudo que existe), então marcar sem desmarcar deixaria item
     reprovado numa reclassificação marcado para sempre.
 
@@ -157,7 +157,7 @@ def mapa_pasta_para_controle(sessao: Session) -> dict[str, str]:
         "construído a partir de 2_itens_coletados.csv.")
 
 
-# ── Coleta da step 2 no banco (Fase 10) ────────────────────────────────────────────
+# ── Coleta da etapa 2 no banco (Fase 10) ────────────────────────────────────────────
 
 def buscas_concluidas(sessao: Session) -> set[tuple[int, str]]:
     """(termo_id, tipo_doc) já varridos — o `ler_chaves_concluidas(2_progresso.csv)`."""
@@ -196,7 +196,7 @@ def controles_conhecidos(sessao: Session) -> set[str]:
 
 
 def pendentes(sessao: Session) -> dict[str, dict]:
-    """Documentos sem resultado homologado, no formato que a step consome."""
+    """Documentos sem resultado homologado, no formato que a etapa consome."""
     return {
         nc: {"tipo_doc": td, "termo_id": tid, "motivo": motivo, "data": data, "base": base}
         for nc, td, tid, motivo, data, base in sessao.execute(text(

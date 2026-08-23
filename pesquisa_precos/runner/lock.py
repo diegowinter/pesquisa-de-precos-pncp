@@ -7,7 +7,7 @@ Duas camadas, deliberadamente redundantes:
      um `UPDATE ... ON CONFLICT ... WHERE expires_at < now()` atômico — só rouba o lock de quem
      já expirou. Sobrevive a reinício do banco e é o que `runner.launcher` consulta para saber
      "tem step rodando?" sem precisar de uma conexão viva.
-  2. **`pg_advisory_lock`** na conexão que fica aberta pelo `processo.py` durante a step
+  2. **`pg_advisory_lock`** na conexão que fica aberta pelo `processo.py` durante a etapa
      inteira: é o cinto e suspensórios que "some sozinho se a conexão cair" (docs/04_FASES.md
      §Fase 3 item 2) — se o processo morre sem conseguir atualizar a linha (kill -9, queda de
      energia), o advisory lock cai junto quando o Postgres fecha a conexão morta. A linha por
@@ -15,7 +15,7 @@ Duas camadas, deliberadamente redundantes:
 
 A lease (`expires_at`) é quem resolve o caso em que nem a conexão caiu de forma limpa: se o
 heartbeat parar de renovar (`renovar`), depois de `timeout_s` o lock conta como livre para
-`tentar_adquirir`, e `execucao.leases_expiradas` devolve a step à fila (docs/04_FASES.md §Fase
+`tentar_adquirir`, e `execucao.leases_expiradas` devolve a etapa à fila (docs/04_FASES.md §Fase
 3 item 3).
 """
 
@@ -29,7 +29,7 @@ LEASE_PADRAO_S = 300
 
 
 class LockOcupado(RuntimeError):
-    """Já existe uma step em execução (lease ainda não expirou)."""
+    """Já existe uma etapa em execução (lease ainda não expirou)."""
 
 
 def tentar_adquirir(sessao: Session, run_etapa_id: int, pid: int, *,
@@ -60,7 +60,7 @@ def renovar(sessao: Session, run_etapa_id: int, *, timeout_s: int = LEASE_PADRAO
 
 
 def liberar(sessao: Session, run_etapa_id: int) -> None:
-    """Fim limpo da step (concluída, falhou tratado, cancelada). Libera só se o lock ainda é
+    """Fim limpo da etapa (concluída, falhou tratado, cancelada). Libera só se o lock ainda é
     desta execução — não rouba o lock de quem já o tomou depois de uma lease expirada."""
     sessao.execute(
         text("UPDATE run_lock SET run_etapa_id = NULL, pid = NULL, "

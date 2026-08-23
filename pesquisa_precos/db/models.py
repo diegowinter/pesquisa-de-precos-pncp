@@ -117,14 +117,14 @@ class Provedor(Base):
     capabilities: Mapped[list[str]] = mapped_column(ARRAY(_enum("capability")), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     # A key de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
-    # criptograma é amarrado ao `name` do provider pelo AAD, então copiá-lo de uma linha para
+    # criptograma é amarrado ao `name` do provedor pelo AAD, então copiá-lo de uma linha para
     # outra falha ao decifrar em vez de trocar de key em silêncio. `last4` é o que a tela
-    # exibe; a key em claro nunca sobe para API ou HTML.
+    # exibe; a chave em claro nunca sobe para API ou HTML.
     api_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     api_key_last4: Mapped[str | None] = mapped_column(Text)
     api_key_key_id: Mapped[str | None] = mapped_column(Text)
     api_key_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Herança pré-ADR-022: NOME da variável de ambiente, nunca a key. Ainda lido pelo
+    # Herança pré-ADR-022: NOME da variável de ambiente, nunca a chave. Ainda lido pelo
     # resolver enquanto o bloco 4 da Fase 14 (seed + migração de conteúdo) não roda.
     api_key_ref: Mapped[str | None] = mapped_column(Text)
     default_model: Mapped[str | None] = mapped_column(Text)
@@ -134,7 +134,7 @@ class Provedor(Base):
     cost_out_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     # Preço médio de UMA chamada, em USD (Fase 14). Só alimenta o `estimar()` das etapas;
     # o custo consumado real vem de `llm_call`. NULL = "não informado" → estimativa sem
-    # custo, em vez de um número inventado. 0.0 é diferente: é o provider local, que é grátis.
+    # custo, em vez de um número inventado. 0.0 é diferente: é o provedor local, que é grátis.
     cost_usd_per_call: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
@@ -323,7 +323,7 @@ class GrupoPermitido(Base):
 
     Separada de `pdm_permitido` de propósito: esta define o RECORTE DO DOWNLOAD (quais
     `codigoGrupo` a 0a pagina com `--so-grupos-seguranca`), não o ESCOPO da pesquisa. Sem a
-    flag, a step baixa o catálogo inteiro e esta tabela nem é consultada.
+    flag, a etapa baixa o catálogo inteiro e esta tabela nem é consultada.
     """
 
     __tablename__ = "grupo_permitido"
@@ -402,7 +402,7 @@ class TermoGeracao(Base):
     conjunto CRU como key de desempate — com o expandido, a categoria de alguns códigos
     mudaria em silêncio.
 
-    `categoria_llm` é a SUGESTÃO do model; a categoria final (pós-cascata) vive em
+    `categoria_llm` é a SUGESTÃO do modelo; a categoria final (pós-cascata) vive em
     `catalogo_item.categoria`. Guardar as duas permite recomputar a cascata sem rechamar o LLM.
     """
 
@@ -452,7 +452,7 @@ class Documento(Base):
     # Campo REAL de ordenação da API do PNCP — é o watermark da coleta incremental.
     data_atualizacao_pncp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     url_pncp: Mapped[str | None] = mapped_column(Text)
-    # Identificadores internos do PNCP (Fase 8, ADR-011/012): é com eles que a step 5 refaz
+    # Identificadores internos do PNCP (Fase 8, ADR-011/012): é com eles que a etapa 5 refaz
     # `listar_arquivos()` para baixar o PDF depois do corte, sem reconsultar a busca.
     numero_sequencial: Mapped[str | None] = mapped_column(Text)
     numero_sequencial_ata: Mapped[str | None] = mapped_column(Text)
@@ -501,7 +501,7 @@ class ColetaProgresso(Base):
     """(termo, tipo_doc) já varridos — o que era `checkpoints/2_progresso.csv`.
 
     NÃO é derivável do resultado, ao contrário dos checkpoints das outras etapas: uma busca
-    legítima pode não trazer documento nenhum, e derivar de `documento` faria a step revarrer
+    legítima pode não trazer documento nenhum, e derivar de `documento` faria a etapa revarrer
     esses termos para sempre. Chaveado por `termo_id` porque o texto do termo pode ser
     reescrito pela curadoria; o id, não.
     """
@@ -547,7 +547,7 @@ class ColetaWatermark(Base):
 # ── Classificação (02_SCHEMA.md §5) ─────────────────────────────────────────────────
 
 class TextoClassificacao(Base):
-    """Cache de classificação POR TEXTO — o active caro (uma chamada de LLM por linha).
+    """Cache de classificação POR TEXTO — o ativo caro (uma chamada de LLM por linha).
 
     Sobrevive entre runs: o dedup deixa de ser intra-execução e vira permanente (ADR-007).
     """

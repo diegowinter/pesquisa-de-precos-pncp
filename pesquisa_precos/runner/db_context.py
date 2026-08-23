@@ -2,7 +2,7 @@
 `RunContext` de banco (Fase 3) — o que `runner.worker` injeta num subprocesso.
 
 Onde o `ContextoConsole` (Fase 1) fala com `rich.Progress` e um arquivo de errors, este fala
-com `run_step`, `run_log`, `item_error` e o lock — e é isso, não a step, que muda: o corpo de
+com `run_step`, `run_log`, `item_error` e o lock — e é isso, não a etapa, que muda: o corpo de
 `executar()` de cada step continua igual, porque os dois implementam o mesmo `Protocol`
 (docs/03_ETAPAS.md §1).
 
@@ -11,10 +11,10 @@ Duas sessões, de propósito:
     É a que o `with ctx.db.begin(): ...` das etapas abre e fecha (docs/08_CONVENCOES.md §5.3).
   - `_sessao_execucao` é uma sessão SEPARADA, só para a contabilidade do runner (progresso,
     log, heartbeat, custo, lock). Compartilhar a mesma sessão faria `ctx.progresso()` ou
-    `ctx.cancelado()` no meio de uma transação de domínio da step fazer commit/rollback de
+    `ctx.cancelado()` no meio de uma transação de domínio da etapa fazer commit/rollback de
     coisas que não são dela — e é justamente a conexão desta segunda sessão que carrega o
     `pg_advisory_lock` (ver `runner.lock`), então ela precisa ficar viva o tempo todo, com vida
-    própria, independente do que a step fizer com `db`.
+    própria, independente do que a etapa fizer com `db`.
 
 `cancelado()` não bate no banco a cada chamada (seria uma consulta por item nalgumas etapas):
 reaproveita o mesmo intervalo do heartbeat — no máximo `min(30s, lease/3)` de atraso para
@@ -47,8 +47,8 @@ class DbContext:
         self.step = step
         self.action = action
         self.mode = mode
-        # Sessão de DOMÍNIO da step (`self.db`), não a de execução — resolver via
-        # `provider_capability` é leitura, cabe na mesma sessão que a step já usa (Fase 7).
+        # Sessão de DOMÍNIO da etapa (`self.db`), não a de execução — resolver via
+        # `provider_capability` é leitura, cabe na mesma sessão que a etapa já usa (Fase 7).
         self.providers = Providers(self.db)
 
         self._sessao_execucao = sessao_execucao

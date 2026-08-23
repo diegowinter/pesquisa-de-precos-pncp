@@ -9,7 +9,7 @@ não em cada consulta depois (docs/05_MIGRACAO.md §m04).
 cabeçalho vem como '\\ufefftipo' e todo `row["tipo"]` estoura.
 
 `0a_catalogo_delta.csv` marca códigos `removido` → `active = false`. Desativa, nunca apaga: o
-código removido do CATMAT continua sendo a source de linhas já entregues em export.
+código removido do CATMAT continua sendo a origem de linhas já entregues em export.
 
 Uso: python -m migracao.m04_catalogo
 """
@@ -77,7 +77,7 @@ def migrar() -> Relatorio:
             "WHERE categoria IS NULL OR categoria = ''")).scalar_one()
     if sem_categoria:
         # Código sem categoria não pareia na 6a (o produto é restrito à mesma categoria).
-        # Não é erro de migração — é buraco da step 1 —, mas precisa aparecer.
+        # Não é erro de migração — é buraco da etapa 1 —, mas precisa aparecer.
         rel.aviso(f"{sem_categoria} códigos ficaram SEM categoria — eles não pareiam na 6a.")
     return rel
 

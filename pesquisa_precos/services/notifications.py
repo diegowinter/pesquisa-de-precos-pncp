@@ -11,7 +11,7 @@ Credenciais só em `.env` (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`), NUNCA no banc
 e-mails) vem da tabela `notification_recipient`, com CRUD próprio na interface web.
 
 BEST-EFFORT por desenho: qualquer falha de rede/config aqui é engolida e logada — uma
-notificação que não saiu não pode derrubar a step nem o processo que a chamou (ADR-001: este
+notificação que não saiu não pode derrubar a etapa nem o processo que a chamou (ADR-001: este
 é um sistema de um operador; a notificação é conveniência, não parte do contrato de dados).
 """
 
@@ -75,7 +75,7 @@ _ROTULO_EVENTO = {
 def _destinatarios_ativos() -> list[dict]:
     """Busca `notification_recipient` ativos. Import local (não no topo do módulo) para não
     criar dependência de banco disponível só para importar `notificacoes` — usado em contexto
-    de subprocesso da step, onde falhar cedo por causa de notificação seria pior que só não
+    de subprocesso da etapa, onde falhar cedo por causa de notificação seria pior que só não
     notificar (mesmo espírito best-effort do resto do módulo)."""
     from pesquisa_precos.services import notification_recipients as service_recipients
 

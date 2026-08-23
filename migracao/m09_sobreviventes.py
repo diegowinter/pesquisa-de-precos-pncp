@@ -2,7 +2,7 @@
 m09 — Sobreviventes: `4_itens_sobreviventes.csv` → `item.sobrevivente` +
 `documento.n_itens_sobreviventes`.
 
-O CSV da step 4 é o corpus inteiro filtrado (190 MB, 302.514 linhas) e repete todas as colunas
+O CSV da etapa 4 é o corpus inteiro filtrado (190 MB, 302.514 linhas) e repete todas as colunas
 do item. Aqui só interessa a CHAVE: quem sobreviveu ao corte. Nada mais é migrado deste arquivo
 — os dados do item já vieram do m07, e reimportá-los daqui abriria a chance de duas versões da
 mesma linha no banco.

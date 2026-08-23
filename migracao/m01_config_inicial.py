@@ -71,7 +71,7 @@ def migrar() -> Relatorio:
             allows_fallback=True)
         rel.mais("provider", 4)
 
-        # `chat` aponta para o LM Studio: o model barato é a política, não uma flag
+        # `chat` aponta para o LM Studio: o modelo barato é a política, não uma flag
         # (ADR-004). Trocar para openrouter é decisão explícita, com teto de custo junto.
         repo.apontar_capacidade(s, "chat", "lm_studio", cfg["local_model"],
                                 fallback="openrouter")

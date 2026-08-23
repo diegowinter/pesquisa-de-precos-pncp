@@ -69,7 +69,7 @@ def obter_run(run_id: int) -> dict[str, Any] | None:
     """Run + uma linha por step do registry (docs/06_API_E_WEB.md §4.1, o "grafo"). Etapas
     ainda não tocadas neste run aparecem como `nao_iniciada` sem precisar de uma linha em
     `run_step` — só `obter_ou_criar_run_etapa` cria a linha de verdade, e isso só deve
-    acontecer quando algo de fato age sobre a step (executar/approve/cancel)."""
+    acontecer quando algo de fato age sobre a etapa (executar/approve/cancel)."""
     with db.session() as sessao:
         run = repo.run_por_id(sessao, run_id)
         if run is None:
@@ -99,7 +99,7 @@ def detalhe_etapa(run_id: int, key: str) -> dict[str, Any]:
 
 
 def estimativa_etapa(key: str) -> dict[str, Any]:
-    """`estimar()` da step — escopo e custo previstos, sem gastar nada. Roda fora de um run,
+    """`estimar()` da etapa — escopo e custo previstos, sem gastar nada. Roda fora de um run,
     então o contexto é o `NullContext` (ver o módulo)."""
     from pesquisa_precos.runner.null_context import NullContext
 

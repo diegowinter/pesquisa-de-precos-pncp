@@ -1,7 +1,7 @@
 """
 Diff entre runs (Fase 9, docs/04_FASES.md item 2) — "o que mudou do export de ontem para o de
 hoje": item novo, item sumiu, preço mudou. Generaliza a lógica de `--novos`/`export_snapshot`
-da step 8 (compara chaves entre dois conjuntos) para comparar dois `grupo_item` de runs
+da etapa 8 (compara chaves entre dois conjuntos) para comparar dois `grupo_item` de runs
 DIFERENTES, em vez de um run contra o snapshot do último `--novos`.
 
 `api/` e `web/` só chamam este módulo (docs/01_ARQUITETURA.md §7) — nenhum SQL solto fora de

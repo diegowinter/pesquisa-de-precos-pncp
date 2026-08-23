@@ -1,7 +1,7 @@
 """
-Repositório da step 5 (`documento_pagina`, `documento_extracao`, `item_enriquecido`).
+Repositório da etapa 5 (`documento_pagina`, `documento_extracao`, `item_enriquecido`).
 
-`item_enriquecido` é o CONTRATO DE SAÍDA da step 5 (ADR-010): as etapas 6, 7 e 8 leem só ela
+`item_enriquecido` é o CONTRATO DE SAÍDA da etapa 5 (ADR-010): as etapas 6, 7 e 8 leem só ela
 e ignoram por qual estratégia o dado chegou. Por isso as funções de leitura daqui nunca
 expõem `estrategia` como filtro obrigatório.
 
@@ -49,7 +49,7 @@ def gravar_extracoes(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) 
 
 
 def gravar_enriquecidos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
-    """Contrato de saída da step 5 (ordem de `COLUNAS_ENRIQUECIDO`).
+    """Contrato de saída da etapa 5 (ordem de `COLUNAS_ENRIQUECIDO`).
 
     `DO UPDATE`: reprocessar um documento por outra estratégia DEVE sobrescrever o veredito do
     item — é a ação "reprocessar este documento com outra estratégia" da interface. O
@@ -80,7 +80,7 @@ def descricao_final_por_item(sessao: Session) -> dict[str, str]:
 
 
 def item_keys_por_destino(sessao: Session, destino: str = "manter") -> set[str]:
-    """Comporta de enriquecimento da step 6a: só 'manter' segue para o pareamento."""
+    """Comporta de enriquecimento da etapa 6a: só 'manter' segue para o pareamento."""
     return set(sessao.scalars(
         text("SELECT item_key FROM item_enriquecido "
              "WHERE destino = CAST(:d AS destino_item)"), {"d": destino}).all())

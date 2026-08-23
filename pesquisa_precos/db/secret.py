@@ -3,24 +3,24 @@ Cifra dos segredos que moram no banco (Fase 14, ADR-022).
 
 Até a Fase 13, `provider.api_key_ref` guardava o *name* de uma variável de ambiente e o value
 ficava no `.env`. A intenção era não vazar key em `pg_dump` — mas o efeito colateral era que
-cadastrar um provider pela tela continuava impossível sem editar arquivo e reiniciar o
+cadastrar um provedor pela tela continuava impossível sem editar arquivo e reiniciar o
 servidor, ou seja, a tela de provedores nunca virava a superfície de configuração que a ADR-014
 prometeu. A key passa a morar no banco, **cifrada**.
 
 O desenho é envelope simples:
 
 - **key-mestra** (`APP_SECRET_KEY`) — 32 bytes em base64url, vem do *ambiente do processo*,
-  nunca do banco. É a única coisa que continua fora, porque uma key não pode morar dentro
+  nunca do banco. É a única coisa que continua fora, porque uma chave não pode morar dentro
   do que ela protege.
 - **AES-256-GCM** por segredo, com nonce de 12 bytes aleatório por operação. GCM e não CBC
   porque queremos autenticação junto: um `bytea` adulterado no banco falha ao decifrar em vez
   de devolver lixo silencioso.
-- O name do provider entra como **AAD** (dado autenticado, não cifrado). Isso amarra o
-  criptograma à linha: copiar o `api_key_encrypted` do provider A para o B faz a decifra falhar,
-  em vez de o B passar a usar a key do A sem ninguém notar.
+- O name do provedor entra como **AAD** (dado autenticado, não cifrado). Isso amarra o
+  criptograma à linha: copiar o `api_key_encrypted` do provedor A para o B faz a decifra falhar,
+  em vez de o B passar a usar a chave do A sem ninguém notar.
 
 Formato do blob gravado: `b"v1" || key_id (16 bytes, padded) || nonce (12) || ciphertext+tag`.
-O `key_id` fica no blob *e* em coluna própria para permitir **rotação** da key-mestra sem
+O `key_id` fica no blob *e* em coluna própria para permitir **rotação** da chave-mestra sem
 downtime: durante a janela, `APP_SECRET_KEY_ANTIGA` também é aceita na decifra, e
 `recifrar` reescreve linha a linha.
 
@@ -37,7 +37,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Efeito colateral deliberado (mesmo padrão de `db/sessao.py`): carrega o `.env`. Sem isto,
-# `os.getenv(VAR_CHAVE)` só enxerga a key se ALGUÉM tiver importado `config.settings` antes
+# `os.getenv(VAR_CHAVE)` só enxerga a chave se ALGUÉM tiver importado `config.settings` antes
 # — o que é verdade pela web (via `db.session`) e falso num script que importe só este módulo.
 # O sintoma seria "APP_SECRET_KEY não definida" com a variável ali, no arquivo.
 from pesquisa_precos.config import settings  # noqa: F401
@@ -62,7 +62,7 @@ class SegredoInvalido(ValueError):
 
 
 def _material(value: str) -> bytes:
-    """Aceita a key-mestra como base64url de 32 bytes (o formato que `gerar_chave_mestra`
+    """Aceita a chave-mestra como base64url de 32 bytes (o formato que `gerar_chave_mestra`
     emite) ou como texto livre, derivando 32 bytes por SHA-256. A segunda forma existe porque
     operador vai colar senha à mão em algum momento — melhor derivar do que recusar e ver a
     key virar um `APP_SECRET_KEY=123` improvisado noutro lugar."""
@@ -81,7 +81,7 @@ def gerar_chave_mestra() -> str:
 
 
 def _key_id(material: bytes) -> str:
-    """Identificador público da key-mestra: 8 bytes do SHA-256 dela, em hex. Não revela a
+    """Identificador público da chave-mestra: 8 bytes do SHA-256 dela, em hex. Não revela a
     key e permite saber qual delas cifrou cada linha durante uma rotação."""
     return hashlib.sha256(material).hexdigest()[:16]
 
@@ -163,5 +163,5 @@ def recifrar(blob: bytes, *, context: str) -> bytes:
 
 
 def ultimos4(segredo: str) -> str:
-    """O que a tela mostra no lugar da key. Segredos curtos não expõem nada."""
+    """O que a tela mostra no lugar da chave. Segredos curtos não expõem nada."""
     return segredo[-4:] if len(segredo) >= 8 else ""

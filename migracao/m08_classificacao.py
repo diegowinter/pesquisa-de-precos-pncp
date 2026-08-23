@@ -48,7 +48,7 @@ STAGING = "stg_m08_classificacao"
 
 # Escala ORDINAL, não probabilidade. Preserva a ordem que o rótulo textual carregava e nada
 # além disso; qualquer leitura como "72% de certeza" seria leitura errada.
-# A escala vive em `db.repos.classification` (fonte única — a step 3 usa a MESMA).
+# A escala vive em `db.repos.classification` (fonte única — a etapa 3 usa a MESMA).
 CONFIANCA = repo.CONFIANCA_ORDINAL
 
 MODELO_PADRAO = "acervo v2/v3 (model local, build não registrado)"

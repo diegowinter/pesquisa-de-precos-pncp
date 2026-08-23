@@ -45,7 +45,7 @@ class Params(BaseModel):
 #
 # Duas mudanças na mesma passada, porque tocam o mesmo corpo:
 #   Fase 10 — catálogo e itens vêm do banco; os pares vão para a tabela `par`;
-#   Fase 11 — BM25 + cosseno + corte saem do processo e viram a capability `pareamento`.
+#   Fase 11 — BM25 + cosseno + corte saem do processo e viram a capacidade `pareamento`.
 #
 # O corte em streaming NÃO ficou para trás na mudança: ele agora vive em
 # `core/pareamento/motor.py`, que roda tanto no serviço quanto em processo. O aviso do

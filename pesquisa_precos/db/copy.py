@@ -12,10 +12,10 @@ de texto. Um INSERT por linha (ou até em lotes de mil) leva horas; `COPY` leva 
 O passo 3 é o que dá a **idempotência** exigida por docs/05_MIGRACAO.md §1: rodar duas vezes
 não duplica. E como a temp é `ON COMMIT DROP`, um lote interrompido no meio não deixa lixo.
 
-Regra: a tabela temporária é deduplicada antes do INSERT (`DISTINCT ON` na key de conflito).
+Regra: a tabela temporária é deduplicada antes do INSERT (`DISTINCT ON` na chave de conflito).
 Sem isso, um lote que traga a MESMA key duas vezes faz o Postgres levantar
 "ON CONFLICT DO UPDATE command cannot affect row a second time" — e o CSV do acervo tem
-duplicatas de verdade (a step 2 é append-only).
+duplicatas de verdade (a etapa 2 é append-only).
 """
 
 from collections.abc import Iterable, Iterator, Sequence
@@ -69,7 +69,7 @@ def copiar(
 ) -> int:
     """Copia `linhas` para `tabela`, resolvendo conflito. Devolve quantas linhas foram enviadas.
 
-    `conflito`   colunas da key de conflito. `None` = INSERT direto (destino vazio/append).
+    `conflito`   colunas da chave de conflito. `None` = INSERT direto (destino vazio/append).
     `atualizar`  colunas a sobrescrever em `DO UPDATE`. `None`/vazio = `DO NOTHING`.
     `where_update` condição extra do `DO UPDATE` (ex.: só sobrescrever se o value mudou).
 

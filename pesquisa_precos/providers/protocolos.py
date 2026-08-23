@@ -31,7 +31,7 @@ class ProviderInfo:
     cost_in_per_mtok: float | None = None
     cost_out_per_mtok: float | None = None
     # Preço médio de UMA chamada (Fase 14). `None` = não informado: o `estimar()` responde
-    # "não estimado" em vez de inventar. `0.0` é o provider local, que é grátis.
+    # "não estimado" em vez de inventar. `0.0` é o provedor local, que é grátis.
     cost_usd_per_call: float | None = None
     # Fallback é PROIBIDO em 'embed' (ADR-006 §2) — `resolver.py` já recusa montar um
     # `ProviderInfo` de embed com fallback preenchido; o campo existe para chat/rerank/ocr.
@@ -60,7 +60,7 @@ class ChatProvider(Protocol):
 class EmbedProvider(Protocol):
     """Capacidade `embed` — vetores para o score semântico da etapa 6a.
 
-    FALLBACK PROIBIDO (ADR-006 §2): se este provider falhar, a etapa deve parar, nunca cair
+    FALLBACK PROIBIDO (ADR-006 §2): se este provedor falhar, a etapa deve parar, nunca cair
     para outro — trocar de provider no meio mistura espaços vetoriais em silêncio.
     """
 
@@ -70,7 +70,7 @@ class EmbedProvider(Protocol):
         """Vetores L2-normalizados, na ordem de `textos`."""
 
     def liberar(self) -> None:
-        """Libera o model/conexão ao final da etapa."""
+        """Libera o modelo/conexão ao final da etapa."""
 
 
 @runtime_checkable
@@ -83,7 +83,7 @@ class RerankProvider(Protocol):
         """Score por par, na ordem de `pares`."""
 
     def liberar(self) -> None:
-        """Libera o model/conexão ao final da etapa."""
+        """Libera o modelo/conexão ao final da etapa."""
 
 
 @runtime_checkable
