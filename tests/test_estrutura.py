@@ -18,9 +18,9 @@ import pytest
 from pesquisa_precos.config import paths
 
 ETAPAS = [
-    "e0a_catalogo", "e1_termos", "e2_coletar", "e3_classificar", "e4_cortar",
-    "e5_extrair",
-    "e6a_pares", "e6b_rerank", "e6c_validar", "e7_agrupar", "e8_exportar",
+    "e0a_catalogo", "e1_termos", "e2_collect", "e3_classify", "e4_cut",
+    "e5_extract",
+    "e6a_pairs", "e6b_rerank", "e6c_validate", "e7_group", "e8_export",
 ]
 
 
@@ -30,9 +30,9 @@ def test_raiz_e_a_do_repositorio():
     assert paths.DATA.name == "data"
 
 
-@pytest.mark.parametrize("nome", ETAPAS)
-def test_etapa_importa(nome):
-    importlib.import_module(f"pesquisa_precos.etapas.{nome}")
+@pytest.mark.parametrize("name", ETAPAS)
+def test_etapa_importa(name):
+    importlib.import_module(f"pesquisa_precos.steps.{name}")
 
 
 def test_todo_o_pacote_importa():
@@ -43,8 +43,8 @@ def test_todo_o_pacote_importa():
         importlib.import_module(m.name)
 
 
-@pytest.mark.parametrize("nome", ETAPAS)
-def test_etapa_nao_expoe_nenhum_caminho(nome):
+@pytest.mark.parametrize("name", ETAPAS)
+def test_etapa_nao_expoe_nenhum_caminho(name):
     """
     Fase 13 (ADR-020): nenhuma etapa pode ter constante de caminho.
 
@@ -55,18 +55,18 @@ def test_etapa_nao_expoe_nenhum_caminho(nome):
 
     `paths.py` continua existindo, mas é do importador (`migracao/`), não das etapas.
     """
-    mod = importlib.import_module(f"pesquisa_precos.etapas.{nome}")
+    mod = importlib.import_module(f"pesquisa_precos.steps.{name}")
     caminhos = {a: getattr(mod, a) for a in dir(mod)
                 if not a.startswith("_") and isinstance(getattr(mod, a), Path)}
-    assert not caminhos, f"{nome} voltou a expor caminho(s): {caminhos}"
+    assert not caminhos, f"{name} voltou a expor caminho(s): {caminhos}"
 
 
-@pytest.mark.parametrize("nome", ETAPAS)
-def test_etapa_nao_importa_paths(nome):
+@pytest.mark.parametrize("name", ETAPAS)
+def test_etapa_nao_importa_paths(name):
     """A outra metade da mesma regra: nem por importação indireta."""
-    origem = (paths.RAIZ / "pesquisa_precos" / "etapas" / f"{nome}.py").read_text(encoding="utf-8")
+    origem = (paths.RAIZ / "pesquisa_precos" / "steps" / f"{name}.py").read_text(encoding="utf-8")
     assert "config import paths" not in origem and "config.paths" not in origem, (
-        f"{nome} importa `config.paths` — ver o docstring de `paths.py`")
+        f"{name} importa `config.paths` — ver o docstring de `paths.py`")
 
 
 def test_nao_restou_nenhum_import_do_pacote_scripts():
@@ -92,9 +92,9 @@ _VARS_QUE_MIGRARAM = (
     "RERANK_T_REJEITA", "MIN_ITENS", "TOP_N",
 )
 
-# `ferramentas/semear_provedores.py` é a ÚNICA exceção legítima: a ponte de mão única que lê o
+# `tools/seed_providers.py` é a ÚNICA exceção legítima: a ponte de mão única que lê o
 # `.env` antigo uma vez para popular o banco.
-_PODEM_LER_O_ENV_ANTIGO = ("semear_provedores.py",)
+_PODEM_LER_O_ENV_ANTIGO = ("seed_providers.py",)
 
 
 def _modulos_do_pacote():
@@ -106,7 +106,7 @@ def _modulos_do_pacote():
 
 @pytest.mark.parametrize("variavel", _VARS_QUE_MIGRARAM)
 def test_nenhum_modulo_le_variavel_que_migrou_para_o_banco(variavel):
-    """ADR-022: quem sabe modelo/URL/chave/threshold é o banco, e o único ponto que o lê é
+    """ADR-022: quem sabe modelo/URL/key/threshold é o banco, e o único ponto que o lê é
     `providers/resolver.py`."""
     infratores = [arq.name for arq in _modulos_do_pacote()
                   if arq.name not in _PODEM_LER_O_ENV_ANTIGO

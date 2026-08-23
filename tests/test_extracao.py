@@ -4,13 +4,13 @@ Extração de item a partir de texto (Fase 9 — prioridade 2 de docs/08_CONVENC
 tabela com casos reais, incluindo números BR malformados (`107.222,00` não pode virar `107,22`).
 """
 
-from pesquisa_precos.estrategias.base import (
+from pesquisa_precos.strategies.base import (
     BANDA_SANIDADE_MAX,
     BANDA_SANIDADE_MIN,
     num,
     validar_extracao,
 )
-from pesquisa_precos.estrategias.janela import _variantes_preco, janela_para_item
+from pesquisa_precos.strategies.window import _variantes_preco, janela_para_item
 
 
 class TestNum:

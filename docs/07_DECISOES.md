@@ -493,7 +493,7 @@ responsabilidade de quem tem o documento em mãos, e o servidor deixa de trafega
   Sobram FastAPI, SQLAlchemy/psycopg, Jinja2, requests e openpyxl.
 - O corte em streaming da 6a continua existindo — muda de lado, não desaparece. O aviso de
   não reintroduzir um `aplicar_corte` pós-hoc passa a valer para o serviço externo.
-- O health check pré-play do `runner.executor` passa a cobrir `pdf` e `pareamento`: serviço
+- O health check pré-play do `runner.launcher` passa a cobrir `pdf` e `pareamento`: serviço
   fora do ar reprova a etapa **antes** de ela começar.
 - **Custo:** o sistema deixa de funcionar sem os serviços externos no ar. É a troca consciente
   do ADR-001 (monolito) sendo parcialmente revista — o monolito continua valendo para
@@ -725,7 +725,7 @@ desenvolvimento.
 
 **Ajustes feitos na implementação** (2026-08-22)
 
-- O **seed ficou em `ferramentas/semear_provedores.py`**, não numa migração Alembic como esta
+- O **seed ficou em `tools/seed_providers.py`**, não numa migração Alembic como esta
   ADR previa. Semear depende do `.env` de origem e da chave-mestra no ambiente; migração que
   exige segredo para rodar quebra em qualquer máquina que não seja a do operador, e o
   `downgrade` dela não teria como desfazer a cifra.

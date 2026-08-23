@@ -10,17 +10,17 @@ cada item). Duas passadas em STREAMING, nunca `pd.read_csv` (docs/08_CONVENCOES.
               passada 2 é separada.
   Passada 2 — itens. Uma linha por item, com o `texto_hash` calculado AQUI.
 
-`texto_hash = core.textos.texto_hash(descricao_api, unidade)`. É a mesma função que a etapa 3
+`texto_hash = core.text.texto_hash(descricao_api, unidade)`. É a mesma função que a etapa 3
 usa para agrupar. Uma diferença mínima entre as duas pontas invalidaria o dedup permanente e
 mandaria 320 mil textos já pagos de volta ao LLM (docs/08_CONVENCOES.md §5.4).
 
 `conceitos_origem` → `documento_termo`, consolidando também `checkpoints/2_conceitos_extra.csv`
 (os conceitos acrescentados por dedup de documento). É a mesma consolidação que
-`coleta_pncp.carregar_itens_coletados()` faz em memória hoje — replicada aqui em streaming,
+`collect_pncp.carregar_itens_coletados()` faz em memória hoje — replicada aqui em streaming,
 porque aquela função carrega o CSV inteiro.
 
 `pasta_arquivos` **não é migrada como caminho** (ADR-012). No lugar vai `url_pncp`,
-reconstruída por `core.coleta.urls.url_documento` — é o que torna o descarte do PDF reversível.
+reconstruída por `core.collection.urls.url_documento` — é o que torna o descarte do PDF reversível.
 
 `data_atualizacao_pncp` não existe no CSV da v2: fica NULL. O watermark vem do m06.
 
@@ -40,10 +40,10 @@ import sys
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.core.coleta.urls import url_documento
-from pesquisa_precos.core.textos import normalizar_termo, texto_hash
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.core.collection.urls import url_documento
+from pesquisa_precos.core.text import normalizar_termo, texto_hash
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import documento as repo
 from pesquisa_precos.db.repos import termo as repo_termo
 from migracao._comum import (
@@ -127,7 +127,7 @@ def passada_documentos(rel: Relatorio, total: int) -> dict[str, set[str]]:
         rel.aviso(f"{sem_url} documentos ficaram sem url_pncp (número de controle fora do "
                   f"formato conhecido) — eles não podem ser rebaixados do PNCP.")
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         for lote in em_lotes(docs.values(), LOTE):
             rel.mais("documentos gravados", repo.gravar_documentos(conn, lote))
 
@@ -143,7 +143,7 @@ def passada_documentos(rel: Relatorio, total: int) -> dict[str, set[str]]:
 
 
 def ligar_termos(rel: Relatorio, conceitos: dict[str, set[str]]) -> None:
-    with db.sessao() as s:
+    with db.session() as s:
         por_norm = repo_termo.id_por_norm(s)
 
     def pares():
@@ -155,7 +155,7 @@ def ligar_termos(rel: Relatorio, conceitos: dict[str, set[str]]) -> None:
                     continue
                 yield (nc, termo_id)
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         for lote in em_lotes(pares(), LOTE):
             rel.mais("documento_termo gravados", repo.ligar_termos(conn, lote))
 
@@ -185,10 +185,10 @@ def passada_itens(rel: Relatorio, total: int, retomada: Retomada) -> None:
                    data(r.get("data_resultado")),
                    texto_hash(descricao, unidade))
 
-    with _barra() as barra, db.conexao_bruta() as conn:
+    with _barra() as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("passada 2/2 · itens", total=total, completed=pular)
         # O `COPY` de cada lote e o avanço da retomada acontecem na MESMA transação da
-        # conexão bruta? Não: `conexao_bruta` só comita no fim. Por isso o commit é por lote,
+        # conexão bruta? Não: `raw_connection` só comita no fim. Por isso o commit é por lote,
         # explícito — sem ele, uma interrupção perderia tudo e a retomada mentiria.
         for lote in em_lotes(linhas(), LOTE):
             repo.gravar_itens(conn, lote)
@@ -217,7 +217,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     ligar_termos(rel, conceitos)
     passada_itens(rel, total, retomada)
 
-    with db.sessao() as s:
+    with db.session() as s:
         for chave, valor in repo.contar(s).items():
             rel.mais(f"{chave} no banco", valor)
     return rel
@@ -227,7 +227,7 @@ def main() -> None:
     cabecalho("m07 — documentos e itens",
               [paths.E2_ITENS, paths.CK_2_CONCEITOS_EXTRA],
               "documento, documento_termo, item")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 
 

@@ -32,11 +32,11 @@ import sys
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import documento as repo_doc
-from pesquisa_precos.db.repos import execucao as repo_exec
-from pesquisa_precos.db.repos import extracao as repo
+from pesquisa_precos.db.repos import execution as repo_exec
+from pesquisa_precos.db.repos import extraction as repo
 from migracao._comum import (
     Relatorio,
     Retomada,
@@ -90,7 +90,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     total = estimar_linhas(paths.E5_ENRIQUECIDOS)
     rel.mais("registros no CSV (estimado)", total)
 
-    with db.sessao() as s:
+    with db.session() as s:
         run_id = repo_exec.run_do_acervo_migrado(s)
 
     # Acumuladores por documento — 68 mil chaves, cabe em memória.
@@ -127,7 +127,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
-                  console=console) as barra, db.conexao_bruta() as conn:
+                  console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("gravando enriquecidos", total=total,
                                 completed=retomada.linhas)
         for lote in em_lotes(linhas(), LOTE):
@@ -138,7 +138,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             barra.update(tarefa, completed=retomada.linhas)
 
     # `documento_extracao`: uma linha por documento, estratégia 'janela', custo NÃO medido.
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         extracoes = [
             (nc, "janela", None, None, ocr_por_doc.get(nc), 0, 0, 0, None, None, None, run_id)
             for nc in estado_por_doc
@@ -146,7 +146,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
         for lote in em_lotes(extracoes, LOTE):
             rel.mais("documento_extracao gravados", repo.gravar_extracoes(conn, lote))
 
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("documentos com estado atualizado",
                  repo_doc.atualizar_estado(s, list(estado_por_doc.items())))
         for chave, valor in repo.contar(s).items():
@@ -157,7 +157,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 def main() -> None:
     cabecalho("m11 — itens enriquecidos", [paths.E5_ENRIQUECIDOS, paths.E5_DESTINO],
               "item_enriquecido, documento_extracao, documento.estado")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 
 

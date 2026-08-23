@@ -24,36 +24,36 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from pesquisa_precos.api.auth import exigir_token
 from pesquisa_precos.api.routers import config as router_config
-from pesquisa_precos.api.routers import notificacoes as router_notificacoes
+from pesquisa_precos.api.routers import notifications as router_notifications
 from pesquisa_precos.api.routers import runs as router_runs
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.segredo import ChaveMestraAusente
-from pesquisa_precos.services import config as servico_config
-from pesquisa_precos.services import diff as servico_diff
-from pesquisa_precos.services import execucao as servico
-from pesquisa_precos.services import notificacao_destinatarios as servico_destinatarios
-from pesquisa_precos.services import prompts as servico_prompts
-from pesquisa_precos.services import provedores as servico_provedores
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.secret import ChaveMestraAusente
+from pesquisa_precos.services import config as service_config
+from pesquisa_precos.services import diff as service_diff
+from pesquisa_precos.services import execution as service
+from pesquisa_precos.services import notification_recipients as service_recipients
+from pesquisa_precos.services import prompts as service_prompts
+from pesquisa_precos.services import providers as service_providers
 from pesquisa_precos.services.config import ConfigVersaoInexistente
 from pesquisa_precos.services.diff import RunSemRankingError
-from pesquisa_precos.services.execucao import (
+from pesquisa_precos.services.execution import (
     DependenciaNaoSatisfeita,
     ExecucaoEmAndamento,
     RefazerSemConfirmacao,
     RunInexistente,
 )
-from pesquisa_precos.services.notificacao_destinatarios import (
+from pesquisa_precos.services.notification_recipients import (
     DestinatarioInexistente,
     DestinatarioSemCanal,
 )
 from pesquisa_precos.services.prompts import PromptInexistente
-from pesquisa_precos.services.provedores import (
+from pesquisa_precos.services.providers import (
     FallbackProibido,
     ProvedorInexistente,
     ProvedorInvalido,
 )
 from pesquisa_precos.web import auth
-from pesquisa_precos.web.estado import CLASSE_ETAPA, ICONE_ETAPA
+from pesquisa_precos.web.state import CLASSE_STEP, ICONE_STEP
 
 RAIZ_WEB = Path(__file__).resolve().parent
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -64,7 +64,7 @@ app.mount("/static", StaticFiles(directory=RAIZ_WEB / "static"), name="static")
 
 # ── Superfície JSON (ex-`api/app.py`, Fase 4) ────────────────────────────────────────
 # Mesmos `services/` que o HTML consome; o que muda é só a representação e a autenticação.
-for _router in (router_runs.router, router_config.router, router_notificacoes.router):
+for _router in (router_runs.router, router_config.router, router_notifications.router):
     app.include_router(_router, prefix="/api", dependencies=[Depends(exigir_token)])
 
 
@@ -100,24 +100,24 @@ async def _tratar_chave_invalida(request: Request, exc: KeyError):
 def health():
     """Sem autenticação — é o endpoint que um monitor externo bate antes de saber se vale a
     pena mandar um token."""
-    ok, mensagem = db.esta_disponivel()
-    return {"status": "ok" if ok else "erro", "banco": mensagem, "versao": app.version}
+    ok, mensagem = db.is_available()
+    return {"status": "ok" if ok else "erro", "banco": mensagem, "version": app.version}
 
 
 @app.get("/api/providers/status")
 def providers_status(_: None = Depends(exigir_token)):
-    return {"provedores": servico.listar_provedores()}
+    return {"provedores": service.listar_provedores()}
 
 
 templates = Jinja2Templates(directory=RAIZ_WEB / "templates")
-templates.env.globals["icone_etapa"] = ICONE_ETAPA
-templates.env.globals["classe_etapa"] = CLASSE_ETAPA
+templates.env.globals["icone_etapa"] = ICONE_STEP
+templates.env.globals["classe_etapa"] = CLASSE_STEP
 
 
-def _render(request: Request, nome: str, contexto: dict[str, Any] | None = None, status_code: int = 200):
+def _render(request: Request, name: str, contexto: dict[str, Any] | None = None, status_code: int = 200):
     ctx = {"usuario": request.session.get("usuario"), "erro": request.query_params.get("erro")}
     ctx.update(contexto or {})
-    return templates.TemplateResponse(request, nome, ctx, status_code=status_code)
+    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 
 
 def _redirecionar_com_erro(url: str, exc: Exception) -> RedirectResponse:
@@ -159,13 +159,13 @@ def fazer_logout(request: Request):
 
 @app.get("/runs")
 def lista_runs(request: Request, usuario: str = Depends(auth.exigir_login)):
-    return _render(request, "runs_lista.html", {"runs": servico.listar_runs()})
+    return _render(request, "runs_list.html", {"runs": service.listar_runs()})
 
 
 @app.post("/runs")
 def criar_run(request: Request, rotulo: str = Form(...), modo: str = Form("assistido"),
              teto_custo_usd: str = Form(""), usuario: str = Depends(auth.exigir_login)):
-    run_id = servico.criar_run(rotulo, modo=modo,
+    run_id = service.criar_run(rotulo, modo=modo,
                                teto_custo_usd=float(teto_custo_usd) if teto_custo_usd else None,
                                criado_por=usuario)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
@@ -173,24 +173,24 @@ def criar_run(request: Request, rotulo: str = Form(...), modo: str = Form("assis
 
 @app.get("/runs/{run_id}")
 def hub_run(request: Request, run_id: int, usuario: str = Depends(auth.exigir_login)):
-    run = servico.obter_run(run_id)
+    run = service.obter_run(run_id)
     if run is None:
         return _redirecionar_com_erro("/runs", RunInexistente(f"run {run_id} não existe"))
     return _render(request, "run_hub.html", {"run": run})
 
 
-@app.get("/runs/{run_id}/grafo")
+@app.get("/runs/{run_id}/graph")
 def fragmento_grafo(request: Request, run_id: int, usuario: str = Depends(auth.exigir_login)):
-    run = servico.obter_run(run_id)
+    run = service.obter_run(run_id)
     if run is None:
         return _redirecionar_com_erro("/runs", RunInexistente(f"run {run_id} não existe"))
-    return _render(request, "_grafo.html", {"run": run})
+    return _render(request, "_graph.html", {"run": run})
 
 
-@app.post("/runs/{run_id}/abortar")
+@app.post("/runs/{run_id}/abort")
 def abortar_run(request: Request, run_id: int, usuario: str = Depends(auth.exigir_login)):
     try:
-        servico.abortar_run(run_id)
+        service.abortar_run(run_id)
     except RunInexistente as exc:
         return _redirecionar_com_erro("/runs", exc)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
@@ -198,48 +198,48 @@ def abortar_run(request: Request, run_id: int, usuario: str = Depends(auth.exigi
 
 # ── Etapa ─────────────────────────────────────────────────────────────────────────────
 
-def _contexto_etapa(run_id: int, chave: str) -> dict[str, Any] | None:
-    from pesquisa_precos.etapas import registry
+def _contexto_etapa(run_id: int, key: str) -> dict[str, Any] | None:
+    from pesquisa_precos.steps import registry
 
-    run = servico.obter_run(run_id)
+    run = service.obter_run(run_id)
     if run is None:
         return None
-    detalhe = servico.detalhe_etapa(run_id, chave)
+    detalhe = service.detalhe_etapa(run_id, key)
     estimativa, estimativa_erro = None, None
     try:
-        estimativa = servico.estimativa_etapa(chave)
+        estimativa = service.estimativa_etapa(key)
     except Exception as exc:  # noqa: BLE001 — estimativa é auxiliar; a tela não pode cair por causa dela
         estimativa_erro = str(exc)
     return {
-        "run": run, "chave": chave, "definicao": registry.obter(chave), "detalhe": detalhe,
-        "dependentes": registry.dependentes(chave),
+        "run": run, "key": key, "definicao": registry.obter(key), "detalhe": detalhe,
+        "dependentes": registry.dependentes(key),
         "estimativa": estimativa, "estimativa_erro": estimativa_erro,
-        "erros": servico.erros(run_id, etapa=chave),
-        "logs": list(reversed(servico.logs(run_id, etapa=chave, limite=200))),
+        "erros": service.erros(run_id, etapa=key),
+        "logs": list(reversed(service.logs(run_id, etapa=key, limite=200))),
     }
 
 
-@app.get("/runs/{run_id}/etapas/{chave}")
-def tela_etapa(request: Request, run_id: int, chave: str, usuario: str = Depends(auth.exigir_login)):
+@app.get("/runs/{run_id}/steps/{key}")
+def tela_etapa(request: Request, run_id: int, key: str, usuario: str = Depends(auth.exigir_login)):
     try:
-        ctx = _contexto_etapa(run_id, chave)
+        ctx = _contexto_etapa(run_id, key)
     except KeyError as exc:
         return _redirecionar_com_erro(f"/runs/{run_id}", exc)
     if ctx is None:
         return _redirecionar_com_erro("/runs", RunInexistente(f"run {run_id} não existe"))
-    return _render(request, "etapa.html", ctx)
+    return _render(request, "step.html", ctx)
 
 
-@app.get("/runs/{run_id}/etapas/{chave}/fragmento")
-def fragmento_etapa(request: Request, run_id: int, chave: str, usuario: str = Depends(auth.exigir_login)):
-    ctx = _contexto_etapa(run_id, chave)
+@app.get("/runs/{run_id}/steps/{key}/fragment")
+def fragmento_etapa(request: Request, run_id: int, key: str, usuario: str = Depends(auth.exigir_login)):
+    ctx = _contexto_etapa(run_id, key)
     if ctx is None:
         return _redirecionar_com_erro("/runs", RunInexistente(f"run {run_id} não existe"))
-    return _render(request, "_etapa_progresso.html", ctx)
+    return _render(request, "_step_progress.html", ctx)
 
 
-@app.get("/runs/{run_id}/etapas/{chave}/log/stream")
-def log_stream_etapa(run_id: int, chave: str, request: Request, usuario: str = Depends(auth.exigir_login)):
+@app.get("/runs/{run_id}/steps/{key}/log/stream")
+def log_stream_etapa(run_id: int, key: str, request: Request, usuario: str = Depends(auth.exigir_login)):
     import asyncio
     import json
 
@@ -248,7 +248,7 @@ def log_stream_etapa(run_id: int, chave: str, request: Request, usuario: str = D
     async def eventos():
         ultimo_id = 0
         while True:
-            recentes = sorted(servico.logs(run_id, etapa=chave, limite=50), key=lambda l: l["id"])
+            recentes = sorted(service.logs(run_id, etapa=key, limite=50), key=lambda l: l["id"])
             for linha in recentes:
                 if linha["id"] > ultimo_id:
                     ultimo_id = linha["id"]
@@ -258,52 +258,52 @@ def log_stream_etapa(run_id: int, chave: str, request: Request, usuario: str = D
     return StreamingResponse(eventos(), media_type="text/event-stream")
 
 
-@app.post("/runs/{run_id}/etapas/{chave}/executar")
-def executar_etapa(request: Request, run_id: int, chave: str, acao: str = Form("atualizar"),
+@app.post("/runs/{run_id}/steps/{key}/run")
+def executar_etapa(request: Request, run_id: int, key: str, acao: str = Form("atualizar"),
                    confirmar: bool = Form(False), usuario: str = Depends(auth.exigir_login)):
-    voltar = f"/runs/{run_id}/etapas/{chave}"
+    voltar = f"/runs/{run_id}/steps/{key}"
     try:
-        servico.executar_etapa(run_id, chave, acao=acao, confirmar=confirmar)
+        service.executar_etapa(run_id, key, acao=acao, confirmar=confirmar)
     except (RunInexistente, DependenciaNaoSatisfeita, ExecucaoEmAndamento,
             RefazerSemConfirmacao) as exc:
         return _redirecionar_com_erro(voltar, exc)
     return RedirectResponse(voltar, status_code=303)
 
 
-@app.post("/runs/{run_id}/etapas/{chave}/cancelar")
-def cancelar_etapa(request: Request, run_id: int, chave: str, usuario: str = Depends(auth.exigir_login)):
-    voltar = f"/runs/{run_id}/etapas/{chave}"
+@app.post("/runs/{run_id}/steps/{key}/cancel")
+def cancelar_etapa(request: Request, run_id: int, key: str, usuario: str = Depends(auth.exigir_login)):
+    voltar = f"/runs/{run_id}/steps/{key}"
     try:
-        servico.cancelar_etapa(run_id, chave)
+        service.cancelar_etapa(run_id, key)
     except RunInexistente as exc:
         return _redirecionar_com_erro(voltar, exc)
     return RedirectResponse(voltar, status_code=303)
 
 
-@app.post("/runs/{run_id}/etapas/{chave}/aprovar")
-def aprovar_etapa(request: Request, run_id: int, chave: str, params_override: str = Form("{}"),
+@app.post("/runs/{run_id}/steps/{key}/approve")
+def aprovar_etapa(request: Request, run_id: int, key: str, params_override: str = Form("{}"),
                   usuario: str = Depends(auth.exigir_login)):
     import json
 
-    voltar = f"/runs/{run_id}/etapas/{chave}"
+    voltar = f"/runs/{run_id}/steps/{key}"
     try:
         override = json.loads(params_override) if params_override.strip() else {}
     except json.JSONDecodeError as exc:
         return _redirecionar_com_erro(voltar, ValueError(f"params_override não é JSON válido: {exc}"))
     try:
-        servico.aprovar_etapa(run_id, chave, aprovado_por=usuario, params_override=override)
-        servico.executar_etapa(run_id, chave, acao="atualizar")
+        service.aprovar_etapa(run_id, key, aprovado_por=usuario, params_override=override)
+        service.executar_etapa(run_id, key, acao="atualizar")
     except (RunInexistente, DependenciaNaoSatisfeita, ExecucaoEmAndamento) as exc:
         return _redirecionar_com_erro(voltar, exc)
     return RedirectResponse(voltar, status_code=303)
 
 
-@app.post("/runs/{run_id}/etapas/{chave}/pular")
-def pular_etapa(request: Request, run_id: int, chave: str, motivo: str = Form(""),
+@app.post("/runs/{run_id}/steps/{key}/skip")
+def pular_etapa(request: Request, run_id: int, key: str, motivo: str = Form(""),
                 usuario: str = Depends(auth.exigir_login)):
-    voltar = f"/runs/{run_id}/etapas/{chave}"
+    voltar = f"/runs/{run_id}/steps/{key}"
     try:
-        servico.pular_etapa(run_id, chave, motivo=motivo or f"pulada por {usuario}")
+        service.pular_etapa(run_id, key, motivo=motivo or f"pulada por {usuario}")
     except RunInexistente as exc:
         return _redirecionar_com_erro(voltar, exc)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
@@ -311,20 +311,20 @@ def pular_etapa(request: Request, run_id: int, chave: str, motivo: str = Form(""
 
 # ── Custo e exports ───────────────────────────────────────────────────────────────────
 
-@app.get("/custo")
+@app.get("/cost")
 def dashboard_custo(request: Request, usuario: str = Depends(auth.exigir_login)):
-    return _render(request, "custo.html", {"resumo": servico.custo_resumo()})
+    return _render(request, "cost.html", {"resumo": service.custo_resumo()})
 
 
 @app.get("/exports")
 def tela_exports(request: Request, usuario: str = Depends(auth.exigir_login)):
-    return _render(request, "exports.html", {"exports": servico.listar_exports()})
+    return _render(request, "exports.html", {"exports": service.listar_exports()})
 
 
 @app.get("/exports/{export_id}/download")
 def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
     """Serve o XLSX de `export.conteudo` (ADR-018 §2) — não existe arquivo em disco."""
-    export, conteudo, nome = servico.conteudo_export(export_id)
+    export, conteudo, name = service.conteudo_export(export_id)
     if export is None:
         return RedirectResponse("/exports?erro=export%20n%C3%A3o%20encontrado", status_code=303)
     if conteudo is None:
@@ -333,16 +333,16 @@ def baixar_export(export_id: int, usuario: str = Depends(auth.exigir_login)):
             "em%20data%2F%2C%20fora%20do%20banco", status_code=303)
     return Response(
         conteudo, media_type=XLSX_MIME,
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 # ── Provedores: saúde + CRUD (Fase 13 / Fase 14 bloco 2, ADR-022) ────────────────────
 #
 # A tela era só leitura: sondava as capacidades e mostrava o resultado. Com a Fase 14 ela vira
-# a superfície onde se CONFIGURA quem atende cada capacidade — modelo, base_url e chave de API
+# a superfície onde se CONFIGURA quem atende cada capacidade — modelo, base_url e key de API
 # deixam de exigir editar `.env` e reiniciar o servidor.
 #
-# A chave de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
+# A key de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
 # o que volta para o template é `tem_api_key`/`api_key_last4`. Nenhuma rota daqui devolve
 # segredo em claro, e `tests/test_segredo.py::test_so_o_resolver_decifra` guarda a regra.
 
@@ -351,11 +351,11 @@ _FORM_CAPACIDADES = Form(default=[])
 
 def _contexto_provedores(**extra: Any) -> dict[str, Any]:
     return {
-        "resultados": servico.saude_provedores(),
-        "provedores": servico_provedores.listar(),
-        "capacidades": servico_provedores.CAPACIDADES,
-        "chave_mestra": servico_provedores.diagnostico_chave_mestra(),
-        "a_recifrar": servico_provedores.chaves_a_recifrar(),
+        "resultados": service.saude_provedores(),
+        "provedores": service_providers.listar(),
+        "capacidades": service_providers.CAPACIDADES,
+        "chave_mestra": service_providers.diagnostico_chave_mestra(),
+        "a_recifrar": service_providers.chaves_a_recifrar(),
         "editando": None, **extra}
 
 
@@ -367,15 +367,15 @@ def _num(valor: str) -> float | None:
         return None
 
 
-@app.get("/provedores")
+@app.get("/providers")
 def tela_provedores(request: Request, editar: str | None = None,
                     usuario: str = Depends(auth.exigir_login)):
-    editando = servico_provedores.obter(editar) if editar else None
-    return _render(request, "provedores.html", _contexto_provedores(editando=editando))
+    editando = service_providers.obter(editar) if editar else None
+    return _render(request, "providers.html", _contexto_provedores(editando=editando))
 
 
-@app.post("/provedores")
-def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form(""),
+@app.post("/providers")
+def salvar_provedor(request: Request, name: str = Form(""), base_url: str = Form(""),
                     capacidades: list[str] = _FORM_CAPACIDADES, modelo_padrao: str = Form(""),
                     batch_size: str = Form(""), rpm_limite: str = Form(""),
                     custo_in_por_mtok: str = Form(""), custo_out_por_mtok: str = Form(""),
@@ -383,8 +383,8 @@ def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form
                     ativo: str = Form("on"), api_key: str = Form(""),
                     usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_provedores.salvar(
-            nome, capacidades, base_url, modelo_padrao=modelo_padrao or None,
+        service_providers.salvar(
+            name, capacidades, base_url, modelo_padrao=modelo_padrao or None,
             batch_size=int(batch_size) if batch_size.strip() else None,
             rpm_limite=int(rpm_limite) if rpm_limite.strip() else None,
             custo_in_por_mtok=_num(custo_in_por_mtok),
@@ -392,78 +392,78 @@ def salvar_provedor(request: Request, nome: str = Form(""), base_url: str = Form
             custo_usd_chamada=_num(custo_usd_chamada),
             ativo=ativo == "on", api_key=api_key or None)
     except (ProvedorInvalido, ChaveMestraAusente) as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/{nome}/chave")
-def gravar_chave_provedor(request: Request, nome: str, api_key: str = Form(""),
+@app.post("/providers/{name}/key")
+def gravar_chave_provedor(request: Request, name: str, api_key: str = Form(""),
                           usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_provedores.gravar_api_key(nome, api_key)
+        service_providers.gravar_api_key(name, api_key)
     except (ProvedorInvalido, ProvedorInexistente, ChaveMestraAusente) as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/{nome}/chave/limpar")
-def limpar_chave_provedor(request: Request, nome: str,
+@app.post("/providers/{name}/key/clear")
+def limpar_chave_provedor(request: Request, name: str,
                           usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_provedores.limpar_api_key(nome)
+        service_providers.limpar_api_key(name)
     except ProvedorInexistente as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/{nome}/ativo")
-def alternar_ativo_provedor(request: Request, nome: str, ativo: str = Form("on"),
+@app.post("/providers/{name}/active")
+def alternar_ativo_provedor(request: Request, name: str, ativo: str = Form("on"),
                             usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_provedores.definir_ativo(nome, ativo == "on")
+        service_providers.definir_ativo(name, ativo == "on")
     except (ProvedorInexistente, ProvedorInvalido) as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/{nome}/testar")
-def testar_provedor(request: Request, nome: str, usuario: str = Depends(auth.exigir_login)):
+@app.post("/providers/{name}/test")
+def testar_provedor(request: Request, name: str, usuario: str = Depends(auth.exigir_login)):
     """Sondagem HTTP leve — não gasta e não dispara etapa, então não fere a regra nº 1 do
     CLAUDE.md ("quem roda a pipeline é o usuário")."""
     try:
-        servico_provedores.testar(nome)
+        service_providers.testar(name)
     except ProvedorInexistente as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/capacidades")
+@app.post("/providers/capabilities")
 def apontar_capacidade(request: Request, capacidade: str = Form(""),
                        provedor: str = Form(""), modelo: str = Form(""),
                        fallback: str = Form(""),
                        usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_provedores.apontar(capacidade, provedor, modelo or None, fallback or None)
+        service_providers.apontar(capacidade, provedor, modelo or None, fallback or None)
     except (ProvedorInvalido, ProvedorInexistente, FallbackProibido) as exc:
-        return _redirecionar_com_erro("/provedores", exc)
-    return RedirectResponse("/provedores", status_code=303)
+        return _redirecionar_com_erro("/providers", exc)
+    return RedirectResponse("/providers", status_code=303)
 
 
-@app.post("/provedores/recifrar")
+@app.post("/providers/recrypt")
 def recifrar_chaves(request: Request, usuario: str = Depends(auth.exigir_login)):
-    """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na chave anterior (ADR-022)."""
+    """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na key anterior (ADR-022)."""
     try:
-        resultado = servico_provedores.recifrar_tudo()
+        resultado = service_providers.recifrar_tudo()
     except ChaveMestraAusente as exc:
-        return _redirecionar_com_erro("/provedores", exc)
+        return _redirecionar_com_erro("/providers", exc)
     if resultado["falharam"]:
         # Falha parcial é informação, não erro: o resto foi re-cifrado, e estas linhas não
-        # decifram com nenhuma chave disponível — a saída é recadastrar a chave delas.
-        return _redirecionar_com_erro("/provedores", RuntimeError(
+        # decifram com nenhuma key disponível — a saída é recadastrar a key delas.
+        return _redirecionar_com_erro("/providers", RuntimeError(
             f"{resultado['recifradas']} re-cifradas. NÃO foi possível decifrar: "
-            f"{', '.join(resultado['falharam'])} — recadastre a chave desses provedores "
-            f"(defina APP_SECRET_KEY_ANTIGA se a chave anterior ainda existir)."))
-    return RedirectResponse("/provedores", status_code=303)
+            f"{', '.join(resultado['falharam'])} — recadastre a key desses provedores "
+            f"(defina APP_SECRET_KEY_ANTIGA se a key anterior ainda existir)."))
+    return RedirectResponse("/providers", status_code=303)
 
 
 # ── Diff entre runs (Fase 9) ─────────────────────────────────────────────────────────
@@ -471,11 +471,11 @@ def recifrar_chaves(request: Request, usuario: str = Depends(auth.exigir_login))
 @app.get("/diff")
 def tela_diff(request: Request, run_a: int | None = None, run_b: int | None = None,
              usuario: str = Depends(auth.exigir_login)):
-    runs = servico.listar_runs()
+    runs = service.listar_runs()
     ctx: dict[str, Any] = {"runs": runs, "run_a": run_a, "run_b": run_b, "diff": None}
     if run_a is not None and run_b is not None:
         try:
-            ctx["diff"] = servico_diff.diff_runs(run_a, run_b)
+            ctx["diff"] = service_diff.diff_runs(run_a, run_b)
         except RunSemRankingError as exc:
             ctx["erro_diff"] = str(exc)
     return _render(request, "diff.html", ctx)
@@ -483,7 +483,7 @@ def tela_diff(request: Request, run_a: int | None = None, run_b: int | None = No
 
 # ── Recalibração de thresholds (Fase 9) ─────────────────────────────────────────────
 
-@app.get("/recalibrar")
+@app.get("/recalibrate")
 def tela_recalibrar(request: Request, t_aceita: float | None = None,
                     t_rejeita: float | None = None, usuario: str = Depends(auth.exigir_login)):
     ctx: dict[str, Any] = {"t_aceita": t_aceita if t_aceita is not None else 0.80,
@@ -491,10 +491,10 @@ def tela_recalibrar(request: Request, t_aceita: float | None = None,
                            "resultado": None, "resultado_erro": None}
     if t_aceita is not None and t_rejeita is not None:
         try:
-            ctx["resultado"] = servico_config.recalibrar_threshold(t_aceita, t_rejeita)
+            ctx["resultado"] = service_config.recalibrar_threshold(t_aceita, t_rejeita)
         except Exception as exc:  # noqa: BLE001 — banco vazio/indisponível não pode derrubar a tela
             ctx["resultado_erro"] = str(exc)
-    return _render(request, "recalibrar.html", ctx)
+    return _render(request, "recalibrate.html", ctx)
 
 
 # ── Configuração (Fase 6) ────────────────────────────────────────────────────────────
@@ -502,19 +502,19 @@ def tela_recalibrar(request: Request, t_aceita: float | None = None,
 @app.get("/config")
 def tela_config(request: Request, usuario: str = Depends(auth.exigir_login)):
     return _render(request, "config.html", {
-        "versoes": servico_config.listar_config_versoes(),
-        "schema": servico_config.schema_parametros(), "diff": None})
+        "versoes": service_config.listar_config_versoes(),
+        "schema": service_config.schema_parametros(), "diff": None})
 
 
 @app.get("/config/diff")
 def diff_config(request: Request, a: int, b: int, usuario: str = Depends(auth.exigir_login)):
     try:
-        diff = servico_config.diff_config_versoes(a, b)
+        diff = service_config.diff_config_versoes(a, b)
     except ConfigVersaoInexistente as exc:
         return _redirecionar_com_erro("/config", exc)
     return _render(request, "config.html", {
-        "versoes": servico_config.listar_config_versoes(),
-        "schema": servico_config.schema_parametros(), "diff": diff})
+        "versoes": service_config.listar_config_versoes(),
+        "schema": service_config.schema_parametros(), "diff": diff})
 
 
 @app.post("/config")
@@ -522,10 +522,10 @@ async def criar_config(request: Request, rotulo: str = Form(...), notas: str = F
                        usuario: str = Depends(auth.exigir_login)):
     forma = await request.form()
     valores = {}
-    for chave, valor in forma.multi_items():
-        if chave.startswith("campo__") and str(valor).strip():
-            valores[chave.removeprefix("campo__")] = str(valor).strip()
-    servico_config.criar_config_versao(rotulo, valores, criado_por=usuario, notas=notas or None)
+    for key, valor in forma.multi_items():
+        if key.startswith("campo__") and str(valor).strip():
+            valores[key.removeprefix("campo__")] = str(valor).strip()
+    service_config.criar_config_versao(rotulo, valores, criado_por=usuario, notas=notas or None)
     return RedirectResponse("/config", status_code=303)
 
 
@@ -534,33 +534,33 @@ async def criar_config(request: Request, rotulo: str = Form(...), notas: str = F
 @app.get("/prompts")
 def tela_prompts(request: Request, usuario: str = Depends(auth.exigir_login)):
     return _render(request, "prompts.html", {
-        "prompts": servico_prompts.listar_prompts(), "diff": None, "aberto": None})
+        "prompts": service_prompts.listar_prompts(), "diff": None, "aberto": None})
 
 
-@app.get("/prompts/{nome}/{versao}")
-def diff_prompt(request: Request, nome: str, versao: int, usuario: str = Depends(auth.exigir_login)):
+@app.get("/prompts/{name}/{version}")
+def diff_prompt(request: Request, name: str, version: int, usuario: str = Depends(auth.exigir_login)):
     try:
-        versoes = servico_prompts.versoes_prompt(nome)
+        versoes = service_prompts.versoes_prompt(name)
     except PromptInexistente as exc:
         return _redirecionar_com_erro("/prompts", exc)
-    ativa = next((v["versao"] for v in versoes if v["ativa"]), versoes[0]["versao"])
-    diff = servico_prompts.diff_versoes(nome, ativa, versao) if ativa != versao else None
+    ativa = next((v["version"] for v in versoes if v["ativa"]), versoes[0]["version"])
+    diff = service_prompts.diff_versoes(name, ativa, version) if ativa != version else None
     return _render(request, "prompts.html", {
-        "prompts": servico_prompts.listar_prompts(), "diff": diff, "aberto": nome})
+        "prompts": service_prompts.listar_prompts(), "diff": diff, "aberto": name})
 
 
-@app.post("/prompts/{nome}/versoes")
-def criar_versao_prompt(request: Request, nome: str, template: str = Form(...),
+@app.post("/prompts/{name}/versions")
+def criar_versao_prompt(request: Request, name: str, template: str = Form(...),
                         notas: str = Form(""), usuario: str = Depends(auth.exigir_login)):
-    servico_prompts.criar_versao(nome, template, criado_por=usuario, notas=notas or None)
+    service_prompts.criar_versao(name, template, criado_por=usuario, notas=notas or None)
     return RedirectResponse("/prompts", status_code=303)
 
 
-@app.post("/prompts/{nome}/{versao}/ativar")
-def ativar_versao_prompt(request: Request, nome: str, versao: int,
+@app.post("/prompts/{name}/{version}/activate")
+def ativar_versao_prompt(request: Request, name: str, version: int,
                          usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_prompts.ativar_versao(nome, versao)
+        service_prompts.ativar_versao(name, version)
     except PromptInexistente as exc:
         return _redirecionar_com_erro("/prompts", exc)
     return RedirectResponse("/prompts", status_code=303)
@@ -568,60 +568,60 @@ def ativar_versao_prompt(request: Request, nome: str, versao: int,
 
 # ── Destinatários de notificação (Fase 9) ────────────────────────────────────────────
 
-@app.get("/notificacoes")
+@app.get("/notifications")
 def tela_notificacoes(request: Request, usuario: str = Depends(auth.exigir_login)):
-    return _render(request, "notificacoes.html", {
-        "destinatarios": servico_destinatarios.listar_destinatarios(),
+    return _render(request, "notifications.html", {
+        "destinatarios": service_recipients.listar_destinatarios(),
         "editando": None})
 
 
-@app.get("/notificacoes/{destinatario_id}/editar")
-def editar_form_destinatario(request: Request, destinatario_id: int,
+@app.get("/notifications/{recipient_id}/edit")
+def editar_form_destinatario(request: Request, recipient_id: int,
                              usuario: str = Depends(auth.exigir_login)):
-    destinatario = servico_destinatarios.obter_destinatario(destinatario_id)
+    destinatario = service_recipients.obter_destinatario(recipient_id)
     if destinatario is None:
         return _redirecionar_com_erro(
-            "/notificacoes", DestinatarioInexistente(f"destinatário {destinatario_id} não existe"))
-    return _render(request, "notificacoes.html", {
-        "destinatarios": servico_destinatarios.listar_destinatarios(),
+            "/notifications", DestinatarioInexistente(f"destinatário {recipient_id} não existe"))
+    return _render(request, "notifications.html", {
+        "destinatarios": service_recipients.listar_destinatarios(),
         "editando": destinatario})
 
 
-@app.post("/notificacoes")
-def criar_destinatario(request: Request, nome: str = Form(""), email: str = Form(""),
+@app.post("/notifications")
+def criar_destinatario(request: Request, name: str = Form(""), email: str = Form(""),
                        usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.criar_destinatario(nome or None, email or None)
+        service_recipients.criar_destinatario(name or None, email or None)
     except DestinatarioSemCanal as exc:
-        return _redirecionar_com_erro("/notificacoes", exc)
-    return RedirectResponse("/notificacoes", status_code=303)
+        return _redirecionar_com_erro("/notifications", exc)
+    return RedirectResponse("/notifications", status_code=303)
 
 
-@app.post("/notificacoes/{destinatario_id}")
-def editar_destinatario(request: Request, destinatario_id: int, nome: str = Form(""),
+@app.post("/notifications/{recipient_id}")
+def editar_destinatario(request: Request, recipient_id: int, name: str = Form(""),
                         email: str = Form(""), usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.editar_destinatario(destinatario_id, nome or None, email or None)
+        service_recipients.editar_destinatario(recipient_id, name or None, email or None)
     except (DestinatarioSemCanal, DestinatarioInexistente) as exc:
-        return _redirecionar_com_erro("/notificacoes", exc)
-    return RedirectResponse("/notificacoes", status_code=303)
+        return _redirecionar_com_erro("/notifications", exc)
+    return RedirectResponse("/notifications", status_code=303)
 
 
-@app.post("/notificacoes/{destinatario_id}/desativar")
-def desativar_destinatario(request: Request, destinatario_id: int,
+@app.post("/notifications/{recipient_id}/deactivate")
+def desativar_destinatario(request: Request, recipient_id: int,
                            usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.desativar_destinatario(destinatario_id)
+        service_recipients.desativar_destinatario(recipient_id)
     except DestinatarioInexistente as exc:
-        return _redirecionar_com_erro("/notificacoes", exc)
-    return RedirectResponse("/notificacoes", status_code=303)
+        return _redirecionar_com_erro("/notifications", exc)
+    return RedirectResponse("/notifications", status_code=303)
 
 
-@app.post("/notificacoes/{destinatario_id}/ativar")
-def ativar_destinatario(request: Request, destinatario_id: int,
+@app.post("/notifications/{recipient_id}/activate")
+def ativar_destinatario(request: Request, recipient_id: int,
                         usuario: str = Depends(auth.exigir_login)):
     try:
-        servico_destinatarios.ativar_destinatario(destinatario_id)
+        service_recipients.ativar_destinatario(recipient_id)
     except DestinatarioInexistente as exc:
-        return _redirecionar_com_erro("/notificacoes", exc)
-    return RedirectResponse("/notificacoes", status_code=303)
+        return _redirecionar_com_erro("/notifications", exc)
+    return RedirectResponse("/notifications", status_code=303)

@@ -9,8 +9,8 @@ tocar o banco.
 
 from pathlib import Path
 
-from pesquisa_precos.core.regressao import avaliar
-from ferramentas.regressao import carregar_da_fixture
+from pesquisa_precos.core.regression import avaliar
+from tools.regression import carregar_da_fixture
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "rotulos_sinteticos.csv"
 

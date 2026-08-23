@@ -27,9 +27,9 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 from sqlalchemy import text as sql
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes, texto_para_pg
-from pesquisa_precos.db.repos import extracao as repo
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes, texto_para_pg
+from pesquisa_precos.db.repos import extraction as repo
 from migracao._comum import (
     Relatorio,
     Retomada,
@@ -108,7 +108,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
-                  console=console) as barra, db.conexao_bruta() as conn:
+                  console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("gravando páginas", total=total, completed=retomada.linhas)
         # `em_lotes` recebe o gerador, então as linhas descartadas (sem documento) também
         # precisam avançar a retomada — senão uma reexecução as reprocessaria. Por isso o
@@ -130,7 +130,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
         rel.aviso(f"{len(nao_mapeados)} doc_keys não casaram com nenhum documento — o texto "
                   f"extraído deles NÃO foi migrado. Exemplo: {sorted(nao_mapeados)[0][:110]}")
 
-    with db.sessao() as s:
+    with db.session() as s:
         s.execute(sql("""
             UPDATE documento d
                SET n_paginas = c.n, atualizado_em = now()
@@ -157,7 +157,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
     # VACUUM não roda dentro de transação — daí a conexão em autocommit (§m10).
     console.print("  VACUUM ANALYZE documento_pagina… (pode demorar)")
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("VACUUM ANALYZE documento_pagina")
@@ -166,7 +166,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
 def main() -> None:
     cabecalho("m10 — texto de PDF", [paths.E5_PDF_TEXTO, paths.E2_ITENS], "documento_pagina")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 
 

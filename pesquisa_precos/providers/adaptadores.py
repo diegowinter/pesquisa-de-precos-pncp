@@ -44,7 +44,7 @@ def _com_retry(fn, *args, **kwargs):
 
 class ChatAdapter:
     """`lm_studio` / `openrouter` / `openai_compat` — os três são o mesmo protocolo HTTP
-    (OpenAI-compatible); o que muda é só base_url/modelo/chave, já resolvidos em `info`."""
+    (OpenAI-compatible); o que muda é só base_url/modelo/key, já resolvidos em `info`."""
 
     def __init__(self, info: InfoProvedor, *, api_key: str, curador_kwargs: dict | None = None):
         from pesquisa_precos.providers.llm_curador import Curador
@@ -78,17 +78,14 @@ class EmbedGpuCaseiraAdapter:
     com retry curto por lote. FALLBACK PROIBIDO (ADR-006): se isto falhar após as tentativas,
     a exceção sobe e a etapa para — nunca cair para outro provedor de embedding."""
 
-    def __init__(self, info: InfoProvedor, *, api_key: str, cache_path: str | None = None):
+    def __init__(self, info: InfoProvedor, *, api_key: str):
         from pesquisa_precos.providers.gpu_remoto import EmbedderRemoto
 
         self.info = info
-        self._cliente = EmbedderRemoto(info.base_url, api_key, cache_path=cache_path)
+        self._cliente = EmbedderRemoto(info.base_url, api_key)
 
     def embed_textos(self, textos: list[str]) -> np.ndarray:
         return _com_retry(self._cliente.embed_textos, textos)
-
-    def salvar_cache(self) -> None:
-        self._cliente.salvar_cache()
 
     def liberar(self) -> None:
         self._cliente.liberar()
@@ -150,14 +147,14 @@ class PdfRemotoAdapter:
     def _baixar(self, url_pncp: str, destino: str, *, tipo_doc: str,
                 numero_sequencial: str | None, numero_sequencial_ata: str | None,
                 orgao_cnpj: str | None, ano: int | None) -> list[str]:
-        from pesquisa_precos.core.coleta import consultar_arquivos
+        from pesquisa_precos.core.collection import fetch_files
 
         if not all([tipo_doc, orgao_cnpj, ano, numero_sequencial]):
             return []
-        arquivos = consultar_arquivos.listar_arquivos(
+        arquivos = fetch_files.listar_arquivos(
             tipo_doc, orgao_cnpj, ano, numero_sequencial, numero_sequencial_ata, silent=True)
-        alvos = consultar_arquivos.selecionar_do_tipo(arquivos, tipo_doc)
-        return consultar_arquivos.baixar_arquivos(alvos, destino, silent=True) if alvos else []
+        alvos = fetch_files.selecionar_do_tipo(arquivos, tipo_doc)
+        return fetch_files.baixar_arquivos(alvos, destino, silent=True) if alvos else []
 
     def _enviar(self, rota: str, url_pncp: str, *, campos: dict | None = None, **ids) -> dict:
         import os

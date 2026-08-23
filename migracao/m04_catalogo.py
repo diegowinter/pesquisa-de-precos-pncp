@@ -17,8 +17,8 @@ Uso: python -m migracao.m04_catalogo
 from sqlalchemy import text as sql
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import catalogo as repo
 from migracao._comum import Relatorio, cabecalho, console, existe, ler_csv, txt
 
@@ -64,12 +64,12 @@ def migrar() -> Relatorio:
                    txt(r.get("nome_grupo")), txt(r.get("nome_classe")),
                    cats.get((tipo, codigo)), True)
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         for lote in em_lotes(linhas(), 5_000):
             rel.mais("gravadas", repo.gravar_itens(conn, lote))
 
     inativos = removidos()
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("marcados inativos (delta 'removido')", repo.marcar_inativos(s, inativos))
         rel.mais("total no banco", repo.contar(s))
         sem_categoria = s.execute(sql(
@@ -85,7 +85,7 @@ def migrar() -> Relatorio:
 def main() -> None:
     cabecalho("m04 — catálogo", [paths.E0A_CATALOGO, paths.E1_CATEGORIA_POR_CODIGO,
                                  paths.E0A_DELTA], "catalogo_item")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

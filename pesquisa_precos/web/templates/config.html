@@ -49,10 +49,10 @@
 
     {% for chave, bloco in schema.items() %}
     <details style="margin-top:.75rem;">
-      <summary style="cursor:pointer;">{{ chave }} — {{ bloco.titulo }}</summary>
+      <summary style="cursor:pointer;">{{ key }} — {{ bloco.titulo }}</summary>
       {% for campo, info in bloco.campos.items() %}
-      <label for="campo__{{ chave }}__{{ campo }}">{{ campo }} <span class="tag">default: {{ info.default }}</span></label>
-      <input id="campo__{{ chave }}__{{ campo }}" name="campo__{{ campo }}" placeholder="{{ info.descricao }}">
+      <label for="campo__{{ key }}__{{ campo }}">{{ campo }} <span class="tag">default: {{ info.default }}</span></label>
+      <input id="campo__{{ key }}__{{ campo }}" name="campo__{{ campo }}" placeholder="{{ info.descricao }}">
       {% endfor %}
     </details>
     {% endfor %}

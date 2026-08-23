@@ -15,7 +15,7 @@ Uso: python -m migracao.m16_export_snapshot
 """
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import catalogo as repo_cat
 from pesquisa_precos.db.repos import grupo as repo
 from migracao._comum import Relatorio, cabecalho, console, existe, inteiro, ler_csv
@@ -29,7 +29,7 @@ def migrar() -> Relatorio:
                   f"a partir do último export oficial antes de rodar a etapa 8 com --novos.")
         return rel
 
-    with db.sessao() as s:
+    with db.session() as s:
         tipo_de, ambiguos = repo_cat.tipo_do_codigo(s)
     if ambiguos:
         raise SystemExit(f"ABORTADO: códigos ambíguos no catálogo "
@@ -50,18 +50,18 @@ def migrar() -> Relatorio:
         chaves.append((tipo, codigo, nc, numero))
         rel.mais("linhas lidas")
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         # `substituir=True`: o snapshot é um RETRATO do último export, não um acumulado.
         rel.mais("chaves gravadas", repo.avancar_snapshot(conn, chaves, None, substituir=True))
 
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("export_snapshot no banco", repo.contar(s)["export_snapshot"])
     return rel
 
 
 def main() -> None:
     cabecalho("m16 — snapshot do export", paths.E8_SNAPSHOT, "export_snapshot")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

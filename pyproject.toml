@@ -19,7 +19,6 @@ dependencies = [
     "pydantic>=2",
     "langchain-openai",
     "langchain-core",
-    "unidecode",
     # ADR-021: `pymupdf`, `rank-bm25` e `sentence-transformers` não estão aqui nem em extra
     # nenhum — saíram do repositório. Parse de PDF, rasterização, OCR, embedding, rerank e
     # BM25 vivem em `../pncp-servicos-locais` e são alcançados por HTTP. Este processo faz
@@ -48,7 +47,7 @@ dependencies = [
 dev = ["ruff", "pytest"]
 
 [tool.setuptools.packages.find]
-# Só o pacote da aplicação. `ferramentas/` e `migracao/` são scripts avulsos, rodados de
+# Só o pacote da aplicação. `tools/` e `migracao/` são scripts avulsos, rodados de
 # dentro do repositório — não fazem parte do pacote instalável.
 include = ["pesquisa_precos*"]
 

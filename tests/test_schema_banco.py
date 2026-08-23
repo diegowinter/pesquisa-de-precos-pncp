@@ -14,13 +14,13 @@ ele só protege de verdade quando rodado com o banco de pé. Rode-o depois de qu
 import pytest
 from sqlalchemy import inspect
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.enums import NOMES
-from pesquisa_precos.db.modelos import Base
+from pesquisa_precos.db.models import Base
 
 pytestmark = pytest.mark.skipif(
-    not db.esta_disponivel()[0],
-    reason=f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes")
+    not db.is_available()[0],
+    reason=f"sem PostgreSQL em {db.database_url()} — rode `alembic upgrade head` antes")
 
 
 @pytest.fixture(scope="module")
@@ -44,26 +44,26 @@ def test_nenhuma_tabela_do_banco_ficou_sem_modelo(inspetor):
 
 def test_colunas_batem(inspetor):
     divergencias = []
-    for nome, tabela in Base.metadata.tables.items():
-        if nome not in inspetor.get_table_names():
+    for name, tabela in Base.metadata.tables.items():
+        if name not in inspetor.get_table_names():
             continue
-        reais = {c["name"] for c in inspetor.get_columns(nome)}
+        reais = {c["name"] for c in inspetor.get_columns(name)}
         modelo = set(tabela.columns.keys())
         if faltam := modelo - reais:
-            divergencias.append(f"{nome}: no modelo e não no banco {sorted(faltam)}")
+            divergencias.append(f"{name}: no modelo e não no banco {sorted(faltam)}")
         if sobram := reais - modelo:
-            divergencias.append(f"{nome}: no banco e não no modelo {sorted(sobram)}")
+            divergencias.append(f"{name}: no banco e não no modelo {sorted(sobram)}")
     assert not divergencias, "\n".join(divergencias)
 
 
 def test_valores_dos_enums_batem(inspetor):
     """Um valor de enum que só existe no Python vira erro de INSERT em produção, não aqui."""
     do_banco = {e["name"]: set(e["labels"]) for e in inspetor.get_enums()}
-    for nome, classe in NOMES.items():
-        assert nome in do_banco, f"tipo enum {nome} não existe no banco"
+    for name, classe in NOMES.items():
+        assert name in do_banco, f"tipo enum {name} não existe no banco"
         do_python = {v.value for v in classe}
-        assert do_python == do_banco[nome], (
-            f"{nome}: python={sorted(do_python)} banco={sorted(do_banco[nome])}")
+        assert do_python == do_banco[name], (
+            f"{name}: python={sorted(do_python)} banco={sorted(do_banco[name])}")
 
 
 def test_indices_que_sao_comportamento_existem(inspetor):

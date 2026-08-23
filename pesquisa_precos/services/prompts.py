@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import execution as repo
 
 
 class PromptInexistente(RuntimeError):
@@ -21,12 +21,12 @@ class PromptInexistente(RuntimeError):
 
 
 def listar_prompts() -> list[dict[str, Any]]:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         return repo.listar_prompts(sessao)
 
 
 def versoes_prompt(nome: str) -> list[dict[str, Any]]:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         versoes = repo.prompt_versoes(sessao, nome)
     if not versoes:
         raise PromptInexistente(f"prompt {nome!r} não existe")
@@ -35,13 +35,13 @@ def versoes_prompt(nome: str) -> list[dict[str, Any]]:
 
 def criar_versao(nome: str, template: str, *, criado_por: str | None = None,
                  notas: str | None = None) -> int:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         return repo.criar_prompt_versao(sessao, nome, template, criado_por=criado_por,
                                         notas=notas)
 
 
 def ativar_versao(nome: str, versao: int) -> bool:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         ok = repo.ativar_prompt_versao(sessao, nome, versao)
     if not ok:
         raise PromptInexistente(f"prompt {nome!r} versão {versao} não existe")
@@ -49,5 +49,5 @@ def ativar_versao(nome: str, versao: int) -> bool:
 
 
 def diff_versoes(nome: str, versao_a: int, versao_b: int) -> dict[str, Any]:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         return repo.diff_prompt(sessao, nome, versao_a, versao_b)

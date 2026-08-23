@@ -46,7 +46,7 @@ segundo processo, deixando a web como superfície única (ADR-020). Depende só 
 3. Mover `0a_*.py … 8_*.py` para `etapas/` com os nomes novos (`e0a_catalogo.py` etc.),
    mantendo o corpo intacto.
 4. Mover `scripts/*.py` para `core/` e `providers/` conforme a natureza de cada um.
-5. `legado/` sai do repositório (vira tag git). `ferramentas/` permanece.
+5. `legado/` sai do repositório (vira tag git). `tools/` permanece.
 6. `pyproject.toml` com o pacote instalável (`pip install -e .`), ruff + pytest configurados.
 
 ### Não fazer nesta fase
@@ -516,13 +516,13 @@ guarda só o *bootstrap* — o que a aplicação precisa saber antes de consegui
    `2.1.0`: o valor efetivo mudou de origem, e o fingerprint precisa enxergar isso.
    `rejeitor_threshold` **não migrou porque já estava morto** — a 6a usa o `Param` `piso`
    desde a Fase 11 e nada lia a variável; ela só saiu de `carregar_config()`.
-4. **Seed + remoção do fallback.** ✅ `ferramentas/semear_provedores.py` lê o `.env` uma vez
+4. **Seed + remoção do fallback.** ✅ `tools/seed_providers.py` lê o `.env` uma vez
    e popula `provedor`/`capacidade_provedor` (idempotente, com `--conferir` que não escreve).
    `_resolver_via_env` saiu; capacidade sem provedor levanta `CapacidadeNaoConfigurada` e a
    etapa para antes de começar. `carregar_config()` devolve `{}`. `tests/test_estrutura.py`
    guarda cada variável migrada, uma por uma.
 
-   > **Desvio da ADR-022:** o seed ficou em `ferramentas/`, não numa migração Alembic. Semear
+   > **Desvio da ADR-022:** o seed ficou em `tools/`, não numa migração Alembic. Semear
    > depende do `.env` de origem e da chave-mestra no ambiente — migração que exige segredo
    > quebra em qualquer máquina que não seja a do operador, e o `downgrade` dela não teria como
    > desfazer a cifra. A migração `0010` cuida só do schema (`provedor.custo_usd_chamada`).

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from pesquisa_precos.db import segredo as seg
+from pesquisa_precos.db import secret as seg
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_so_o_resolver_decifra():
     rota ou um template chamar `decifrar`, o segredo passa a poder subir para o HTTP."""
     import pesquisa_precos
 
-    permitidos = {"pesquisa_precos.providers.resolver", "pesquisa_precos.db.segredo"}
+    permitidos = {"pesquisa_precos.providers.resolver", "pesquisa_precos.db.secret"}
     raiz = Path(pesquisa_precos.__file__).parent
     infratores = []
     for m in pkgutil.walk_packages([str(raiz)], prefix="pesquisa_precos."):

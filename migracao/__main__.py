@@ -11,7 +11,7 @@ Uso: python -m migracao
 
 from rich.table import Table
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from migracao import PASSOS
 from migracao._comum import Retomada, console
 
@@ -28,7 +28,7 @@ CHECKPOINT_DO_PASSO = {
 
 
 def main() -> None:
-    ok, detalhe = db.esta_disponivel()
+    ok, detalhe = db.is_available()
     console.print("[bold cyan]Migração CSV → PostgreSQL (Fase 2)[/]")
     console.print(f"  banco: {detalhe}" if ok else f"  [red]banco indisponível: {detalhe}[/]")
 

@@ -28,10 +28,10 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 from sqlalchemy import text as sql
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import copiar, em_lotes
-from pesquisa_precos.db.repos import classificacao as repo
-from pesquisa_precos.db.repos import execucao as repo_exec
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import copiar, em_lotes
+from pesquisa_precos.db.repos import classification as repo
+from pesquisa_precos.db.repos import execution as repo_exec
 from migracao._comum import (
     Relatorio,
     Retomada,
@@ -48,7 +48,7 @@ STAGING = "stg_m08_classificacao"
 
 # Escala ORDINAL, não probabilidade. Preserva a ordem que o rótulo textual carregava e nada
 # além disso; qualquer leitura como "72% de certeza" seria leitura errada.
-# A escala vive em `db.repos.classificacao` (fonte única — a etapa 3 usa a MESMA).
+# A escala vive em `db.repos.classification` (fonte única — a etapa 3 usa a MESMA).
 CONFIANCA = repo.CONFIANCA_ORDINAL
 
 MODELO_PADRAO = "acervo v2/v3 (modelo local, build não registrado)"
@@ -84,7 +84,7 @@ def carregar_staging(rel: Relatorio, retomada: Retomada, total: int) -> None:
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
-                  console=console) as barra, db.conexao_bruta() as conn:
+                  console=console) as barra, db.raw_connection() as conn:
         preparar_staging(conn)
         conn.commit()
         tarefa = barra.add_task("carregando classificações", total=total,
@@ -99,7 +99,7 @@ def carregar_staging(rel: Relatorio, retomada: Retomada, total: int) -> None:
 
 def colapsar_por_texto(rel: Relatorio, modelo: str, provedor: str) -> None:
     """Agrupa por `texto_hash` e insere o vencedor por frequência."""
-    with db.sessao() as s:
+    with db.session() as s:
         prompt_versao_id = repo_exec.prompt_versao_ativa(s, "classificar_item")
         run_id = repo_exec.run_do_acervo_migrado(s)
 
@@ -151,7 +151,7 @@ def colapsar_por_texto(rel: Relatorio, modelo: str, provedor: str) -> None:
 
 
 def descartar_staging() -> None:
-    with db.conexao_bruta() as conn, conn.cursor() as cur:
+    with db.raw_connection() as conn, conn.cursor() as cur:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
 
 
@@ -180,7 +180,7 @@ def migrar(modelo: str = MODELO_PADRAO, provedor: str = PROVEDOR_PADRAO,
 def main() -> None:
     cabecalho("m08 — classificação", paths.E3_CLASSIFICADOS,
               "texto_classificacao, item_categoria")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     args = sys.argv[1:]
 
     def flag(nome: str, default: str) -> str:

@@ -74,7 +74,7 @@ API descobrem etapas por aqui — **ninguém hardcoda a sequência `0a → 8`**.
 class DefinicaoEtapa:
     chave: str                      # '0a', '1', '2', ... '8'
     titulo: str
-    modulo: str                     # 'etapas.e2_coletar'
+    modulo: str                     # 'steps.e2_collect'
     depende_de: tuple[str, ...]
     custo: Literal["gratis", "cpu", "gpu", "pago"]
     precisa_gate: bool              # padrão do modo assistido
@@ -173,7 +173,7 @@ usuário só descobre horas depois. O gate deve oferecer:
 
 ### 2 — Coletar no PNCP `[GATE: volume]`
 
-**Origem:** [`etapas/e2_coletar.py`](../pesquisa_precos/etapas/e2_coletar.py), `core/coleta/coleta_pncp.py`, `core/coleta/buscar_pncp.py`
+**Origem:** [`etapas/e2_collect.py`](../pesquisa_precos/etapas/e2_collect.py), `core/coleta/collect_pncp.py`, `core/coleta/search_pncp.py`
 
 Para cada `(termo ativo, tipo_doc)`: busca paginada, dedup por `numero_controle_pncp`, e para
 documento novo consulta os itens homologados da API.
@@ -205,7 +205,7 @@ acrescenta linhas em `documento_termo` — nunca reprocessa o documento.
 
 ### 3 — Classificar itens `[GATE]`
 
-**Origem:** [`etapas/e3_classificar.py`](../pesquisa_precos/etapas/e3_classificar.py)
+**Origem:** [`etapas/e3_classify.py`](../pesquisa_precos/etapas/e3_classify.py)
 
 Classificação multi-label de categoria, **por texto único**, não por item.
 
@@ -228,7 +228,7 @@ aparecer antes do play.
 
 ### 4 — Cortar / definir escopo `[GATE]`
 
-**Origem:** [`etapas/e4_cortar.py`](../pesquisa_precos/etapas/e4_cortar.py)
+**Origem:** [`etapas/e4_cut.py`](../pesquisa_precos/etapas/e4_cut.py)
 
 Sem LLM. Marca `item.sobrevivente = true` para item com ≥1 categoria e atualiza
 `documento.n_itens_sobreviventes` e `documento.estado` (`fora_de_escopo` quando zero).
@@ -329,7 +329,7 @@ por fila em memória. Este é o **único** paralelismo real do monolito.
 
 ### 6a — Gerar pares + rejeitor híbrido
 
-**Origem:** [`etapas/e6a_pares.py`](../pesquisa_precos/etapas/e6a_pares.py)
+**Origem:** [`etapas/e6a_pairs.py`](../pesquisa_precos/etapas/e6a_pairs.py)
 
 Produto (código × item) **restrito à mesma categoria**. Item multi-label pareia em todas as suas
 categorias. **Sem dedup de pares** — é regra de negócio.
@@ -370,13 +370,13 @@ entre                     → ambiguo   (só estes vão para a 6c)
 - **Resumível:** por `par_key`
 
 **Trocar o modelo de reranker exige recalibrar os thresholds.** A base para isso é a tabela
-`rotulo` (250k linhas acumuladas) — ver `ferramentas/calibrar_thresholds.py`.
+`rotulo` (250k linhas acumuladas) — ver `tools/calibrate_thresholds.py`.
 
 ---
 
 ### 6c — Validar ambíguos com LLM `[GATE]`
 
-**Origem:** [`etapas/e6c_validar.py`](../pesquisa_precos/etapas/e6c_validar.py)
+**Origem:** [`etapas/e6c_validate.py`](../pesquisa_precos/etapas/e6c_validate.py)
 
 Só a faixa `ambiguo` chega aqui — tipicamente a minoria (57k de 250k no acervo atual).
 
@@ -398,7 +398,7 @@ fine-tuning. Nunca truncar.
 
 ### 7 — Agrupar e ranquear
 
-**Origem:** [`etapas/e7_agrupar.py`](../pesquisa_precos/etapas/e7_agrupar.py)
+**Origem:** [`etapas/e7_group.py`](../pesquisa_precos/etapas/e7_group.py)
 
 Confirmados = `decisao='aceito'` ∪ `veredito='sim'`. Antes do ranking:
 
@@ -419,7 +419,7 @@ por código **não é bug**. Isso já foi investigado à toa em uma sessão ante
 
 ### 8 — Exportar XLSX PLASEG
 
-**Origem:** [`etapas/e8_exportar.py`](../pesquisa_precos/etapas/e8_exportar.py)
+**Origem:** [`etapas/e8_export.py`](../pesquisa_precos/etapas/e8_export.py)
 
 Aba "Itens PLASEG", schema fechado com o cliente:
 

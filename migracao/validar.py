@@ -20,7 +20,7 @@ import sys
 from rich.table import Table
 from sqlalchemy import text as sql
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from migracao._comum import console
 
 # (rótulo, esperado, SQL). Os esperados vieram de contagem no acervo real (02_SCHEMA.md §1),
@@ -86,7 +86,7 @@ COERENCIAS = (
 def validar() -> bool:
     """Imprime o relatório e devolve True se nenhuma checagem obrigatória falhou."""
     ok = True
-    with db.sessao() as s:
+    with db.session() as s:
         tabela = Table(title="Contagens (divergência é aceitável SE explicada)")
         tabela.add_column("agregado")
         tabela.add_column("esperado", justify="right")
@@ -115,7 +115,7 @@ def validar() -> bool:
 
 
 def main() -> None:
-    console.print(f"[bold cyan]Validação da migração[/]\n  banco: {db.url_banco()}")
+    console.print(f"[bold cyan]Validação da migração[/]\n  banco: {db.database_url()}")
     sys.exit(0 if validar() else 1)
 
 

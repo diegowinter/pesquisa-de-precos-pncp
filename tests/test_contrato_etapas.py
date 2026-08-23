@@ -14,25 +14,25 @@ import inspect
 import pytest
 from pydantic import BaseModel
 
-from pesquisa_precos.etapas import registry
-from pesquisa_precos.etapas.base import ContextoExecucao, Estimativa, ResultadoEtapa
-from pesquisa_precos.runner.contexto_nulo import ContextoNulo
+from pesquisa_precos.steps import registry
+from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
+from pesquisa_precos.runner.null_context import NullContext
 
 CHAVES = [e.chave for e in registry.todas()]
 
 
 @pytest.mark.parametrize("chave", CHAVES)
 def test_etapa_cumpre_o_contrato(chave):
-    """CHAVE, VERSAO_CODIGO, Params, executar(params, ctx) e estimar(params, ctx)."""
+    """KEY, CODE_VERSION, Params, executar(params, ctx) e estimar(params, ctx)."""
     definicao = registry.obter(chave)
     mod = definicao.carregar()
-    assert mod.CHAVE == chave, f"{definicao.modulo}.CHAVE diverge do registry"
-    assert isinstance(mod.VERSAO_CODIGO, str) and mod.VERSAO_CODIGO
+    assert mod.KEY == chave, f"{definicao.modulo}.KEY diverge do registry"
+    assert isinstance(mod.CODE_VERSION, str) and mod.CODE_VERSION
     assert issubclass(mod.Params, BaseModel)
-    for nome in ("executar", "estimar"):
-        fn = getattr(mod, nome)
+    for name in ("run", "estimate"):
+        fn = getattr(mod, name)
         assert list(inspect.signature(fn).parameters) == ["params", "ctx"], (
-            f"{definicao.modulo}.{nome} deve receber (params, ctx)")
+            f"{definicao.modulo}.{name} deve receber (params, ctx)")
 
 
 @pytest.mark.parametrize("chave", CHAVES)
@@ -90,9 +90,9 @@ def test_top_n_zero_e_sem_teto_e_nao_e_rejeitado_pela_validacao():
 
 
 def test_contexto_console_satisfaz_o_protocolo():
-    assert isinstance(ContextoNulo("teste"), ContextoExecucao)
+    assert isinstance(NullContext("teste"), RunContext)
 
 
 def test_modelos_de_resultado_tem_defaults():
-    assert ResultadoEtapa().processados == 0
-    assert Estimativa().custo_usd is None
+    assert StepResult().processados == 0
+    assert Estimate().custo_usd is None

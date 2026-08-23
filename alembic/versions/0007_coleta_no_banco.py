@@ -24,7 +24,7 @@ Três mudanças, todas para a etapa 2 rodar sem tocar em disco.
 3. `coleta_pendente` — espelho de `checkpoints/2_pendentes.csv`: documentos que apareceram na
    busca mas ainda não tinham resultado homologado. A homologação sai depois, e o `--atualizar`
    revisita esta lista antes de mais nada. `base` é `jsonb` porque é exatamente o dict que
-   `coleta_pncp.revisitar_pendente()` recebe de volta — serializá-lo em colunas seria
+   `collect_pncp.revisitar_pendente()` recebe de volta — serializá-lo em colunas seria
    reimplementar o parser da API por fora dele.
 """
 

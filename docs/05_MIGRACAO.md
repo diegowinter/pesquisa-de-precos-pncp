@@ -92,7 +92,7 @@ reclassifica 320k textos já pagos. Extrair para `core/textos.py` e usar dos doi
 
 **`conceitos_origem`** → `documento_termo`. Consolidar também
 `checkpoints/2_conceitos_extra.csv` (os conceitos acrescentados por dedup de documento).
-Hoje isso é feito por `coleta_pncp.carregar_itens_coletados()` — replicar essa lógica.
+Hoje isso é feito por `collect_pncp.carregar_itens_coletados()` — replicar essa lógica.
 
 **`pasta_arquivos`** (caminho absoluto do PDF) **não é migrado como caminho.** Registrar em
 `documento.url_pncp` a URL reconstruída do PNCP. Ver [§5](#5-o-que-fazer-com-os-pdfs-antigos).

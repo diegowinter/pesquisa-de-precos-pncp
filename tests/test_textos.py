@@ -6,7 +6,7 @@ Esta função é calculada na ingestão (etapa 2 / migração m07) e consultada 
 mil textos já pagos de volta ao LLM. É o teste que protege o dinheiro.
 """
 
-from pesquisa_precos.core.textos import normalizar_texto, texto_hash
+from pesquisa_precos.core.text import normalizar_texto, texto_hash
 
 
 class TestNormalizar:

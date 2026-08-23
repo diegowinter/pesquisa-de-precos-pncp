@@ -1,7 +1,7 @@
 """
 Repositório de termos de busca (`termo`, `termo_codigo`, `coleta_watermark`).
 
-`termo_norm` é a chave de dedup (UNIQUE) e vem de `core.textos.normalizar_termo`, que
+`termo_norm` é a chave de dedup (UNIQUE) e vem de `core.text.normalizar_termo`, que
 **preserva o acento** — ao contrário de `normalizar_texto`, usada no `texto_hash`. Não é
 inconsistência: "ambulancia" e "ambulância" são duas buscas diferentes no PNCP e a etapa 1 as
 gera de propósito. A justificativa completa está na docstring de `normalizar_termo`.
@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.core.textos import normalizar_termo
+from pesquisa_precos.core.text import normalizar_termo
 
 
 def upsert(sessao: Session, termo_txt: str, categoria: str | None,

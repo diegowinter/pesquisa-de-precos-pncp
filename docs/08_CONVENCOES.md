@@ -24,7 +24,7 @@ homologação). Traduzir esses conceitos perde precisão e dificulta a auditoria
 | Tabela | singular, `snake_case` | `item`, `documento_pagina` |
 | Enum (tipo) | singular | `status_etapa` |
 | Enum (valor) | `snake_case` | `pdf_ok_diverge` |
-| Módulo de etapa | `e<chave>_<verbo>.py` | `e6a_pares.py` |
+| Módulo de etapa | `e<chave>_<verbo>.py` | `e6a_pairs.py` |
 | Chave de config | prefixo da etapa quando específica | `e5.janela_max` |
 
 ## 3. Estilo e ferramentas
@@ -166,7 +166,7 @@ escuro.
 2. **Não expandir escopo.** A lista de fora de escopo em
    [04_FASES.md](04_FASES.md#fora-de-escopo-todas-as-fases) é explícita justamente para isso.
 3. **Não rodar a pipeline.** Quem executa é o usuário — é human-in-the-loop por desenho.
-   Leitura e diagnóstico (inspecionar CSV, consultar banco, `ferramentas/`) são livres.
+   Leitura e diagnóstico (inspecionar CSV, consultar banco, `tools/`) são livres.
 4. **Preservar comentários que registram bugs corrigidos.** Eles são a memória do projeto.
 5. **Ao portar um script atual, ler o script inteiro antes.** Há validações sutis (confirmação por
    quantidade, banda de sanidade, detector de PDF trocado) que não aparecem no nome da função e

@@ -19,9 +19,9 @@ import sys
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
-from pesquisa_precos.db.repos import execucao as repo_exec
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
+from pesquisa_precos.db.repos import execution as repo_exec
 from pesquisa_precos.db.repos import par as repo
 from migracao._comum import (
     Relatorio,
@@ -50,7 +50,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     total = estimar_linhas(paths.E6_ROTULOS)
     rel.mais("registros no CSV (estimado)", total)
 
-    with db.sessao() as s:
+    with db.session() as s:
         run_id = repo_exec.run_do_acervo_migrado(s)
 
     def linhas():
@@ -71,7 +71,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
-                  console=console) as barra, db.conexao_bruta() as conn:
+                  console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("gravando rótulos", total=total, completed=retomada.linhas)
         for lote in em_lotes(linhas(), LOTE):
             repo.gravar_rotulos(conn, lote)
@@ -80,7 +80,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             rel.mais("enviados", len(lote))
             barra.update(tarefa, completed=retomada.linhas)
 
-    with db.sessao() as s:
+    with db.session() as s:
         n = repo.contar(s)["rotulo"]
     rel.mais("rotulo no banco", n)
     lidas = retomada.linhas  # linhas reais; `total` é só o limite superior da barra
@@ -92,7 +92,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 
 def main() -> None:
     cabecalho("m13 — rótulos", paths.E6_ROTULOS, "rotulo")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 
 

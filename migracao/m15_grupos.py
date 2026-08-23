@@ -18,10 +18,10 @@ Uso: python -m migracao.m15_grupos
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import catalogo as repo_cat
-from pesquisa_precos.db.repos import execucao as repo_exec
+from pesquisa_precos.db.repos import execution as repo_exec
 from pesquisa_precos.db.repos import grupo as repo
 from migracao._comum import (
     Relatorio,
@@ -41,7 +41,7 @@ def migrar() -> Relatorio:
     if not existe(paths.E7_AGRUPADOS):
         raise SystemExit(f"{paths.E7_AGRUPADOS} ausente. Rode a etapa 7 antes.")
 
-    with db.sessao() as s:
+    with db.session() as s:
         tipo_de, ambiguos = repo_cat.tipo_do_codigo(s)
         run_id = repo_exec.run_do_acervo_migrado(s)
         if run_id is None:
@@ -87,7 +87,7 @@ def migrar() -> Relatorio:
                    dec(r.get("preco_unitario")), flag, None, run_id)
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
-                  TaskProgressColumn(), console=console) as barra, db.conexao_bruta() as conn:
+                  TaskProgressColumn(), console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("gravando grupos", total=total)
         enviados = 0
         for lote in em_lotes(linhas(), LOTE):
@@ -98,7 +98,7 @@ def migrar() -> Relatorio:
             barra.update(tarefa, completed=enviados)
 
     rel.mais("códigos distintos", len(posicao_por_codigo))
-    with db.sessao() as s:
+    with db.session() as s:
         for chave, valor in repo.contar(s).items():
             rel.mais(f"{chave} no banco", valor)
     return rel
@@ -106,7 +106,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m15 — grupos", paths.E7_AGRUPADOS, "grupo_item")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

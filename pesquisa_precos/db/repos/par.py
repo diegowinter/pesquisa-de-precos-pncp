@@ -18,7 +18,7 @@ import psycopg
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db import copia
+from pesquisa_precos.db import copy
 
 COLUNAS_6A = ("par_key", "tipo", "codigo", "item_key", "categoria",
               "score_bm25", "score_cosseno", "sobreviveu", "run_id")
@@ -29,7 +29,7 @@ COLUNAS_ROTULO = ("par_key", "texto_catalogo", "texto_item", "score_rerank",
 
 def gravar_candidatos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Etapa 6a (ordem de `COLUNAS_6A`). Só as colunas da 6a são atualizadas."""
-    return copia.copiar(
+    return copy.copiar(
         conn, "par", COLUNAS_6A, linhas, conflito=("par_key",),
         atualizar=("score_bm25", "score_cosseno", "sobreviveu", "categoria", "run_id"),
     )
@@ -127,7 +127,7 @@ def confirmados(sessao: Session) -> list[dict]:
 
 def gravar_rotulos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Append-only, UNIQUE (par_key, origem). NUNCA truncar — é a base de calibração."""
-    return copia.copiar(conn, "rotulo", COLUNAS_ROTULO, linhas,
+    return copy.copiar(conn, "rotulo", COLUNAS_ROTULO, linhas,
                         conflito=("par_key", "origem"))
 
 
@@ -149,7 +149,7 @@ def gravar_embeddings(conn: psycopg.Connection, provedor: str, modelo: str,
     for texto_hash, vetor in itens:
         v = np.asarray(vetor, dtype="<f2")
         linhas.append((texto_hash, provedor, modelo, int(v.size), v.tobytes()))
-    return copia.copiar(
+    return copy.copiar(
         conn, "embedding_cache",
         ("texto_hash", "provedor", "modelo", "dimensao", "vetor"), linhas,
         conflito=("texto_hash", "provedor", "modelo", "dimensao"),

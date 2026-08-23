@@ -24,7 +24,7 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 
 from pesquisa_precos.config import paths
 from pesquisa_precos.config.settings import carregar_config
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import par as repo
 from migracao._comum import Relatorio, cabecalho, console, existe
 
@@ -50,7 +50,7 @@ def migrar(provedor: str = PROVEDOR_PADRAO, modelo: str | None = None) -> Relato
     dimensoes: set[int] = set()
     enviados = 0
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
-                  TaskProgressColumn(), console=console) as barra, db.conexao_bruta() as conn:
+                  TaskProgressColumn(), console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task(f"gravando ({provedor}/{modelo})", total=total)
         for bloco in arquivo.iter_batches(batch_size=LOTE, columns=["hash", "vetor"]):
             dados = bloco.to_pydict()
@@ -73,14 +73,14 @@ def migrar(provedor: str = PROVEDOR_PADRAO, modelo: str | None = None) -> Relato
                   f"{DIMENSAO_ESPERADA} para bge-m3). Confirme `--modelo` antes de usar este "
                   f"cache na 6a — espaço vetorial errado não dá erro, dá resultado ruim.")
 
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("embedding_cache no banco", repo.contar(s)["embedding_cache"])
     return rel
 
 
 def main() -> None:
     cabecalho("m14 — cache de embeddings", paths.CK_6A_EMB_CACHE, "embedding_cache")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     args = sys.argv[1:]
 
     def flag(nome: str, default):

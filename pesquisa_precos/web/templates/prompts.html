@@ -19,7 +19,7 @@
           <td>{{ v.notas or "" }}</td>
           <td>
             {% if not v.ativa %}
-            <form method="post" action="/prompts/{{ p.nome }}/{{ v.versao }}/ativar" class="linha">
+            <form method="post" action="/prompts/{{ p.nome }}/{{ v.versao }}/activate" class="linha">
               <button type="submit">ativar</button>
             </form>
             {% endif %}
@@ -29,7 +29,7 @@
       </tbody>
     </table>
 
-    <form method="post" action="/prompts/{{ p.nome }}/versoes" style="margin-top:.5rem;">
+    <form method="post" action="/prompts/{{ p.nome }}/versions" style="margin-top:.5rem;">
       <label for="template__{{ p.nome }}">Nova versão — template (placeholders <code>{campo}</code>; chaves literais escapam como <code>{{ '{{' }}</code>/<code>{{ '}}' }}</code>)</label>
       <textarea id="template__{{ p.nome }}" name="template" rows="10" style="width:100%;font-family:ui-monospace,monospace;">{{ p.versoes[0].template if p.versoes else "" }}</textarea>
       <label for="notas__{{ p.nome }}">Notas</label>
@@ -38,7 +38,7 @@
     </form>
   </details>
   {% else %}
-  <p class="tag">nenhum prompt semeado ainda — rode <code>ferramentas/semear_prompts.py</code></p>
+  <p class="tag">nenhum prompt semeado ainda — rode <code>tools/seed_prompts.py</code></p>
   {% endfor %}
 </div>
 

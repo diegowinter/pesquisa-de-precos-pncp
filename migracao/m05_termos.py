@@ -11,7 +11,7 @@ termo e ignoramos `conceito`.
 vira uma linha em `termo_codigo`, resolvendo o `tipo` pelo catálogo — códigos que não existem
 mais no catálogo filtrado são contados e descartados, não migrados com FK quebrada.
 
-`termo_norm` é `core.textos.normalizar_termo`: minúsculo e espaços colapsados, **com acento
+`termo_norm` é `core.text.normalizar_termo`: minúsculo e espaços colapsados, **com acento
 preservado**. Isso diverge de docs/05_MIGRACAO.md §m05, que manda dobrar o acento aqui também —
 e a divergência é deliberada: medido no acervo, dobrar acento colapsa os 499 termos em 338,
 porque a etapa 1 gera de propósito o par com/sem acento de TODO termo
@@ -23,7 +23,7 @@ Uso: python -m migracao.m05_termos
 """
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import catalogo as repo_cat
 from pesquisa_precos.db.repos import termo as repo
 from migracao._comum import Relatorio, cabecalho, console, existe, ler_csv
@@ -42,7 +42,7 @@ def migrar() -> Relatorio:
     if not existe(paths.E1_TERMOS):
         raise SystemExit(f"{paths.E1_TERMOS} ausente. Rode a etapa 1 antes.")
 
-    with db.sessao() as s:
+    with db.session() as s:
         tipo_de, ambiguos = repo_cat.tipo_do_codigo(s)
         if ambiguos:
             rel.aviso(f"{len(ambiguos)} códigos existem nos DOIS tipos "
@@ -81,7 +81,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m05 — termos", paths.E1_TERMOS, "termo, termo_codigo")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

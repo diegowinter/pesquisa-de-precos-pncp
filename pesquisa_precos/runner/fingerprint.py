@@ -19,8 +19,8 @@ import json
 
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db.repos import execucao as repo
-from pesquisa_precos.etapas import registry
+from pesquisa_precos.db.repos import execution as repo
+from pesquisa_precos.steps import registry
 
 
 def calcular(versao_codigo: str, params_efetivos: dict, fingerprints_dependencias: list[str]) -> str:

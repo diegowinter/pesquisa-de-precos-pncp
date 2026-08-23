@@ -18,8 +18,8 @@ import sys
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import documento as repo
 from migracao._comum import (
     Relatorio,
@@ -66,12 +66,12 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             # Marcação e avanço da retomada no MESMO commit (docs/08_CONVENCOES.md §5.3):
             # separados, uma interrupção entre os dois faria a retomada pular itens não
             # marcados — que então nunca chegariam ao pareamento.
-            with db.sessao() as s:
+            with db.session() as s:
                 rel.mais("marcados", repo.marcar_sobreviventes(s, lote))
                 retomada.avancar(len(lote))
             barra.update(tarefa, completed=retomada.linhas)
 
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("documentos recontados", repo.recontar_sobreviventes_por_documento(s))
         contagens = repo.contar(s)
     for chave, valor in contagens.items():
@@ -91,7 +91,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
 def main() -> None:
     cabecalho("m09 — sobreviventes", paths.E4_SOBREVIVENTES,
               "item.sobrevivente, documento.n_itens_sobreviventes")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 
 

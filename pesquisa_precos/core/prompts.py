@@ -13,10 +13,10 @@ Os construtores aceitam `com_justificativa`:
 
 import json
 
-from pesquisa_precos.core.classificacao.categorias import CATEGORIAS_MATERIAL as _DEF_MATERIAL
-from pesquisa_precos.core.classificacao.categorias import CATEGORIAS_SERVICO as _DEF_SERVICO
-from pesquisa_precos.core.classificacao.categorias import META_CATEGORIAS as _META
-from pesquisa_precos.core.classificacao.categorias import IDS_CONTEUDO as _IDS_CONTEUDO
+from pesquisa_precos.core.classification.categories import CATEGORIAS_MATERIAL as _DEF_MATERIAL
+from pesquisa_precos.core.classification.categories import CATEGORIAS_SERVICO as _DEF_SERVICO
+from pesquisa_precos.core.classification.categories import META_CATEGORIAS as _META
+from pesquisa_precos.core.classification.categories import IDS_CONTEUDO as _IDS_CONTEUDO
 
 # ── Derivados dos arrays de categorias (única fonte da verdade: categorias.py) ───
 # Conjunto de ids válidos e mapa de reconhecimento (id em maiúsculas → id).
@@ -189,7 +189,7 @@ def montar_prompt_servico(row, com_justificativa: bool = True) -> str:
         f"  Serviço: {nome_servico}\n\n"
         + _instrucao_saida(
             com_justificativa,
-            "servico_seguranca|monitoramento eletrônico por câmeras CFTV com central de alarme",
+            "service_seguranca|monitoramento eletrônico por câmeras CFTV com central de alarme",
         )
     )
 

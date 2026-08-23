@@ -1,9 +1,9 @@
 """
-Caminhos dos CSVs herdados — **exclusivo do importador** (`migracao/`) e de `ferramentas/`.
+Caminhos dos CSVs herdados — **exclusivo do importador** (`migracao/`) e de `tools/`.
 
 Até a Fase 13 este módulo era a fonte única dos caminhos de TODA a pipeline: cada etapa lia e
 escrevia em `data/`. Com o caminho `--fonte csv` removido (ADR-020), nenhum módulo de
-`pesquisa_precos/etapas/` importa isto, e nenhum deve voltar a importar — o banco é o único
+`pesquisa_precos/steps/` importa isto, e nenhum deve voltar a importar — o banco é o único
 meio de persistência. `tests/test_estrutura.py` guarda exatamente essa regra.
 
 O que sobrou aqui é o mapa do acervo que ainda NÃO foi migrado: 1,6 milhão de itens que vivem

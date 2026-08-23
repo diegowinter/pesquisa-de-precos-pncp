@@ -7,7 +7,7 @@ Create Date: 2026-08-16
 O DDL abaixo é COPIADO de docs/02_SCHEMA.md, que é normativo: nome de tabela, de coluna, de
 enum e de índice devem ser exatamente os de lá. Por isso esta migration é SQL literal e não
 `op.create_table()` — a tradução para a API do Alembic perderia os índices parciais
-(`WHERE ativo`, `WHERE sobreviveu`), o índice GIN de `texto_classificacao.categorias`, a coluna
+(`WHERE ativo`, `WHERE sobreviveu`), o índice GIN de `texto_classification.categories`, a coluna
 gerada `documento_pagina.n_chars` e o `UNIQUE ... WHERE ativa` de `prompt_versao`. Todos são
 comportamento, não estética.
 

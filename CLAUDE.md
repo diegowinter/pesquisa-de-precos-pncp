@@ -18,8 +18,8 @@ desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fa
 pesquisa_precos/
   __main__.py  ← `python -m pesquisa_precos` sobe TUDO (HTML + /api) numa porta só
   config/    settings.py (só bootstrap, ver ADR-022) · paths.py (só do importador)
-  etapas/    e0a_catalogo · e1_termos · e2_coletar · e3_classificar · e4_cortar
-             e5_extrair · e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
+  etapas/    e0a_catalogo · e1_termos · e2_collect · e3_classify · e4_cut
+             e5_extract · e6a_pairs · e6b_rerank · e6c_validate · e7_group · e8_export
   core/      regras, paralelo, prompts, coleta PNCP, catálogo, classificação, pareamento
   providers/ chat · embed · rerank · pdf · pareamento (resolver + adapters — TODOS clientes
              de serviço; nada roda em processo desde a ADR-021)
@@ -78,7 +78,7 @@ Consequências para quem for mexer:
 - **`APP_SECRET_KEY` é a chave-mestra** que cifra as chaves de API em `provedor.api_key_cifrada`
   (AES-GCM, `db/segredo.py`). Sem ela, nenhuma etapa que use LLM/GPU roda. O único ponto do
   código que decifra é `providers/resolver.py` — um teste estrutural guarda isso.
-- **`ferramentas/semear_provedores.py`** foi a ponte de mão única do `.env` para o banco. Já
+- **`tools/seed_providers.py`** foi a ponte de mão única do `.env` para o banco. Já
   rodou; não precisa rodar de novo.
 - **Estado hoje:** `chat → openrouter`, `embed`/`rerank → gpu_caseira`, `lm_studio` cadastrado
   mas não apontado. **`pdf` e `pareamento` estão SEM provedor** — as etapas 5 e 6a não rodam
@@ -122,8 +122,8 @@ usuário — e cada agregado pede `pg_dump` antes.
 Três coisas descobertas rodando a amostra, que já estão tratadas no código:
 - **`termo_norm` NÃO dobra acento** (diverge de docs/05_MIGRACAO.md §m05 de propósito): a
   etapa 1 gera o par com/sem acento para todo termo porque a busca do PNCP é sensível a
-  acento. Dobrar colapsaria 499 termos em 338. Ver `core.textos.normalizar_termo`.
-- **Texto de PDF contém bytes NUL**, que `text` do Postgres rejeita — `db.copia.texto_para_pg`
+  acento. Dobrar colapsaria 499 termos em 338. Ver `core.text.normalizar_termo`.
+- **Texto de PDF contém bytes NUL**, que `text` do Postgres rejeita — `db.copy.texto_para_pg`
   os remove no m10.
 - **`5_pdf_texto.csv` tem cada página 2×** (extração append-only rodou duas vezes, texto
   idêntico). A PK dedupa; a contagem final fica ~metade das 888.656 linhas do CSV. Esperado.
@@ -142,7 +142,7 @@ Na prática, para o Claude: **não subir o servidor e não chamar rota que dispa
 código e ajudar a debugar quando algo falha, inspecionar resultados depois (SQL/Python
 **read-only** é OK), e implementar correções/features pontuais quando pedido.
 
-Livres: `ferramentas/`, consultas de leitura ao banco, `pytest`, `ruff`, e subir a app num
+Livres: `tools/`, consultas de leitura ao banco, `pytest`, `ruff`, e subir a app num
 `TestClient` para conferir que uma rota responde (não é execução de etapa).
 
 ## Restrição crítica de custo de LLM
@@ -200,7 +200,7 @@ refazer tudo do zero. Peças desse desenho, reaproveitáveis como padrão:
   Como o v2 nunca salvou o campo real, ele foi reconstruído de forma conservadora a partir de
   `max(data_publicacao_pncp)` por `(termo, tipo_doc)` — sempre ≤ ao watermark real, então nunca
   pula nada (só re-varre um pouco a mais). Isso foi feito **uma vez só**, via
-  `ferramentas/semear_watermark_v2.py`; a partir da primeira `--atualizar` real o mecanismo
+  `tools/seed_watermark_v2.py`; a partir da primeira `--atualizar` real o mecanismo
   normal já sobrescreve com datas reais. **Não precisa rodar de novo.**
 - **Dedup por texto** (etapa 3): classifica só `(descricao, unidade)` únicos e propaga o rótulo
   para todos os `item_key` iguais — corta o volume de chamadas de LLM em ~5x. A etapa 5b **não**
@@ -240,7 +240,7 @@ domínio — os 1,6 milhão de itens seguem só nos CSVs.
 |---|---|---|
 | 0a | ✅ | delta limpo (catálogo estável) |
 | 1 | ✅ | formato "termos por item" já é o base, sem custo LLM extra |
-| watermark artificial | ✅ | seed único via `semear_watermark_v2.py --com-extra`, não repetir |
+| watermark artificial | ✅ | seed único via `seed_watermark_v2.py --com-extra`, não repetir |
 | 2 (`--atualizar`) | ✅ | +173k itens; progress bar do resgate de pendentes corrigida |
 | 3 (classificar) | ✅ | dedup por texto; bug do `--retry-erros` corrigido |
 | 4 (cortar) | ✅ | sem LLM; "regra dos 5" já removida (ver acima) |
@@ -262,7 +262,7 @@ estavam iguais antes dela.
 
 ## Onde ficam as coisas úteis para debugar
 
-- `ferramentas/` — scripts de apoio pontuais (correção de schema, seed de watermark,
+- `tools/` — scripts de apoio pontuais (correção de schema, seed de watermark,
   calibração de thresholds). Não fazem parte do fluxo normal.
 - `tests/` — guardas estruturais + regra de negócio (`pytest` roda em segundos; os testes de
   banco pulam sozinhos sem Postgres).

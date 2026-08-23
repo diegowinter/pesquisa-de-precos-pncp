@@ -15,8 +15,8 @@ Uso: python -m migracao.m02_prompts
 """
 
 from pesquisa_precos.core import prompts
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import execution as repo
 from migracao._comum import Relatorio, cabecalho, console
 
 _ITEM_API = {"numeroItem": "{numero_item}", "descricao_api": "{descricao_api}"}
@@ -67,7 +67,7 @@ DEFINICOES = (
 
 def migrar() -> Relatorio:
     rel = Relatorio("m02 — prompts")
-    with db.sessao() as s:
+    with db.session() as s:
         for nome, descricao, capacidade, montar in DEFINICOES:
             try:
                 template = montar()
@@ -84,7 +84,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m02 — prompts", [], "prompt, prompt_versao")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

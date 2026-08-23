@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block titulo %}Provedores{% endblock %}
+{% block conteudo %}
+
+{# Fase 14 (ADR-022): a tela deixou de ser só diagnóstico e virou a superfície de configuração.
+   A chave de API é write-only — o campo nasce vazio em toda edição, porque nem o servidor a
+   conhece em claro fora do momento de montar o adapter. #}
+
+{% if not chave_mestra.configurada %}
+<div class="painel erro">
+  <h3>⚠ {{ chave_mestra.variavel }} não está definida</h3>
+  <p>
+    Sem a chave-mestra não é possível gravar nem ler a chave de API de nenhum provedor: ela é o
+    que cifra os segredos guardados no banco. Gere uma e defina-a como variável de ambiente do
+    serviço (ou no <code>.env</code>, em desenvolvimento):
+  </p>
+  <pre>uv run python -c "from pesquisa_precos.db import secret; print(segredo.gerar_chave_mestra())"</pre>
+</div>
+{% endif %}
+
+{% if a_recifrar %}
+<div class="painel">
+  <h3>Rotação de chave-mestra pendente</h3>
+  <p>
+    Estes provedores ainda estão cifrados com a chave anterior:
+    <strong>{{ a_recifrar | join(", ") }}</strong>. Mantenha <code>APP_SECRET_KEY_ANTIGA</code>
+    no ambiente até re-cifrar; só remova depois que esta lista esvaziar.
+  </p>
+  <form method="post" action="/providers/recrypt">
+    <button type="submit">Re-cifrar com a chave atual</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="painel">
+  <h2>Saúde das capacidades</h2>
+  <p class="dim">
+    Sondagem HTTP leve de cada capacidade, na ordem banco (<code>capacidade_provedor</code>) →
+    <code>.env</code>. Não gasta e não dispara etapa. É a mesma checagem que o executor faz
+    antes de dar play — uma capacidade reprovada aqui reprova a etapa que a declara.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Capacidade</th><th>Provedor</th><th>Origem</th><th>Saudável</th>
+          <th>Latência</th><th>Mensagem</th></tr>
+    </thead>
+    <tbody>
+      {% for r in resultados %}
+      <tr>
+        <td><strong>{{ r.capacidade }}</strong></td>
+        <td>{{ r.provedor }}</td>
+        <td class="dim">{{ r.origem }}</td>
+        <td>{% if r.saudavel %}<span class="ok">sim</span>
+            {% else %}<span class="erro">NÃO</span>{% endif %}</td>
+        <td>{{ r.latencia_ms }} ms</td>
+        <td class="dim">{{ r.mensagem or "—" }}</td>
+      </tr>
+      {% else %}<tr><td colspan="6">nenhuma capacidade configurada</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p class="dim">
+    <strong>Origem <code>env</code></strong> significa que a capacidade ainda resolve pelo
+    <code>.env</code>, porque nenhum provedor foi apontado para ela abaixo. Enquanto a Fase 14
+    não termina, isso funciona — mas é o caminho que vai sair.
+  </p>
+</div>
+
+<div class="painel">
+  <h2>Quem atende cada capacidade</h2>
+  <p class="dim">
+    É esta tabela que o resolver lê. Cadastrar um provedor sem apontá-lo aqui não muda nada no
+    comportamento das etapas.
+  </p>
+  <form method="post" action="/providers/capabilities">
+    <label>Capacidade
+      <select name="capacidade" required>
+        {% for c in capacidades %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Provedor
+      <select name="provedor" required>
+        {% for p in provedores %}<option value="{{ p.nome }}">{{ p.nome }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Modelo (opcional, sobrepõe o padrão do provedor)
+      <input type="text" name="modelo" placeholder="inclusionai/ling-2.6-flash">
+    </label>
+    <label>Fallback (opcional)
+      <select name="fallback">
+        <option value="">— nenhum —</option>
+        {% for p in provedores %}<option value="{{ p.nome }}">{{ p.nome }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="dim">
+      Fallback é <strong>proibido em <code>embed</code></strong> (ADR-006): trocar de provedor
+      de embedding no meio mistura espaços vetoriais em silêncio. Ali, falhar e parar a etapa é
+      o comportamento correto.
+    </p>
+    <button type="submit">Apontar</button>
+  </form>
+</div>
+
+<div class="painel">
+  <h2>Provedores cadastrados</h2>
+  <table>
+    <thead>
+      <tr><th>Nome</th><th>Capacidades</th><th>base_url</th><th>Modelo padrão</th>
+          <th>Chave de API</th><th>Ativo</th><th>Ações</th></tr>
+    </thead>
+    <tbody>
+      {% for p in provedores %}
+      <tr>
+        <td><strong>{{ p.nome }}</strong></td>
+        <td class="dim">{{ p.capacidades | join(", ") }}</td>
+        <td class="dim"><code>{{ p.base_url }}</code></td>
+        <td class="dim">{{ p.modelo_padrao or "—" }}</td>
+        <td>
+          {% if p.tem_api_key %}
+            <span class="ok">••••{{ p.api_key_last4 }}</span>
+            <span class="dim">({{ p.api_key_atualizada_em.strftime("%d/%m/%Y") if p.api_key_atualizada_em else "—" }})</span>
+          {% else %}<span class="dim">— sem chave —</span>{% endif %}
+        </td>
+        <td>{% if p.ativo %}<span class="ok">sim</span>{% else %}<span class="dim">não</span>{% endif %}</td>
+        <td>
+          <a href="/providers?editar={{ p.nome }}">editar</a>
+          <form method="post" action="/providers/{{ p.nome }}/test" class="inline">
+            <button type="submit">testar</button>
+          </form>
+          <form method="post" action="/providers/{{ p.nome }}/active" class="inline">
+            <input type="hidden" name="ativo" value="{{ 'off' if p.ativo else 'on' }}">
+            <button type="submit">{{ "desativar" if p.ativo else "ativar" }}</button>
+          </form>
+          {% if p.tem_api_key %}
+          <form method="post" action="/providers/{{ p.nome }}/key/clear" class="inline">
+            <button type="submit">limpar chave</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">
+        Nenhum provedor cadastrado — todas as capacidades ainda resolvem pelo <code>.env</code>.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h2>{% if editando %}Editar “{{ editando.nome }}”{% else %}Novo provedor{% endif %}</h2>
+  <form method="post" action="/providers">
+    <label>Nome
+      <input type="text" name="name" required placeholder="openrouter"
+             value="{{ editando.nome if editando else '' }}"
+             {% if editando %}readonly{% endif %}>
+    </label>
+    <label>base_url
+      <input type="text" name="base_url" required placeholder="https://openrouter.ai/api/v1"
+             value="{{ editando.base_url if editando else '' }}">
+    </label>
+    <fieldset>
+      <legend>Capacidades</legend>
+      {% for c in capacidades %}
+      <label>
+        <input type="checkbox" name="capacidades" value="{{ c }}"
+               {% if editando and c in editando.capacidades %}checked{% endif %}> {{ c }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    <label>Modelo padrão
+      <input type="text" name="modelo_padrao"
+             value="{{ editando.modelo_padrao or '' if editando else '' }}">
+    </label>
+    <label>batch_size
+      <input type="number" name="batch_size" min="1"
+             value="{{ editando.batch_size or '' if editando else '' }}">
+    </label>
+    <label>rpm_limite
+      <input type="number" name="rpm_limite" min="1"
+             value="{{ editando.rpm_limite or '' if editando else '' }}">
+    </label>
+    <label>Custo entrada (USD / Mtok)
+      <input type="text" name="custo_in_por_mtok"
+             value="{{ editando.custo_in_por_mtok or '' if editando else '' }}">
+    </label>
+    <label>Custo saída (USD / Mtok)
+      <input type="text" name="custo_out_por_mtok"
+             value="{{ editando.custo_out_por_mtok or '' if editando else '' }}">
+    </label>
+    <label>Preço médio por chamada (USD) — só para a estimativa prévia
+      <input type="text" name="custo_usd_chamada"
+             value="{{ editando.custo_usd_chamada or '' if editando else '' }}">
+    </label>
+    <p class="dim">
+      Em branco = não informado: a etapa responde “não estimado” em vez de inventar um número.
+      <code>0</code> é diferente — é o provedor local, que não custa nada.
+    </p>
+    <label>
+      <input type="checkbox" name="ativo"
+             {% if not editando or editando.ativo %}checked{% endif %}> Ativo
+    </label>
+    <label>Chave de API
+      <input type="password" name="api_key" autocomplete="new-password"
+             placeholder="{% if editando and editando.tem_api_key %}deixe em branco para manter a chave atual{% else %}cole a chave aqui{% endif %}">
+    </label>
+    <p class="dim">
+      A chave é cifrada antes de ir para o banco e <strong>nunca volta para esta tela</strong> —
+      só os quatro últimos dígitos. Deixar o campo em branco mantém a chave que já está
+      gravada; para removê-la de propósito, use “limpar chave” na tabela acima.
+    </p>
+    <button type="submit">Salvar</button>
+    {% if editando %}<a href="/providers">cancelar</a>{% endif %}
+  </form>
+</div>
+{% endblock %}

@@ -13,7 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import grupo as repo_grupo
 
 
@@ -37,7 +37,7 @@ def diff_runs(run_a_id: int, run_b_id: int, *, limiar_variacao: float = 0.0) -> 
     `limiar_variacao` filtra ruído de arredondamento nas "preço mudou" — só entra quem variou
     mais que essa fração (0.0 = qualquer variação de centavo conta).
     """
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         linhas_a = repo_grupo.linhas_do_run(sessao, run_a_id)
         linhas_b = repo_grupo.linhas_do_run(sessao, run_b_id)
     if not linhas_a:

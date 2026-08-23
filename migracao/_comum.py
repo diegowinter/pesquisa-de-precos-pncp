@@ -4,7 +4,7 @@ Infraestrutura compartilhada pelos scripts de migração CSV → PostgreSQL.
 As quatro regras invioláveis de docs/05_MIGRACAO.md §1 estão implementadas AQUI, não em cada
 script, justamente para não dependerem de alguém lembrar:
 
-  idempotente   → toda escrita passa por `db/copia.py`, que faz `ON CONFLICT`;
+  idempotente   → toda escrita passa por `db/copy.py`, que faz `ON CONFLICT`;
   resumível     → `Retomada` grava quantas linhas do CSV já foram consumidas;
   origem só p/ leitura → nenhuma função deste pacote abre CSV em modo de escrita;
   streaming     → `ler_csv()` é um gerador; `2_itens_coletados.csv` tem 746 MB e

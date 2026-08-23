@@ -10,7 +10,7 @@
       <span class="tag">custo: US$ {{ "%.2f"|format(run.custo_usd or 0) }}{% if run.teto_custo_usd %} / US$ {{ "%.2f"|format(run.teto_custo_usd) }}{% endif %}</span>
     </div>
     {% if run.status == 'aberto' %}
-    <form method="post" action="/runs/{{ run.id }}/abortar"
+    <form method="post" action="/runs/{{ run.id }}/abort"
           onsubmit="return confirm('Abortar este run? A etapa em execução será cancelada.');">
       <button class="perigo" type="submit">abortar run</button>
     </form>
@@ -19,6 +19,6 @@
 </div>
 
 <div class="painel">
-  {% include "_grafo.html" %}
+  {% include "_graph.html" %}
 </div>
 {% endblock %}

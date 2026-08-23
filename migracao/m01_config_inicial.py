@@ -16,8 +16,8 @@ Uso: python -m migracao.m01_config_inicial
 """
 
 from pesquisa_precos.config.settings import carregar_config
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import execution as repo
 from migracao._comum import Relatorio, cabecalho, console
 
 ROTULO = "migrada do .env"
@@ -35,7 +35,7 @@ def migrar() -> Relatorio:
     rel = Relatorio("m01 — config e provedores")
     cfg = carregar_config()
 
-    with db.sessao() as s:
+    with db.session() as s:
         cv = repo.config_versao_por_rotulo(s, ROTULO)
         if cv is None:
             cv = repo.criar_config_versao(
@@ -88,7 +88,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m01 — config inicial", [], "config_versao, config_valor, provedor")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

@@ -233,7 +233,7 @@ tempos em tempos) é editável pela interface, sem redeploy.
    corrompe o espaço vetorial. Em `embed`: **falhar e parar a etapa**. Em `chat`/`rerank`/`ocr`:
    fallback é aceitável.
 3. **Trocar reranker exige recalibrar thresholds** (`RERANK_T_ACEITA` / `RERANK_T_REJEITA`).
-   Já existe `ferramentas/calibrar_thresholds.py` como base.
+   Já existe `tools/calibrate_thresholds.py` como base.
 4. **Cada adapter declara seu próprio `batch_size` e faz seu próprio retry/backoff.** GPU caseira
    aceita batch grande; APIs têm limite de RPM e de tokens por requisição.
 5. **Teto de custo por capacidade e por run**, verificado *antes* de cada lote.
@@ -251,9 +251,9 @@ pesquisa_precos/
     catalogo/  coleta/  classificacao/  extracao/
     pareamento/  agrupamento/  export/
   etapas/               # 1 módulo por etapa; cada um expõe executar()
-    e0a_catalogo.py  e1_termos.py  e2_coletar.py  e3_classificar.py
-    e4_cortar.py     e5_extrair.py  e6a_pares.py  e6b_rerank.py
-    e6c_validar.py   e7_agrupar.py  e8_exportar.py
+    e0a_catalogo.py  e1_termos.py  e2_collect.py  e3_classify.py
+    e4_cut.py     e5_extract.py  e6a_pairs.py  e6b_rerank.py
+    e6c_validate.py   e7_group.py  e8_export.py
     registry.py         # metadados: nome, deps, custo, precisa_gate, params
   estrategias/          # implementações plugáveis da etapa 5
     janela.py  completa.py  visao.py
@@ -263,7 +263,7 @@ pesquisa_precos/
   api/                  # routers JSON, montados sob /api na app da web
   web/                  # app FastAPI (HTML + /api), templates Jinja2 + static
   config/               # settings, resolução de parâmetros; `paths.py` é só do importador
-ferramentas/            # scripts de apoio pontuais (mantidos)
+tools/            # scripts de apoio pontuais (mantidos)
 migracao/               # scripts one-shot CSV → Postgres
 tests/
 docs/

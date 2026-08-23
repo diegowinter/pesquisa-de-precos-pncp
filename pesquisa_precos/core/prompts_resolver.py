@@ -26,7 +26,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db.repos import execution as repo
 
 PromptsAtivos = dict[str, tuple[str, int]]
 

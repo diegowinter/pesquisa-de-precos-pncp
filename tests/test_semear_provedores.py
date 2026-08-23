@@ -10,7 +10,7 @@ pronto para ser apontado por engano, contra a restrição de custo do CLAUDE.md.
 
 import pytest
 
-from ferramentas.semear_provedores import plano
+from tools.seed_providers import plano
 
 
 @pytest.fixture(autouse=True)
@@ -92,13 +92,13 @@ def test_servicos_do_companion(monkeypatch):
 
     provedores, apontamentos, avisos = plano()
     nomes = _por_nome(provedores)
-    assert nomes["servico_pdf"]["base_url"] == "http://pdf:8200"
-    assert nomes["servico_pareamento"]["base_url"] == "http://par:8300"
+    assert nomes["service_pdf"]["base_url"] == "http://pdf:8200"
+    assert nomes["service_pareamento"]["base_url"] == "http://par:8300"
     assert {a["capacidade"] for a in apontamentos} >= {"pdf", "pareamento"}
     assert not [a for a in avisos if "BASE_URL" in a]
 
 
-def test_servico_sem_url_vira_aviso_nao_provedor_quebrado():
+def test_service_sem_url_vira_aviso_nao_provedor_quebrado():
     """Semear um provedor com `base_url` vazia criaria exatamente a linha que a ADR-021 proíbe.
     Melhor não cadastrar e dizer o que falta."""
     provedores, _, avisos = plano()
@@ -118,5 +118,5 @@ def test_plano_nao_escreve_nada(monkeypatch):
     def explodir(*_a, **_k):
         raise AssertionError("plano() não pode abrir sessão de banco")
 
-    monkeypatch.setattr("pesquisa_precos.db.sessao.criar_sessao", explodir)
+    monkeypatch.setattr("pesquisa_precos.db.session.create_session", explodir)
     plano()

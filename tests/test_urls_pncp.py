@@ -5,7 +5,7 @@ Sem esta função, "não migrar os 111 GB de PDF" vira uma decisão sem volta. O
 usam números de controle REAIS do acervo.
 """
 
-from pesquisa_precos.core.coleta.urls import partes_controle, url_documento
+from pesquisa_precos.core.collection.urls import partes_controle, url_documento
 
 
 class TestPartes:

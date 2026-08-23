@@ -5,7 +5,7 @@ Agrupamento e menor preço (Fase 9 — prioridade 3 de docs/08_CONVENCOES.md §6
 
 import pandas as pd
 
-from pesquisa_precos.etapas.e7_agrupar import flag_iqr
+from pesquisa_precos.steps.e7_group import flag_iqr
 
 
 class TestFlagIqr:

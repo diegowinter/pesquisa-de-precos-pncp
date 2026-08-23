@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pesquisa_precos.core.regressao import Rotulo, avaliar
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.core.regression import Rotulo, avaliar
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import execution as repo
 from pesquisa_precos.db.repos import par as repo_par
 
 
@@ -22,18 +22,18 @@ class ConfigVersaoInexistente(RuntimeError):
 
 
 def listar_config_versoes() -> list[dict[str, Any]]:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         return repo.listar_config_versoes(sessao)
 
 
 def obter_config_versao(config_versao_id: int) -> dict[str, Any] | None:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         return repo.config_versao_por_id(sessao, config_versao_id)
 
 
 def criar_config_versao(rotulo: str, valores: dict[str, Any], *,
                         criado_por: str | None = None, notas: str | None = None) -> int:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         config_versao_id = repo.criar_config_versao(sessao, rotulo, criado_por=criado_por,
                                                      notas=notas)
         repo.gravar_config(sessao, config_versao_id, valores)
@@ -41,7 +41,7 @@ def criar_config_versao(rotulo: str, valores: dict[str, Any], *,
 
 
 def diff_config_versoes(id_a: int, id_b: int) -> dict[str, Any]:
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         if repo.config_versao_por_id(sessao, id_a) is None:
             raise ConfigVersaoInexistente(f"config_versao {id_a} não existe")
         if repo.config_versao_por_id(sessao, id_b) is None:
@@ -54,7 +54,7 @@ def schema_parametros() -> dict[str, Any]:
     é o que a tela de configuração usa para gerar o formulário (docs/06_API_E_WEB.md §4.5:
     "formulário por etapa, gerado do Pydantic"). Desde a Fase 13 é a ÚNICA superfície de
     configuração — mudar um `Params` chega aqui sozinho, sem formulário à parte para lembrar."""
-    from pesquisa_precos.etapas import registry
+    from pesquisa_precos.steps import registry
 
     saida: dict[str, Any] = {}
     for definicao in registry.ordem():
@@ -73,10 +73,10 @@ def recalibrar_threshold(t_aceita: float, t_rejeita: float, *,
                          limite_amostra: int = 500) -> dict[str, Any]:
     """Fase 9, item 6: precisão/recall de um par de thresholds CANDIDATOS, usando `rotulo`,
     ANTES de gravar uma `config_versao` nova (a interface só grava depois de o operador olhar
-    este número — nada aqui persiste config). Mesma lógica de `core.regressao`, usada também
-    pela suite de regressão em `ferramentas/regressao.py`: uma verdade só sobre o que os
+    este número — nada aqui persiste config). Mesma lógica de `core.regression`, usada também
+    pela suite de regressão em `tools/regressao.py`: uma verdade só sobre o que os
     thresholds decidem."""
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         linhas = repo_par.amostra_rotulos(sessao, limite_amostra)
     rotulos = [Rotulo(par_key=l["par_key"], score_rerank=l["score_rerank"],
                       decisao_final=l["decisao_final"]) for l in linhas]

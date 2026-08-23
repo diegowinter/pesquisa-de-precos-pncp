@@ -8,7 +8,7 @@ reexportados abaixo para manter compatibilidade com quem importa deste módulo.
 Para cada item candidato do catálogo, decide UMA categoria:
   materiais: arma_fogo, arma_nao_letal, municao, protecao_balistica, equip_ti,
              equip_comunicacao, viatura, bicicleta, drone_rpas, outros
-  serviços:  servico_selecao, servico_seguranca, outros
+  serviços:  service_selecao, service_seguranca, outros
 A curadoria MANTÉM itens com categoria != outros/erro (a REGRA-ZERO descarta
 acessórios/peças jogando-os em "outros").
 """
@@ -44,7 +44,7 @@ from pesquisa_precos.core.prompts import (  # noqa: F401
     montar_prompt_servico,
     montar_prompt_termos_item,
 )
-from pesquisa_precos.core.classificacao.categorias import IDS_CONTEUDO as _IDS_CONTEUDO
+from pesquisa_precos.core.classification.categories import IDS_CONTEUDO as _IDS_CONTEUDO
 
 
 def _extrair_json(texto: str) -> dict:
@@ -125,7 +125,7 @@ class Curador:
         self._prompts_ativos = prompts_ativos
 
     # `from_provedor(cfg, provedor, forte=...)` foi REMOVIDO na Fase 14 (ADR-022): ele
-    # resolvia modelo/URL/chave pelo `.env`, contornando `capacidade_provedor` — o segundo
+    # resolvia modelo/URL/key pelo `.env`, contornando `capacidade_provedor` — o segundo
     # caminho que a ADR-022 existe para eliminar. Quem precisa de um Curador pede
     # `ctx.provedores.novo_chat(...)`, que passa pelo resolver.
 

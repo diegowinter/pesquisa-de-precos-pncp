@@ -17,7 +17,7 @@
 > | O guia diz | Hoje é |
 > |---|---|
 > | `data/{N}_*.csv` como saída de etapa | uma tabela no Postgres (ver [docs/02_SCHEMA.md](docs/02_SCHEMA.md)) |
-> | `python -m pesquisa_precos.etapas.eN_*` | dar play na etapa pela web |
+> | `python -m pesquisa_precos.steps.eN_*` | dar play na etapa pela web |
 > | caminhos em `config/paths.py` | `paths.py` é só do importador `migracao/` |
 > | checkpoint em `data/checkpoints/` | derivado do próprio dado (`par.score_rerank IS NULL`) |
 > | erros em `data/erros/{N}_erros.csv` | tabela `erro_item` |
@@ -50,8 +50,8 @@ Guia para implementação completa da nova pipeline de pesquisa de preços de it
 > segue usando os nomes antigos dos scripts nas seções históricas (§5); nas seções normativas
 > abaixo, o nome do módulo novo vem entre parênteses.
 
-- Etapas ficam em `pesquisa_precos/etapas/`, nomeadas `e{N}{letra?}_{acao}.py` (ex.: `e0a_catalogo.py`, `e6a_pares.py`), e rodam como `python -m pesquisa_precos.etapas.e6a_pares`.
-- **Toda saída de dados leva o prefixo da etapa que a produziu**: `data/{N}{letra?}_{descricao}.{csv|parquet|xlsx}`. Ex.: `e2_coletar` → `data/2_itens_coletados.csv`. Isso é regra dura: olhar o nome do arquivo deve dizer imediatamente quem o gerou e quem o consome (a etapa seguinte).
+- Etapas ficam em `pesquisa_precos/etapas/`, nomeadas `e{N}{letra?}_{acao}.py` (ex.: `e0a_catalogo.py`, `e6a_pairs.py`), e rodam como `python -m pesquisa_precos.steps.e6a_pairs`.
+- **Toda saída de dados leva o prefixo da etapa que a produziu**: `data/{N}{letra?}_{descricao}.{csv|parquet|xlsx}`. Ex.: `e2_collect` → `data/2_itens_coletados.csv`. Isso é regra dura: olhar o nome do arquivo deve dizer imediatamente quem o gerou e quem o consome (a etapa seguinte).
 - Checkpoints/caches internos (não são saída de etapa) ficam em `data/checkpoints/{N}_...`.
 - Logs de erro ficam em `data/erros/{N}_erros.csv`, sempre via `pesquisa_precos/core/erros_log.py`.
 - **Nenhum caminho de `data/` é escrito à mão**: todos vivem em `pesquisa_precos/config/paths.py`. Um caminho divergente não levanta erro — a etapa só perde o checkpoint e repaga o LLM.
@@ -183,9 +183,9 @@ Comportamento:
 - **Saída**: `data/1_conceitos_termos.csv` (termos) + `data/1_categoria_por_codigo.csv` (categoria por item).
 - **LLM**: sim (2 chamadas por item — termos + categoria; volume baixo).
 
-### Etapa 2 — `etapas/e2_coletar.py` ✅
+### Etapa 2 — `etapas/e2_collect.py` ✅
 
-Sucessor do par `1_obter_itens.py` + `1_obter_itens_catalogo.py`. **Reaproveita** as libs `core/coleta/buscar_pncp.py`, `core/coleta/consultar_arquivos.py`, `core/coleta/consultar_itens.py` — a lógica de busca/paginação/filtro homologado do `1_obter_itens.py` atual migra para uma lib `core/coleta/coleta_pncp.py` (funções puras, sem `__main__`), eliminando o hack de `importlib` para módulo que começa com dígito.
+Sucessor do par `1_obter_itens.py` + `1_obter_itens_catalogo.py`. **Reaproveita** as libs `core/coleta/search_pncp.py`, `core/coleta/fetch_files.py`, `core/coleta/fetch_items.py` — a lógica de busca/paginação/filtro homologado do `1_obter_itens.py` atual migra para uma lib `core/coleta/collect_pncp.py` (funções puras, sem `__main__`), eliminando o hack de `importlib` para módulo que começa com dígito.
 
 Comportamento, para cada `termo` de cada `conceito` de `data/1_conceitos_termos.csv`, para cada tipo de documento (contrato, ata):
 
@@ -196,11 +196,11 @@ Comportamento, para cada `termo` de cada `conceito` de `data/1_conceitos_termos.
 
 - **Entrada**: `data/1_conceitos_termos.csv`; CLI `--conceitos` (filtro), `--ignorar-cache`.
 - **Saída**: `data/2_itens_coletados.csv`. Colunas mínimas: `item_key` (= `numeroControlePNCP + "::" + numeroItem`, chave universal do item daqui pra frente), `tipo_doc` (contrato|ata), `numeroControlePNCP`, `numeroItem`, `descricao_api`, `unidade`, `quantidade`, `preco_unitario`, `orgao`, `uf`, `data`, `conceitos_origem` (pipe-separated), `pasta_arquivos`.
-- **Como atualizar `conceitos_origem` de linha já escrita mantendo append-only**: não reescrever o CSV principal; gravar os acréscimos em `data/checkpoints/2_conceitos_extra.csv` (`item_key, conceito`) e fazer o merge (groupby + união de conceitos) em memória na leitura — fornecer a função `carregar_itens_coletados()` em `core/coleta/coleta_pncp.py` que já devolve o DataFrame consolidado. Todas as etapas seguintes leem por essa função, nunca o CSV cru.
+- **Como atualizar `conceitos_origem` de linha já escrita mantendo append-only**: não reescrever o CSV principal; gravar os acréscimos em `data/checkpoints/2_conceitos_extra.csv` (`item_key, conceito`) e fazer o merge (groupby + união de conceitos) em memória na leitura — fornecer a função `carregar_itens_coletados()` em `core/coleta/collect_pncp.py` que já devolve o DataFrame consolidado. Todas as etapas seguintes leem por essa função, nunca o CSV cru.
 - **Chave de resumo**: `(termo, tipo_doc, pagina)` em `data/checkpoints/2_progresso.csv`.
 - **LLM**: não.
 
-### Etapa 3 — `etapas/e3_classificar.py` ✅
+### Etapa 3 — `etapas/e3_classify.py` ✅
 
 Classificação de categoria por item do PNCP — O(itens), cada item processado **uma única vez** independentemente de quantos termos/conceitos o trouxeram.
 
@@ -215,7 +215,7 @@ Para cada `item_key` único de `2_itens_coletados`:
 - **Chave de resumo**: `item_key`.
 - **Paralelismo**: mesmo pool de `core/paralelo.py`; com LM Studio local, concorrência baixa (2-4) para não estourar a fila do servidor.
 
-### Etapa 4 — `etapas/e4_cortar.py` ✅
+### Etapa 4 — `etapas/e4_cut.py` ✅
 
 Pandas puro, sem API/LLM, rápido. Aplica a versão antecipada e segura da regra dos 5:
 
@@ -253,7 +253,7 @@ Sub-fases (dentro do mesmo script, checkpoints separados):
 - **Chave de resumo** (5.2): `item_key`.
 - CLI: `--pular-ocr` (processa só PDFs nativos; útil pra rodar rápido antes de subir o servidor de OCR).
 
-### Etapa 6a — `etapas/e6a_pares.py` ✅
+### Etapa 6a — `etapas/e6a_pairs.py` ✅
 
 Gera o universo de pares e mata o lixo óbvio de graça.
 
@@ -278,7 +278,7 @@ Cross-encoder local decide a maioria dos pares, custo zero de token.
 - **Chave de resumo**: `par_key` (reranker é rápido, mas o volume pode ser grande — manter resumível).
 - GPU: reranker (sozinho).
 
-### Etapa 6c — `etapas/e6c_validar.py` ✅
+### Etapa 6c — `etapas/e6c_validate.py` ✅
 
 Só a faixa ambígua do reranker chega aqui — tipicamente a minoria dos pares.
 
@@ -289,7 +289,7 @@ Só a faixa ambígua do reranker chega aqui — tipicamente a minoria dos pares.
 - **Saídas**: `data/6c_pares_validados.csv` (`par_key, mesmo_item, justificativa`), `data/6_rotulos_acumulados.csv` (append).
 - **Chave de resumo**: `par_key`. Erros: `data/erros/6c_erros.csv`.
 
-### Etapa 7 — `etapas/e7_agrupar.py` ✅
+### Etapa 7 — `etapas/e7_group.py` ✅
 
 Pandas puro. Sucessor do `3_agrupar_itens_catalogo.py` atual.
 
@@ -302,7 +302,7 @@ Pandas puro. Sucessor do `3_agrupar_itens_catalogo.py` atual.
 - **Saída**: `data/7_itens_agrupados.csv` + `data/7_relatorio_grupos.csv` (`codigo, n_confirmados, n_flagados, fechou (bool)`).
 - **LLM**: não.
 
-### Etapa 8 — `etapas/e8_exportar.py` ✅
+### Etapa 8 — `etapas/e8_export.py` ✅
 
 Sucessor do `4_exportar_para_plaseg.py`. Mesmas 12 colunas fixas, aba "Itens PLASEG", **uma mudança**: nome/descrição do item usa `descricao_final` (a enriquecida do PDF quando `fonte_descricao=pdf`, senão a da API). Tipo/Código Tipo continuam vindo da classificação de catálogo.
 
@@ -329,10 +329,10 @@ CLI com escopos explícitos, nunca apaga tudo por default:
 | `prompts.py` | ✅ | **Falta** os prompts novos (classificação de categoria com few-shots e caso-armadilha; extração guiada; comparação de par; núcleo de conceito; sinônimos de conceito). Prompts de curadoria podem ser removidos (curadoria aposentada). |
 | `categorias.py` | ✅ | **Falta** por categoria: `descricao_curta`, `exemplos_positivos` (2-3), `exemplos_negativos` (2-3, incluindo armadilhas lexicais). |
 | `catalogo_local.py` | ✅ existe | Carga/filtro do catálogo. **Contém a allow-list que substitui a curadoria**: `PDMS_MATERIAIS`, `CODIGOS_SERVICOS`, `filtrar_curado(tipo, df)`. Paths já em `0a_*`. |
-| `buscar_pncp.py` | ✅ existe | Cliente REST de busca, intocado. |
-| `consultar_arquivos.py` | ✅ existe | Intocado. |
-| `consultar_itens.py` | ✅ existe | Intocado. |
-| `coleta_pncp.py` | ✅ | A lógica de negócio do `1_obter_itens.py` atual (busca→filtro→download→explode) como funções puras + `carregar_itens_coletados()` (merge do CSV principal com `2_conceitos_extra.csv`). Elimina o hack de importlib. |
+| `search_pncp.py` | ✅ existe | Cliente REST de busca, intocado. |
+| `fetch_files.py` | ✅ existe | Intocado. |
+| `fetch_items.py` | ✅ existe | Intocado. |
+| `collect_pncp.py` | ✅ | A lógica de negócio do `1_obter_itens.py` atual (busca→filtro→download→explode) como funções puras + `carregar_itens_coletados()` (merge do CSV principal com `2_conceitos_extra.csv`). Elimina o hack de importlib. |
 | `embedder_local.py` | ✅ | Wrapper de `sentence_transformers.SentenceTransformer(EMBEDDER_MODEL)`: `embed_textos(lista, batch) -> np.ndarray` com cache em parquet por hash de texto, device auto (cuda se couber, senão cpu), fp16 em cuda. |
 | `reranker_local.py` | ✅ | Wrapper de `sentence_transformers.CrossEncoder(RERANKER_MODEL)`: `score_pares(lista_de_tuplas, batch) -> np.ndarray`, truncamento a 512 tokens por lado, fp16. |
 | `indice_lexical.py` | ✅ | BM25 (`rank_bm25.BM25Okapi`) por categoria: `construir(corpus_tokens)`, `pontuar(query_tokens)`, tokenizador compartilhado (lowercase + unidecode + split alfanumérico). |
@@ -353,7 +353,7 @@ CLI com escopos explícitos, nunca apaga tudo por default:
 | `curar_catalogo_grupos_paralelo.py` | ❌ curadoria aposentada; `io_seguro.py`/`paralelo.py` já extraídos. A seleção do catálogo agora é a allow-list da 0a (`scripts/catalogo_local.py`) |
 | `curar_catalogo.py`, `curar_catalogo_grupos.py` | mover p/ `legado/` (curadoria descontinuada); não deletar até a v2 rodar ponta a ponta |
 | `enriquecer_catalogo_grupos.py` | aposentar (→ `legado/`); substituído por `1_gerar_conceitos.py` |
-| `1_obter_itens.py` | lógica migra p/ `scripts/coleta_pncp.py`; script → `legado/` |
+| `1_obter_itens.py` | lógica migra p/ `scripts/collect_pncp.py`; script → `legado/` |
 | `1_obter_itens_catalogo.py` | substituído por `2_coletar_pncp.py`; → `legado/` |
 | `2_comparar_itens_catalogo.py` | substituído pela cascata 6a/6b/6c; → `legado/` (o prompt de comparação dele é ponto de partida para `comparar_par`) |
 | `3_agrupar_itens_catalogo.py` | substituído por `7_agrupar_top5.py` (mesma base + sanity de preço) |
@@ -368,9 +368,9 @@ O README deve ser reescrito ao final refletindo exclusivamente o fluxo v2 (diagr
 
 ## 6. Calibração de thresholds (tarefa do operador, mas o agente prepara a ferramenta)
 
-Criar `ferramentas/calibrar_thresholds.py`:
+Criar `tools/calibrate_thresholds.py`:
 
-1. Amostra estratificada de ~150-200 pares de `6a_pares_candidatos.csv` (cobrindo faixas de score), exporta `ferramentas/amostra_rotulagem.csv` com coluna `rotulo_humano` vazia para preenchimento manual (sim/nao).
+1. Amostra estratificada de ~150-200 pares de `6a_pares_candidatos.csv` (cobrindo faixas de score), exporta `tools/amostra_rotulagem.csv` com coluna `rotulo_humano` vazia para preenchimento manual (sim/nao).
 2. Com a amostra preenchida: varre thresholds e reporta, para o rejeitor (6a), o maior `REJEITOR_THRESHOLD` que mantém recall ≥ 99% dos `sim`; para o reranker (6b), a curva precisão/recall por threshold e sugestão de `T_ACEITA` (precisão ≥ 97% nos aceitos) e `T_REJEITA` (recall ≥ 99% preservado acima dele), estimando o % de pares que sobra como ambíguo (= custo de LLM esperado).
 3. Enquanto não houver amostra rotulada, os defaults do `.env` valem — e são conservadores de propósito (rejeitor frouxo, faixa ambígua larga). `data/6_rotulos_acumulados.csv` das primeiras execuções reais alimenta recalibrações.
 
@@ -380,7 +380,7 @@ Criar `ferramentas/calibrar_thresholds.py`:
 2. ✅ **Etapas 3 + 4** sobre os dados já coletados existentes (adaptar leitura do CSV legado como entrada provisória) — maior corte de custo com menor esforço. Depende de estender `llm_curador.classificar_categoria`, `prompts.py` e `categorias.py`. Aceite: relatório da etapa 4 gerado; classificação bate ≥ 90% com uma amostra manual de 30 itens.
 3. ✅ **Etapas 6a/6b/6c + 7 + 8** (+ libs `embedder_local`, `reranker_local`, `indice_lexical`). Aceite: pipeline fecha ponta a ponta com os dados legados; nº de chamadas de LLM em 6c ≤ 30% dos pares pós-6a (senão, revisar thresholds default).
 4. ✅ **Etapa 5** (PDF/OCR) + lib `ocr_pdf`. Aceite: em 10 documentos de teste (misto nativo/escaneado), extração guiada validada por âncora em ≥ 70% dos itens; zero enriquecimentos com âncora inválida aceitos.
-5. ✅ **Etapas 1 + 2** (+ lib `coleta_pncp`). Aceite: etapa 1 gera conceitos/termos a partir do `0a_catalogo_filtrado.csv` e preserva edição manual; etapa 2 preserva `conceitos_origem` muitos-para-muitos (testar 2 termos que acham o mesmo documento).
+5. ✅ **Etapas 1 + 2** (+ lib `collect_pncp`). Aceite: etapa 1 gera conceitos/termos a partir do `0a_catalogo_filtrado.csv` e preserva edição manual; etapa 2 preserva `conceitos_origem` muitos-para-muitos (testar 2 termos que acham o mesmo documento).
 6. ✅ **`limpar.py`, README, calibrador**.
 
 Ao final de cada fase, rodar `python -m pytest` se houver testes; no mínimo, cada script deve ter `--dry-run` ou aceitar subset pequeno (`--limite N`) para validação barata.

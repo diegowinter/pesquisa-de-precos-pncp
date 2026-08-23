@@ -11,7 +11,7 @@ CSV) em uma aplicação de verdade (monolito Python com banco, API e interface w
 > se perder: `termo_norm` **preserva o acento** (§m05 manda tirar). Motivo medido no acervo —
 > a etapa 1 gera de propósito o par com/sem acento de cada termo, porque a busca do PNCP é
 > sensível a acento; dobrar acento apagaria 161 dos 499 termos em silêncio. A justificativa
-> completa está na docstring de `pesquisa_precos.core.textos.normalizar_termo`.
+> completa está na docstring de `pesquisa_precos.core.text.normalizar_termo`.
 
 ## Ordem de leitura
 

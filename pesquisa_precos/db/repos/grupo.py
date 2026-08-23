@@ -18,7 +18,7 @@ import psycopg
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db import copia
+from pesquisa_precos.db import copy
 
 COLUNAS_GRUPO = ("tipo", "codigo", "item_key", "par_key", "posicao",
                  "preco_unitario", "flag_preco", "motivo_flag", "run_id")
@@ -26,7 +26,7 @@ COLUNAS_GRUPO = ("tipo", "codigo", "item_key", "par_key", "posicao",
 
 def gravar(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Grava o ranking de um run (ordem de `COLUNAS_GRUPO`)."""
-    return copia.copiar(
+    return copy.copiar(
         conn, "grupo_item", COLUNAS_GRUPO, linhas,
         conflito=("run_id", "tipo", "codigo", "item_key"),
         atualizar=("par_key", "posicao", "preco_unitario", "flag_preco", "motivo_flag"),
@@ -147,7 +147,7 @@ def avancar_snapshot(conn: psycopg.Connection, chaves: Sequence[tuple], export_i
         if substituir:
             cur.execute("DELETE FROM export_snapshot")
     linhas = [(t, c, nc, ni, export_id) for t, c, nc, ni in chaves]
-    return copia.copiar(
+    return copy.copiar(
         conn, "export_snapshot",
         ("tipo", "codigo", "numero_controle_pncp", "numero_item", "export_id"),
         linhas, conflito=("tipo", "codigo", "numero_controle_pncp", "numero_item"),

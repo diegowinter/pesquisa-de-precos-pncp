@@ -18,16 +18,16 @@ Os testes de banco são PULADOS sem Postgres; os demais rodam sempre.
 
 import pytest
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 
-_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
-pytestmark_db = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
+_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.database_url()} — rode `alembic upgrade head` antes"
+pytestmark_db = pytest.mark.skipif(not db.is_available()[0], reason=_MOTIVO_SEM_BANCO)
 
 
 # ── Estratégia `visao` recebe imagens, não pasta (ADR-019) ───────────────────────────
 
 def test_visao_consome_imagens_prontas():
-    from pesquisa_precos.estrategias import visao
+    from pesquisa_precos.strategies import vision
 
     class CuradorFake:
         def __init__(self):
@@ -38,13 +38,13 @@ def test_visao_consome_imagens_prontas():
             return [{"descricao": f"item de {png.decode()}"}]
 
     curador = CuradorFake()
-    tabela = visao.extrair_tabela(curador, [b"pagina1", b"pagina2"])
+    tabela = vision.extrair_tabela(curador, [b"pagina1", b"pagina2"])
     assert len(curador.chamadas) == 2, "uma chamada por página — nunca o documento inteiro"
     assert len(tabela) == 2
 
 
 def test_visao_respeita_o_teto_de_paginas():
-    from pesquisa_precos.estrategias import visao
+    from pesquisa_precos.strategies import vision
 
     class CuradorFake:
         def __init__(self):
@@ -55,12 +55,12 @@ def test_visao_respeita_o_teto_de_paginas():
             return []
 
     curador = CuradorFake()
-    visao.extrair_tabela(curador, [b"1", b"2", b"3", b"4"], max_paginas=2)
+    vision.extrair_tabela(curador, [b"1", b"2", b"3", b"4"], max_paginas=2)
     assert curador.chamadas == 2
 
 
 def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
-    from pesquisa_precos.estrategias import visao
+    from pesquisa_precos.strategies import vision
 
     class CuradorFake:
         def extrair_tabela_pdf(self, png):
@@ -68,7 +68,7 @@ def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
                 raise RuntimeError("modelo recusou a imagem")
             return [{"descricao": "ok"}]
 
-    tabela = visao.extrair_tabela(CuradorFake(), [b"boa", b"ruim", b"boa"])
+    tabela = vision.extrair_tabela(CuradorFake(), [b"boa", b"ruim", b"boa"])
     assert len(tabela) == 2
 
 
@@ -83,19 +83,19 @@ def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
 def provedor_de_teste():
     """Escreve direto no repo (não pelo service) porque alguns casos precisam de uma linha que
     o service RECUSA gravar — é o cenário "alguém editou a tabela na mão"."""
-    from pesquisa_precos.db.repos import execucao as repo
+    from pesquisa_precos.db.repos import execution as repo
 
     criados: list[str] = []
     # Ver `_snapshot_capacidades` em test_provedores_crud.py: apontar capacidade REAL para um
     # provedor de teste e depois apagar deixaria a instalação sem configuração.
     from sqlalchemy import text as _text
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         antes = [dict(r) for r in sessao.execute(_text(
             "SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor"
         )).mappings()]
 
     def criar(nome: str, capacidades: list[str], base_url: str):
-        with db.sessao() as sessao:
+        with db.session() as sessao:
             repo.upsert_provedor(sessao, nome, capacidades, base_url)
             for c in capacidades:
                 repo.apontar_capacidade(sessao, c, nome)
@@ -105,7 +105,7 @@ def provedor_de_teste():
 
     from sqlalchemy import text
 
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         for nome in criados:
             sessao.execute(text("DELETE FROM capacidade_provedor WHERE provedor = :n"),
                            {"n": nome})
@@ -130,7 +130,7 @@ def test_capacidade_sem_provedor_falha_em_vez_de_rodar_aqui(capacidade):
         resolver_capacidade,
     )
 
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         # garante a ausência de apontamento, sem tocar no que o operador configurou de verdade
         existente = sessao.execute(
             text("SELECT provedor FROM capacidade_provedor "
@@ -139,9 +139,9 @@ def test_capacidade_sem_provedor_falha_em_vez_de_rodar_aqui(capacidade):
             pytest.skip(f"`{capacidade}` está configurada nesta instalação ({existente[0]})")
         with pytest.raises(CapacidadeNaoConfigurada) as exc:
             resolver_capacidade(capacidade, sessao=sessao)
-    assert capacidade in str(exc.value) and "/provedores" in str(exc.value)
+    assert capacidade in str(exc.value) and "/providers" in str(exc.value)
     with pytest.raises(CapacidadeNaoConfigurada):
-        assert getattr(Provedores({}), capacidade)
+        assert getattr(Provedores(), capacidade)
 
 
 @pytestmark_db
@@ -150,7 +150,7 @@ def test_capacidades_viram_remotas_com_provedor_apontado(provedor_de_teste):
 
     provedor_de_teste("teste-d-pdf", ["pdf"], "http://gpu:8200")
     provedor_de_teste("teste-d-par", ["pareamento"], "http://gpu:8300")
-    p = Provedores({})
+    p = Provedores()
     assert type(p.pdf).__name__ == "PdfRemotoAdapter"
     assert type(p.pareamento).__name__ == "PareamentoRemotoAdapter"
 
@@ -163,7 +163,7 @@ def test_provedor_sem_base_url_reprova(provedor_de_teste):
 
     provedor_de_teste("teste-d-vazio", ["pdf"], "")
     with pytest.raises(CapacidadeNaoConfigurada, match="base_url"):
-        assert Provedores({}).pdf
+        assert Provedores().pdf
 
 
 @pytestmark_db
@@ -172,13 +172,13 @@ def test_health_check_reprova_capacidade_sem_provedor():
     antes de gastar. Tem de virar linha vermelha, não exceção: é o painel de diagnóstico."""
     from sqlalchemy import text
 
-    from pesquisa_precos.providers import saude
+    from pesquisa_precos.providers import health
 
-    with db.sessao() as sessao:
+    with db.session() as sessao:
         if sessao.execute(text("SELECT 1 FROM capacidade_provedor "
                                "WHERE capacidade = 'pdf'")).first():
             pytest.skip("`pdf` está configurada nesta instalação")
-    resultado = saude.checar_capacidade("pdf", {})
+    resultado = health.checar_capacidade("pdf")
     assert resultado["saudavel"] is False
     assert resultado["origem"] == "não configurado"
 
@@ -199,11 +199,10 @@ def test_nenhum_adapter_em_processo_sobreviveu():
 def test_health_check_reprova_capacidade_sem_servico(monkeypatch):
     """Sem `base_url` a etapa não pode começar: o health check pré-play é onde isso aparece,
     antes de gastar. Era o inverso enquanto existia caminho em processo."""
-    from pesquisa_precos.config.settings import carregar_config
-    from pesquisa_precos.providers import saude
+    from pesquisa_precos.providers import health
 
     monkeypatch.setenv("PDF_BASE_URL", "")
-    resultado = saude.checar_capacidade("pdf", carregar_config())
+    resultado = health.checar_capacidade("pdf")
     assert resultado["saudavel"] is False
 
 
@@ -214,7 +213,7 @@ def test_xlsx_e_gerado_em_memoria():
     import io
     import zipfile
 
-    from pesquisa_precos.etapas.e8_exportar import COLUNAS_PLASEG, montar_xlsx
+    from pesquisa_precos.steps.e8_export import COLUNAS_PLASEG, montar_xlsx
 
     linha = dict.fromkeys(COLUNAS_PLASEG, "x")
     conteudo = montar_xlsx([linha])
@@ -227,12 +226,12 @@ def test_xlsx_e_gerado_em_memoria():
 def test_export_vai_e_volta_do_banco():
     from sqlalchemy import text
 
-    from pesquisa_precos.db.repos import execucao as repo_exec
+    from pesquisa_precos.db.repos import execution as repo_exec
     from pesquisa_precos.db.repos import grupo as repo_grupo
-    from pesquisa_precos.etapas.e8_exportar import COLUNAS_PLASEG, montar_xlsx
+    from pesquisa_precos.steps.e8_export import COLUNAS_PLASEG, montar_xlsx
 
     conteudo = montar_xlsx([dict.fromkeys(COLUNAS_PLASEG, "y")])
-    with db.sessao() as s:
+    with db.session() as s:
         run_id = repo_exec.run_aberto_ou_criar(s, "teste_bloco_d")
         export_id = repo_grupo.registrar_export(
             s, run_id, "completo", None, 1, 1, "hash-de-teste",
@@ -253,8 +252,8 @@ def test_export_vai_e_volta_do_banco():
 # ── `estimar` tem que consultar o banco, não os CSVs locais ─────────────────────────
 
 @pytestmark_db
-@pytest.mark.parametrize("chave", ["5", "6a", "6b", "6c"])
-def test_estimar_usa_o_banco_e_nao_os_csvs(chave, monkeypatch):
+@pytest.mark.parametrize("key", ["5", "6a", "6b", "6c"])
+def test_estimar_usa_o_banco_e_nao_os_csvs(key, monkeypatch):
     """Regressão: `estimar` já leu `data/*.csv` em vez do banco. O sintoma era grosseiro —
     `estimar 6a` reportava 154 MILHÕES de pares num banco vazio, porque somava o produto
     cartesiano do acervo em disco. É o número que o operador usa para decidir se gasta; errar
@@ -266,18 +265,17 @@ def test_estimar_usa_o_banco_e_nao_os_csvs(chave, monkeypatch):
     """
     import pandas as pd
 
-    from pesquisa_precos.config.settings import carregar_config
-    from pesquisa_precos.etapas import registry
-    from pesquisa_precos.runner.contexto_nulo import ContextoNulo
+    from pesquisa_precos.steps import registry
+    from pesquisa_precos.runner.null_context import NullContext
 
     def proibido(*a, **kw):
-        raise AssertionError(f"etapa {chave}: `estimar` leu arquivo em vez de consultar o banco")
+        raise AssertionError(f"etapa {key}: `estimar` leu arquivo em vez de consultar o banco")
 
     monkeypatch.setattr(pd, "read_csv", proibido)
     monkeypatch.setattr(pd, "read_parquet", proibido)
 
     # `config` real (e não `{}`): a 6c consulta `model_pass1` para montar a estimativa de custo.
-    ctx = ContextoNulo(chave, config=carregar_config())
-    modulo = registry.obter(chave).carregar()
+    ctx = NullContext(key)
+    modulo = registry.obter(key).carregar()
     assert "fonte" not in modulo.Params.model_fields, "o campo `fonte` saiu na Fase 13"
-    modulo.estimar(modulo.Params(), ctx)
+    modulo.estimate(modulo.Params(), ctx)

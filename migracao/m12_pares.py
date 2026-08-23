@@ -23,10 +23,10 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 from sqlalchemy import text as sql
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.copia import em_lotes
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.copy import em_lotes
 from pesquisa_precos.db.repos import catalogo as repo_cat
-from pesquisa_precos.db.repos import execucao as repo_exec
+from pesquisa_precos.db.repos import execution as repo_exec
 from pesquisa_precos.db.repos import par as repo
 from migracao._comum import Relatorio, cabecalho, console, existe, ler_csv, txt
 
@@ -89,7 +89,7 @@ def migrar() -> Relatorio:
     seis_a = carregar_6a(rel)
     seis_c = carregar_6c(rel)
 
-    with db.sessao() as s:
+    with db.session() as s:
         tipo_de, ambiguos = repo_cat.tipo_do_codigo(s)
         run_id = repo_exec.run_do_acervo_migrado(s)
     if ambiguos:
@@ -105,7 +105,7 @@ def migrar() -> Relatorio:
     par_keys = [(r.get("par_key") or "").strip()
                 for r in ler_csv(paths.E6B_RERANKEADOS) if (r.get("par_key") or "").strip()]
     item_keys = {pk.split("::", 1)[1] for pk in par_keys if "::" in pk}
-    with db.sessao() as s:
+    with db.session() as s:
         existentes = set(s.scalars(
             sql("SELECT item_key FROM item WHERE item_key = ANY(:k)"),
             {"k": list(item_keys)}).all())
@@ -144,7 +144,7 @@ def migrar() -> Relatorio:
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
-                  console=console) as barra, db.conexao_bruta() as conn:
+                  console=console) as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("gravando pares", total=len(par_keys))
         gravados = 0
         for lote in em_lotes(linhas(), LOTE):
@@ -155,7 +155,7 @@ def migrar() -> Relatorio:
             barra.update(tarefa, completed=gravados)
 
     # 6b e 6c entram como UPDATE, sobre as linhas que acabaram de ser criadas.
-    with db.sessao() as s:
+    with db.session() as s:
         rerank = [((r.get("par_key") or "").strip(), _float(r.get("score_rerank")),
                    DECISAO.get((r.get("decisao") or "").strip().lower()))
                   for r in ler_csv(paths.E6B_RERANKEADOS)]
@@ -175,7 +175,7 @@ def migrar() -> Relatorio:
 def main() -> None:
     cabecalho("m12 — pares", [paths.E6B_RERANKEADOS, paths.E6A_PARES, paths.E6C_VALIDADOS],
               "par")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

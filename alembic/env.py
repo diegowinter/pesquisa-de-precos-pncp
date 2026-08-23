@@ -1,7 +1,7 @@
 """
 Ambiente do Alembic.
 
-A URL de conexão vem de `db.sessao.url_banco()` (ou seja, do `DATABASE_URL` do `.env`), nunca
+A URL de conexão vem de `db.session.database_url()` (ou seja, do `DATABASE_URL` do `.env`), nunca
 do `alembic.ini` — um só lugar para apontar o banco.
 
 `target_metadata` existe para o `--autogenerate` conseguir diffar, mas a migration inicial é
@@ -15,11 +15,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from pesquisa_precos.db.modelos import Base
-from pesquisa_precos.db.sessao import url_banco
+from pesquisa_precos.db.models import Base
+from pesquisa_precos.db.session import database_url
 
 config = context.config
-config.set_main_option("sqlalchemy.url", url_banco())
+config.set_main_option("sqlalchemy.url", database_url())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -29,7 +29,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=url_banco(),
+        url=database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

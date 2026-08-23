@@ -16,13 +16,13 @@ Precisa de Postgres com o schema aplicado; PULADO sem ele.
 import pytest
 from sqlalchemy import text
 
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import classificacao as repo_cls
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import classification as repo_cls
 from pesquisa_precos.db.repos import documento as repo
-from pesquisa_precos.etapas.e2_coletar import _linha_documento, _linha_item
+from pesquisa_precos.steps.e2_collect import _linha_documento, _linha_item
 
-_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
-pytestmark = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
+_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.database_url()} — rode `alembic upgrade head` antes"
+pytestmark = pytest.mark.skipif(not db.is_available()[0], reason=_MOTIVO_SEM_BANCO)
 
 NC = "99999999000191-1-000001/2099"      # fora de qualquer faixa real
 ITEM_KEY = f"{NC}::1"
@@ -65,7 +65,7 @@ def test_data_invalida_vira_null_em_vez_de_derrubar_o_lote():
 def test_item_calcula_texto_hash_na_ingestao():
     """O hash vem da ingestão, nunca da hora de classificar — é ele que faz o dedup da
     etapa 3 ser uma consulta em vez de um agrupamento de 1,6 milhão de linhas."""
-    from pesquisa_precos.core.textos import texto_hash
+    from pesquisa_precos.core.text import texto_hash
 
     linha = _linha_item(LINHA_ITEM)
     assert linha[10] == texto_hash(LINHA_ITEM["descricao_api"], LINHA_ITEM["unidade"])
@@ -85,7 +85,7 @@ def test_numero_e_preco_viram_tipos_do_banco():
 @pytest.fixture
 def coleta_limpa():
     def limpar():
-        with db.sessao() as s:
+        with db.session() as s:
             s.execute(text("DELETE FROM item WHERE item_key LIKE :p"), {"p": f"{NC}%"})
             s.execute(text("DELETE FROM coleta_pendente WHERE numero_controle_pncp = :n"),
                       {"n": NC})
@@ -100,14 +100,14 @@ def coleta_limpa():
 def _semear_documento(sessao, n_itens=1):
     from pesquisa_precos.db.repos import documento as r
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         r.gravar_documentos(conn, [_linha_documento(LINHA_ITEM, "2026-02-01T10:00:00", n_itens)])
         r.gravar_itens(conn, [_linha_item(LINHA_ITEM)])
         conn.commit()
 
 
 def test_documento_e_item_gravados_sobrevivem_a_releitura(coleta_limpa):
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_documento(s)
         seq, atu = s.execute(text(
             "SELECT numero_sequencial, data_atualizacao_pncp FROM documento "
@@ -122,7 +122,7 @@ def test_progresso_da_busca_nao_e_derivado_do_resultado(coleta_limpa):
     `documento`, esses termos seriam revarridos para sempre."""
     from pesquisa_precos.db.repos import termo as repo_termo
 
-    with db.sessao() as s:
+    with db.session() as s:
         termo_id = repo_termo.upsert(s, TERMO_TESTE, "protecao", "llm")
         s.commit()
 
@@ -135,7 +135,7 @@ def test_progresso_da_busca_nao_e_derivado_do_resultado(coleta_limpa):
 def test_marcar_busca_acumula_em_vez_de_zerar(coleta_limpa):
     from pesquisa_precos.db.repos import termo as repo_termo
 
-    with db.sessao() as s:
+    with db.session() as s:
         termo_id = repo_termo.upsert(s, TERMO_TESTE, None, "llm")
         repo.marcar_busca(s, termo_id, "contrato", 2, 10)
         repo.marcar_busca(s, termo_id, "contrato", 3, 5)
@@ -147,7 +147,7 @@ def test_marcar_busca_acumula_em_vez_de_zerar(coleta_limpa):
 
 
 def test_pendente_entra_e_sai_da_fila_de_revisita(coleta_limpa):
-    with db.sessao() as s:
+    with db.session() as s:
         repo.gravar_pendente(s, NC, "contrato", {"numeroControlePNCP": NC, "ano": 2026})
         s.commit()
         pend = repo.pendentes(s)
@@ -163,24 +163,24 @@ def test_pendente_entra_e_sai_da_fila_de_revisita(coleta_limpa):
 
 def test_texto_ja_classificado_nao_volta_como_pendente(coleta_limpa):
     """ADR-007: o dedup deixa de ser intra-execução e vira permanente entre runs."""
-    from pesquisa_precos.core.textos import texto_hash
+    from pesquisa_precos.core.text import texto_hash
 
     h = texto_hash(LINHA_ITEM["descricao_api"], LINHA_ITEM["unidade"])
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_documento(s)
         pendentes_antes = {t["texto_hash"] for t in repo_cls.textos_pendentes(s)}
         assert h in pendentes_antes
 
-    with db.conexao_bruta() as conn:
+    with db.raw_connection() as conn:
         repo_cls.gravar(conn, [(h, LINHA_ITEM["descricao_api"], LINHA_ITEM["unidade"],
                                 ["protecao"], repo_cls.confianca_para_real("alta"),
                                 None, "PASS1", "local", None)])
         conn.commit()
     try:
-        with db.sessao() as s:
+        with db.session() as s:
             assert h not in {t["texto_hash"] for t in repo_cls.textos_pendentes(s)}
     finally:
-        with db.sessao() as s:
+        with db.session() as s:
             s.execute(text("DELETE FROM texto_classificacao WHERE texto_hash = :h"), {"h": h})
             s.commit()
 
@@ -189,7 +189,7 @@ def test_texto_ja_classificado_nao_volta_como_pendente(coleta_limpa):
 
 def test_etapa_4_marca_e_desmarca(coleta_limpa):
     """Marcar sem desmarcar deixaria item reprovado numa reclassificação marcado para sempre."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_documento(s)
         s.execute(text("INSERT INTO item_categoria (item_key, categoria) VALUES (:k, 'protecao')"
                        " ON CONFLICT DO NOTHING"), {"k": ITEM_KEY})

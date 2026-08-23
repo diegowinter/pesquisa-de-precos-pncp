@@ -13,8 +13,8 @@ observável — não há progresso, custo nem log para ver, porque nunca houve.
 Uso: python -m migracao.m03_run_historico
 """
 
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import execucao as repo
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import execution as repo
 from migracao._comum import Relatorio, cabecalho, console
 
 ROTULO_CONFIG = "migrada do .env"
@@ -22,7 +22,7 @@ ROTULO_CONFIG = "migrada do .env"
 
 def migrar() -> Relatorio:
     rel = Relatorio("m03 — run do acervo migrado")
-    with db.sessao() as s:
+    with db.session() as s:
         existente = repo.run_do_acervo_migrado(s)
         if existente:
             rel.mais("run reaproveitado")
@@ -45,7 +45,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m03 — run histórico", [], "run")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

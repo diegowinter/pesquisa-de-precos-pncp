@@ -14,8 +14,8 @@ import psycopg
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db import copia
-from pesquisa_precos.db.modelos import CatalogoItem
+from pesquisa_precos.db import copy
+from pesquisa_precos.db.models import CatalogoItem
 
 COLUNAS = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "descricao",
            "codigo_grupo", "nome_grupo", "nome_classe", "categoria", "ativo")
@@ -28,7 +28,7 @@ def gravar_itens(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> i
     execução: descrição e classe mudam no CATMAT, e manter a versão antiga faria o export
     divergir da fonte oficial sem nenhum sinal.
     """
-    return copia.copiar(
+    return copy.copiar(
         conn, "catalogo_item", COLUNAS, linhas,
         conflito=("tipo", "codigo"),
         atualizar=("codigo_pdm", "nome_pdm", "descricao", "codigo_grupo",
@@ -83,7 +83,7 @@ def tipo_do_codigo(sessao: Session) -> tuple[dict[str, str], list[str]]:
 def texto_por_codigo(sessao: Session) -> dict[str, dict]:
     """`codigo → {tipo, nome_pdm, descricao, nome_classe}` — o que a etapa 8 escreve no XLSX.
 
-    Substitui `core.textos.texto_catalogo()` / `e8.carregar_catalogo()` quando a fonte é o
+    Substitui `core.text.texto_catalogo()` / `e8.carregar_catalogo()` quando a fonte é o
     banco. Devolve o catálogo INTEIRO (2.212 linhas): não vale a pena paginar.
     """
     linhas = sessao.execute(text(

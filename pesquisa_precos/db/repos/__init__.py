@@ -11,6 +11,6 @@ Cada módulo cobre um agregado de docs/04_FASES.md §"Ordem sugerida dentro da f
 
 Duas assinaturas convivem de propósito:
   - funções que recebem `Session` (SQLAlchemy) — leitura e escrita de baixo volume;
-  - funções que recebem `psycopg.Connection` — escrita em massa via `COPY` (ver `db/copia.py`).
+  - funções que recebem `psycopg.Connection` — escrita em massa via `COPY` (ver `db/copy.py`).
 Volume é a diferença. Um `INSERT` por linha em 1,6 milhão de itens não termina em tempo útil.
 """

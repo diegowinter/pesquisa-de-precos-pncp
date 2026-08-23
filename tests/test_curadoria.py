@@ -16,12 +16,12 @@ O que estes testes protegem, em ordem de importância:
 import pytest
 from sqlalchemy import text
 
-from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.repos import curadoria as repo
-from pesquisa_precos.etapas.e0a_catalogo import _linha_raw
+from pesquisa_precos.db import session as db
+from pesquisa_precos.db.repos import curation as repo
+from pesquisa_precos.steps.e0a_catalogo import _linha_raw
 
-_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
-pytestmark_db = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
+_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.database_url()} — rode `alembic upgrade head` antes"
+pytestmark_db = pytest.mark.skipif(not db.is_available()[0], reason=_MOTIVO_SEM_BANCO)
 
 # Códigos de teste, fora de qualquer faixa real do CATMAT/CATSER.
 PDM_TESTE = "999901"
@@ -41,7 +41,7 @@ def test_linha_raw_material_usa_descricao_item_e_pdm():
                      "ARMAMENTO", "PISTOLAS")
 
 
-def test_linha_raw_servico_nao_tem_pdm_e_usa_nome_servico():
+def test_linha_raw_service_nao_tem_pdm_e_usa_nome_servico():
     linha = _linha_raw("servico", {
         "codigoServico": 789, "nomeServico": "MANUTENÇÃO DE VIATURA",
         "codigoGrupo": 841, "nomeGrupo": "MANUTENÇÃO", "nomeClasse": "VEÍCULOS"})
@@ -66,7 +66,7 @@ def test_linha_raw_sem_codigo_e_descartada():
 def banco_limpo():
     """Remove os códigos de teste antes e depois. Não toca em nada com código real."""
     def limpar():
-        with db.sessao() as s:
+        with db.session() as s:
             for tabela, coluna, valores in (
                 ("catalogo_item", "codigo", [COD_MATERIAL, COD_SERVICO]),
                 ("catalogo_raw", "codigo", [COD_MATERIAL, COD_SERVICO]),
@@ -91,8 +91,8 @@ def _semear_raw(sessao):
 
 
 @pytestmark_db
-def test_derivacao_casa_material_por_pdm_e_servico_por_codigo(banco_limpo):
-    with db.sessao() as s:
+def test_derivacao_casa_material_por_pdm_e_service_por_codigo(banco_limpo):
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE, criado_por="teste")
         repo.permitir(s, "servico", COD_SERVICO, criado_por="teste")
@@ -106,7 +106,7 @@ def test_derivacao_casa_material_por_pdm_e_servico_por_codigo(banco_limpo):
 
 @pytestmark_db
 def test_material_fora_da_allow_list_nao_e_derivado(banco_limpo):
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.derivar_catalogo_item(s)   # nenhum permitido cadastrado
         s.commit()
@@ -119,7 +119,7 @@ def test_material_fora_da_allow_list_nao_e_derivado(banco_limpo):
 def test_rederivar_preserva_categoria_da_etapa_1(banco_limpo):
     """A categoria custa LLM e não é derivável do catálogo. Um `DO UPDATE` genérico a
     apagaria a cada rederivação — este teste é o que impede essa regressão."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.derivar_catalogo_item(s)
@@ -136,7 +136,7 @@ def test_rederivar_preserva_categoria_da_etapa_1(banco_limpo):
 
 @pytestmark_db
 def test_revogar_desativa_o_item_em_vez_de_apagar(banco_limpo):
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.derivar_catalogo_item(s)
@@ -155,7 +155,7 @@ def test_listar_permitidos_sem_filtro_de_tipo(banco_limpo):
     """Regressão: `tipo=None` (listar os dois) fazia o Postgres levantar `AmbiguousParameter`
     por não conseguir inferir o tipo do parâmetro NULL. É o caminho que `estimar 0a` e a tela
     de curadoria usam — ou seja, o caso mais comum, não o exótico."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.permitir(s, "servico", COD_SERVICO)
@@ -173,7 +173,7 @@ def test_listar_permitidos_sem_filtro_de_tipo(banco_limpo):
 @pytestmark_db
 def test_listar_permitidos_conta_itens_do_catalogo(banco_limpo):
     """A contagem por código é o que mostra curadoria morta (PDM que casa 0 itens)."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.permitir(s, "material", COD_INEXISTENTE)
@@ -186,7 +186,7 @@ def test_listar_permitidos_conta_itens_do_catalogo(banco_limpo):
 
 @pytestmark_db
 def test_permitir_e_idempotente_e_reativa(banco_limpo):
-    with db.sessao() as s:
+    with db.session() as s:
         repo.permitir(s, "material", PDM_TESTE, observacao="motivo original")
         repo.revogar(s, "material", PDM_TESTE)
         repo.permitir(s, "material", PDM_TESTE)   # de volta ao escopo
@@ -202,7 +202,7 @@ def test_permitir_e_idempotente_e_reativa(banco_limpo):
 
 @pytestmark_db
 def test_checkpoint_de_pagina_e_o_que_permite_retomar(banco_limpo):
-    with db.sessao() as s:
+    with db.session() as s:
         assert repo.paginas_baixadas(s, "material", "teste_fase10") == set()
         repo.marcar_pagina(s, "material", "teste_fase10", 1, 500)
         repo.marcar_pagina(s, "material", "teste_fase10", 2, 500)
@@ -218,7 +218,7 @@ def test_checkpoint_de_pagina_e_o_que_permite_retomar(banco_limpo):
 def test_prefixo_separa_paginas_de_grupos_diferentes(banco_limpo):
     """`--so-grupos-seguranca` pagina cada grupo do zero: sem o prefixo na PK, a página 1 do
     grupo 10 marcaria a página 1 do grupo 12 como já baixada."""
-    with db.sessao() as s:
+    with db.session() as s:
         repo.marcar_pagina(s, "material", "teste_fase10", 1, 10)
         s.commit()
         assert repo.paginas_baixadas(s, "material", "teste_fase10_outro") == set()
@@ -232,7 +232,7 @@ GRUPO_TESTE = "99991"
 @pytest.fixture
 def grupos_limpos():
     def limpar():
-        with db.sessao() as s:
+        with db.session() as s:
             s.execute(text("DELETE FROM grupo_permitido WHERE codigo = :c"),
                       {"c": GRUPO_TESTE})
             s.commit()
@@ -247,7 +247,7 @@ def test_seed_reproduz_os_grupos_que_estavam_no_codigo():
     Divergir aqui significa a 0a passar a baixar um recorte diferente do que sempre baixou."""
     from pesquisa_precos.core.catalogo.local import GRUPOS_MATERIAIS, GRUPOS_SERVICOS
 
-    with db.sessao() as s:
+    with db.session() as s:
         materiais = set(repo.grupos_ativos(s, "material"))
         servicos = set(repo.grupos_ativos(s, "servico"))
 
@@ -257,7 +257,7 @@ def test_seed_reproduz_os_grupos_que_estavam_no_codigo():
 
 @pytestmark_db
 def test_revogar_grupo_tira_do_download_sem_apagar(grupos_limpos):
-    with db.sessao() as s:
+    with db.session() as s:
         repo.permitir_grupo(s, "material", GRUPO_TESTE, criado_por="teste")
         s.commit()
         assert GRUPO_TESTE in repo.grupos_ativos(s, "material")
@@ -275,7 +275,7 @@ def test_revogar_grupo_tira_do_download_sem_apagar(grupos_limpos):
 def test_grupo_revogado_nao_mexe_no_escopo_da_pesquisa(banco_limpo, grupos_limpos):
     """Revogar grupo é recorte de DOWNLOAD. O escopo continua vindo de `pdm_permitido` — se
     isso se confundir, revogar um grupo derrubaria itens já curados do catálogo."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.permitir_grupo(s, "material", GRUPO_TESTE)
@@ -293,7 +293,7 @@ def test_grupo_revogado_nao_mexe_no_escopo_da_pesquisa(banco_limpo, grupos_limpo
 @pytestmark_db
 def test_listar_grupos_sem_filtro_de_tipo(grupos_limpos):
     """Mesma armadilha de `AmbiguousParameter` que `listar_permitidos` teve."""
-    with db.sessao() as s:
+    with db.session() as s:
         grupos = repo.listar_grupos(s)
     assert grupos, "o seed da 0006 deve aparecer aqui"
     assert {g["tipo"] for g in grupos} <= {"material", "servico"}
@@ -305,9 +305,9 @@ def _banco_tem_catalogo_real() -> bool:
     """`delta_catalogo` captura um snapshot do catálogo INTEIRO — rodá-lo contra um banco com
     acervo real inseriria milhares de linhas em `catalogo_snapshot` e mexeria no baseline do
     delta do usuário. O teste só roda em banco sem catálogo (descartável ou recém-migrado)."""
-    if not db.esta_disponivel()[0]:
+    if not db.is_available()[0]:
         return True
-    with db.sessao() as s:
+    with db.session() as s:
         return s.execute(text(
             "SELECT count(*) FROM catalogo_item WHERE codigo <> ALL(:v)"),
             {"v": [COD_MATERIAL, COD_SERVICO]}).scalar_one() > 0
@@ -319,7 +319,7 @@ def _banco_tem_catalogo_real() -> bool:
 def test_delta_trata_a_primeira_execucao_como_baseline(banco_limpo):
     """A armadilha registrada na etapa: sem snapshot anterior, marcar tudo como 'novo' faria
     a primeira execução reportar o catálogo inteiro como novidade. Delta zero é o correto."""
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.derivar_catalogo_item(s)
@@ -336,7 +336,7 @@ def test_delta_trata_a_primeira_execucao_como_baseline(banco_limpo):
 @pytest.mark.skipif(_banco_tem_catalogo_real(),
                     reason="banco tem catálogo real — o snapshot do delta alteraria o baseline")
 def test_delta_acusa_codigo_novo_na_segunda_execucao(banco_limpo):
-    with db.sessao() as s:
+    with db.session() as s:
         _semear_raw(s)
         repo.permitir(s, "material", PDM_TESTE)
         repo.derivar_catalogo_item(s)

@@ -36,7 +36,7 @@ def _linha(capacidade: str, **extra) -> dict:
 
 
 class _SessaoFake:
-    """Simula só o suficiente de `Session` p/ `db.repos.execucao.capacidade_provedor_info`:
+    """Simula só o suficiente de `Session` p/ `db.repos.execution.capacidade_provedor_info`:
     o repo faz `sessao.execute(text(...), params).mappings().first()` — aqui devolvemos direto
     a linha (ou `None`), sem interpretar o SQL, então o teste não depende de Postgres."""
 
@@ -67,7 +67,7 @@ def test_capacidade_sem_provedor_levanta(capacidade):
     sessao = _SessaoFake({capacidade: None})
     with pytest.raises(CapacidadeNaoConfigurada) as exc:
         resolver_capacidade(capacidade, sessao=sessao)
-    assert "/provedores" in str(exc.value)
+    assert "/providers" in str(exc.value)
 
 
 def test_mensagem_diz_o_que_fazer():
@@ -75,7 +75,7 @@ def test_mensagem_diz_o_que_fazer():
     sessao = _SessaoFake({"chat": None})
     with pytest.raises(CapacidadeNaoConfigurada) as exc:
         resolver_capacidade("chat", sessao=sessao)
-    assert "chat" in str(exc.value) and "/provedores" in str(exc.value)
+    assert "chat" in str(exc.value) and "/providers" in str(exc.value)
 
 
 def test_ocr_nao_e_mais_capacidade_deste_processo():
@@ -114,7 +114,7 @@ def test_modelo_da_capacidade_vence_o_padrao_do_provedor():
 
 def test_chave_cifrada_e_decifrada_na_resolucao(monkeypatch):
     """O resolver é o único ponto que devolve segredo em claro — e tem de devolvê-lo certo."""
-    from pesquisa_precos.db import segredo as seg
+    from pesquisa_precos.db import secret as seg
 
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     blob = seg.cifrar("sk-or-v1-do-banco", contexto="openrouter")
@@ -130,7 +130,7 @@ def test_provedor_sem_chave_resolve_com_string_vazia():
 
 def test_fallback_proibido_em_embed_levanta_erro_claro():
     """ADR-006 §2: fallback proibido em `embed`. Mesmo que a linha do banco tenha sido editada
-    direto (bypassando `db.repos.execucao.apontar_capacidade`, que já recusa isso na escrita),
+    direto (bypassando `db.repos.execution.apontar_capacidade`, que já recusa isso na escrita),
     a resolução recusa de novo na leitura — duas travas, não uma."""
     sessao = _SessaoFake({"embed": _linha("embed", provedor="gpu_caseira", modelo="bge-m3",
                                           fallback="local",
@@ -151,7 +151,7 @@ def test_fallback_e_permitido_em_rerank():
 
 def test_provedores_resolucao_nao_instancia_adapter():
     """`.resolucao()` só lê — não deve tentar montar um cliente HTTP (que chamaria rede)."""
-    p = Provedores({}, _SessaoFake({"chat": _linha("chat")}))
+    p = Provedores(_SessaoFake({"chat": _linha("chat")}))
     r = p.resolucao("chat")
     assert isinstance(r.info, InfoProvedor)
 
@@ -162,7 +162,7 @@ def test_provedores_novo_chat_nao_e_cacheado(monkeypatch):
     monkeypatch.setattr(
         "pesquisa_precos.providers.llm_curador.Curador.__init__",
         lambda self, **kw: None)
-    p = Provedores({}, _SessaoFake({"chat": _linha("chat")}))
+    p = Provedores(_SessaoFake({"chat": _linha("chat")}))
     a = p.novo_chat()
     b = p.novo_chat()
     assert a is not b

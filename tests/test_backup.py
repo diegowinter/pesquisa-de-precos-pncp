@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ferramentas.backup import (
+from tools.backup import (
     ASSINATURA_PGDUMP,
     nome_arquivo,
     rodar_pg_dump,
@@ -67,7 +67,7 @@ class TestVerificarIntegridade:
 
 class TestRodarPgDump:
     def test_chama_pg_dump_com_formato_custom_e_arquivo_datado(self, tmp_path):
-        with patch("ferramentas.backup.subprocess.run") as mock_run:
+        with patch("tools.backup.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             arquivo = rodar_pg_dump(
                 "postgresql+psycopg://postgres:senha@localhost:5432/pesquisa_precos",
@@ -80,7 +80,7 @@ class TestRodarPgDump:
         assert arquivo.name.startswith("pesquisa_precos_") and arquivo.name.endswith(".dump")
 
     def test_senha_vai_via_pgpassword_no_ambiente(self, tmp_path):
-        with patch("ferramentas.backup.subprocess.run") as mock_run:
+        with patch("tools.backup.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             rodar_pg_dump("postgresql+psycopg://postgres:segredo123@localhost:5432/db", tmp_path)
         ambiente = mock_run.call_args.kwargs["env"]
@@ -88,7 +88,7 @@ class TestRodarPgDump:
         assert "segredo123" not in " ".join(mock_run.call_args[0][0])
 
     def test_falha_do_pg_dump_levanta_systemexit(self, tmp_path):
-        with patch("ferramentas.backup.subprocess.run") as mock_run:
+        with patch("tools.backup.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 1
             mock_run.return_value.stderr = "pg_dump: erro: conexão recusada"
             with pytest.raises(SystemExit, match="conexão recusada"):

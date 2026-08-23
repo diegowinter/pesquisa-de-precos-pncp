@@ -10,7 +10,7 @@ Uso: python -m migracao.m17_faixas
 """
 
 from pesquisa_precos.config import paths
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import grupo as repo
 from migracao._comum import Relatorio, cabecalho, console, dec, existe, ler_csv
 
@@ -30,7 +30,7 @@ def migrar() -> Relatorio:
         faixas.append((categoria, dec(r.get("preco_min")), dec(r.get("preco_max"))))
         rel.mais("linhas lidas")
 
-    with db.sessao() as s:
+    with db.session() as s:
         rel.mais("faixas gravadas", repo.gravar_faixas(s, faixas))
         rel.mais("faixa_preco no banco", repo.contar(s)["faixa_preco"])
     return rel
@@ -38,7 +38,7 @@ def migrar() -> Relatorio:
 
 def main() -> None:
     cabecalho("m17 — faixas de preço", paths.FAIXAS_PRECO, "faixa_preco")
-    console.print(f"  banco  : {db.url_banco()}")
+    console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 
 

@@ -137,10 +137,10 @@ Enquanto isso não roda, o banco tem schema e configuração, mas quase nenhum d
 
 ## Utilitários
 
-- `ferramentas/calibrar_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável e
+- `tools/calibrate_thresholds.py --amostrar | --analisar` — prepara a amostra rotulável e
   sugere `REJEITOR_THRESHOLD`, `RERANK_T_ACEITA`, `RERANK_T_REJEITA`. A tela **Recalibrar** faz
   o mesmo cálculo sobre `rotulo`, sem gravar nada.
-- `ferramentas/regressao.py` — precisão/recall dos thresholds vigentes.
+- `tools/regressao.py` — precisão/recall dos thresholds vigentes.
 - `pytest` — guardas estruturais e de regra de negócio. Os testes de banco pulam sozinhos sem
   Postgres.
 

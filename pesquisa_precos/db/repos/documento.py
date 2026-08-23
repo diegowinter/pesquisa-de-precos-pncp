@@ -2,9 +2,9 @@
 Repositório de documentos e itens (`documento`, `documento_termo`, `item`, `item_categoria`).
 
 É o agregado mais pesado: 68 mil documentos e 1,6 milhão de itens. Todas as escritas passam por
-`COPY` (`db/copia.py`); nada aqui insere linha a linha.
+`COPY` (`db/copy.py`); nada aqui insere linha a linha.
 
-`item.texto_hash` é gravado NA INGESTÃO, por quem chama, usando `core.textos.texto_hash`. Não
+`item.texto_hash` é gravado NA INGESTÃO, por quem chama, usando `core.text.texto_hash`. Não
 é calculado aqui de propósito: quem monta a linha já tem descrição e unidade em mãos, e um
 segundo ponto de cálculo é exatamente o risco que docs/08_CONVENCOES.md §5.4 descreve.
 """
@@ -16,7 +16,7 @@ import psycopg
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from pesquisa_precos.db import copia
+from pesquisa_precos.db import copy
 
 COLUNAS_DOC = ("numero_controle_pncp", "tipo_doc", "orgao", "orgao_cnpj", "uf", "ano",
                "data", "data_assinatura", "data_fim_vigencia", "data_atualizacao_pncp",
@@ -35,7 +35,7 @@ def gravar_documentos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]])
     documento já processado de volta para 'descoberto' — isso mandaria a etapa 5 reprocessar
     e repagar o LLM.
     """
-    return copia.copiar(
+    return copy.copiar(
         conn, "documento", COLUNAS_DOC, linhas,
         conflito=("numero_controle_pncp",),
         atualizar=("orgao", "orgao_cnpj", "uf", "ano", "data", "data_assinatura",
@@ -52,13 +52,13 @@ def gravar_itens(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> i
     um documento vem como `data_atualizacao_pncp` nova, e o tratamento disso é decisão de
     etapa, não de repositório.
     """
-    return copia.copiar(conn, "item", COLUNAS_ITEM, linhas, conflito=("item_key",))
+    return copy.copiar(conn, "item", COLUNAS_ITEM, linhas, conflito=("item_key",))
 
 
 def ligar_termos(conn: psycopg.Connection,
                  linhas: Sequence[tuple[str, int]]) -> int:
     """N:N documento × termo — substitui a coluna `conceitos_origem` do CSV."""
-    return copia.copiar(conn, "documento_termo", ("numero_controle_pncp", "termo_id"),
+    return copy.copiar(conn, "documento_termo", ("numero_controle_pncp", "termo_id"),
                         linhas, conflito=("numero_controle_pncp", "termo_id"))
 
 

@@ -15,11 +15,11 @@ Precisa de Postgres com o schema aplicado; PULADO sem ele (padrão de test_confi
 import pytest
 from sqlalchemy import text
 
-from pesquisa_precos.db import sessao as db
+from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import termo as repo
 
-_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.url_banco()} — rode `alembic upgrade head` antes"
-pytestmark = pytest.mark.skipif(not db.esta_disponivel()[0], reason=_MOTIVO_SEM_BANCO)
+_MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.database_url()} — rode `alembic upgrade head` antes"
+pytestmark = pytest.mark.skipif(not db.is_available()[0], reason=_MOTIVO_SEM_BANCO)
 
 PDM_TESTE = "999902"
 COD_TESTE = "9999031"
@@ -31,7 +31,7 @@ TERMO_MANUAL = "termo manual de teste"
 def catalogo_de_teste():
     """Um item de catálogo real (a FK de `termo_geracao` exige) e limpeza dos dois lados."""
     def limpar():
-        with db.sessao() as s:
+        with db.session() as s:
             s.execute(text("DELETE FROM termo_geracao WHERE codigo = :c"), {"c": COD_TESTE})
             s.execute(text(
                 "DELETE FROM termo WHERE termo_norm IN "
@@ -42,7 +42,7 @@ def catalogo_de_teste():
             s.execute(text("DELETE FROM pdm_permitido WHERE codigo = :c"), {"c": PDM_TESTE})
             s.commit()
     limpar()
-    with db.sessao() as s:
+    with db.session() as s:
         s.execute(text("""
             INSERT INTO catalogo_item (tipo, codigo, codigo_pdm, nome_pdm, descricao, ativo)
             VALUES ('material', :c, :p, 'COLETE', 'COLETE BALISTICO NIVEL III', true)
@@ -53,7 +53,7 @@ def catalogo_de_teste():
 
 
 def test_geracao_guarda_o_termo_cru_e_volta_no_formato_do_checkpoint(catalogo_de_teste):
-    with db.sessao() as s:
+    with db.session() as s:
         repo.gravar_geracao(s, "material", COD_TESTE, ["colete", "colete balistico"],
                             "protecao", modelo="PASS1", provedor="local")
         s.commit()
@@ -64,7 +64,7 @@ def test_geracao_guarda_o_termo_cru_e_volta_no_formato_do_checkpoint(catalogo_de
 
 
 def test_item_ja_gerado_nao_volta_ao_llm(catalogo_de_teste):
-    with db.sessao() as s:
+    with db.session() as s:
         assert ("material", COD_TESTE) not in repo.codigos_ja_gerados(s)
         repo.gravar_geracao(s, "material", COD_TESTE, ["colete"], "protecao")
         s.commit()
@@ -72,7 +72,7 @@ def test_item_ja_gerado_nao_volta_ao_llm(catalogo_de_teste):
 
 
 def test_regravar_o_mesmo_item_substitui_em_vez_de_duplicar(catalogo_de_teste):
-    with db.sessao() as s:
+    with db.session() as s:
         repo.gravar_geracao(s, "material", COD_TESTE, ["antigo"], "outros")
         repo.gravar_geracao(s, "material", COD_TESTE, ["novo"], "protecao")
         s.commit()
@@ -84,7 +84,7 @@ def test_regravar_o_mesmo_item_substitui_em_vez_de_duplicar(catalogo_de_teste):
 
 
 def test_categoria_final_vai_para_catalogo_item(catalogo_de_teste):
-    with db.sessao() as s:
+    with db.session() as s:
         alteradas = repo.gravar_categorias(s, {COD_TESTE: "protecao"})
         s.commit()
         categoria = s.execute(text("SELECT categoria FROM catalogo_item WHERE codigo = :c"),
@@ -96,7 +96,7 @@ def test_categoria_final_vai_para_catalogo_item(catalogo_de_teste):
 def test_gravar_categoria_igual_nao_conta_como_alteracao(catalogo_de_teste):
     """`IS DISTINCT FROM` no UPDATE: rodar a etapa 1 duas vezes sem mudança não deve
     reportar milhares de códigos 'alterados' nem carimbar `atualizado_em` à toa."""
-    with db.sessao() as s:
+    with db.session() as s:
         repo.gravar_categorias(s, {COD_TESTE: "protecao"})
         s.commit()
         segunda = repo.gravar_categorias(s, {COD_TESTE: "protecao"})
@@ -105,7 +105,7 @@ def test_gravar_categoria_igual_nao_conta_como_alteracao(catalogo_de_teste):
 
 
 def test_termo_manual_sobrevive_a_regeracao(catalogo_de_teste):
-    with db.sessao() as s:
+    with db.session() as s:
         id_manual = repo.upsert(s, TERMO_MANUAL, "protecao", "manual")
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
@@ -122,9 +122,9 @@ def test_termo_manual_sobrevive_a_regeracao(catalogo_de_teste):
 
 
 def test_termo_de_llm_regerado_continua_ativo(catalogo_de_teste):
-    from pesquisa_precos.core.textos import normalizar_termo
+    from pesquisa_precos.core.text import normalizar_termo
 
-    with db.sessao() as s:
+    with db.session() as s:
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
         repo.desativar_llm_ausentes(s, [normalizar_termo(TERMO_LLM)])
@@ -137,7 +137,7 @@ def test_termo_de_llm_regerado_continua_ativo(catalogo_de_teste):
 def test_termo_desativado_nao_e_apagado(catalogo_de_teste):
     """Apagar o termo levaria junto `coleta_watermark` (ON DELETE CASCADE) — e perder o
     watermark significa re-varrer o PNCP inteiro na próxima atualização."""
-    with db.sessao() as s:
+    with db.session() as s:
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
         repo.desativar_llm_ausentes(s, [])
