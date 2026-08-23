@@ -15,7 +15,7 @@ Mapeamentos que valem registrar:
                      assim é o que vai permitir, na Fase 8, comparar a `completa` contra uma
                      linha de base identificada.
   `paginas_ocr`    → `documento_extracao.n_paginas_ocr`, agregado por documento (máximo: o
-                     value se repete em todos os itens do mesmo documento).
+                     valor se repete em todos os itens do mesmo documento).
 
 `cost_usd`/`tokens` de `documento_extracao` ficam ZERADOS e `model`/`provider` NULL: a v2/v3
 não mediu nada disso. Preencher com estimativa contaminaria a série histórica de custo que a

@@ -48,7 +48,7 @@ def migrar() -> Relatorio:
 
         valores = {c: cfg[c] for c in CHAVES}
         # A "regra dos 5" está desativada e isso é intencional (ADR-016) — registrado como
-        # value, para que a interface mostre 0 = sem teto em vez de alguém "consertar".
+        # valor, para que a interface mostre 0 = sem teto em vez de alguém "consertar".
         rel.mais("config_value", repo.gravar_config(s, cv, valores))
 
         # Provedores: um por natureza de acesso. `capabilities` reflete o que cada um atende

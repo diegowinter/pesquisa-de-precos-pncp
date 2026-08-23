@@ -491,7 +491,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         return _tls.c
 
     # ADR-019: a etapa não conhece mais PyMuPDF nem o servidor de OCR. Ela pede texto à
-    # capability `pdf`, que decide se o trabalho acontece aqui ou num serviço externo.
+    # capacidade `pdf`, que decide se o trabalho acontece aqui ou num serviço externo.
     provedor_pdf = ctx.providers.pdf
 
     n_erros = [0]

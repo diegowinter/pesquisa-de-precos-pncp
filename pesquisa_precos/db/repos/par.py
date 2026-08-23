@@ -60,7 +60,7 @@ def gravar_rerank(sessao: Session,
 
 def gravar_veredito(sessao: Session,
                     linhas: Sequence[tuple[str, str, str | None, str | None]]) -> int:
-    """Etapa 6c: (par_key, veredito, justificativa, model) em lote."""
+    """Etapa 6c: (par_key, veredito, justificativa, modelo) em lote."""
     if not linhas:
         return 0
     return sessao.execute(
@@ -126,7 +126,7 @@ def confirmados(sessao: Session) -> list[dict]:
 
 
 def gravar_rotulos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
-    """Append-only, UNIQUE (par_key, source). NUNCA truncar — é a base de calibração."""
+    """Append-only, UNIQUE (par_key, origem). NUNCA truncar — é a base de calibração."""
     return copy.copiar(conn, "label", COLUNAS_ROTULO, linhas,
                         conflito=("par_key", "source"))
 
@@ -158,7 +158,7 @@ def gravar_embeddings(conn: psycopg.Connection, provider: str, model: str,
 
 def ler_embeddings(sessao: Session, provider: str, model: str,
                    dimension: int) -> dict[str, "np.ndarray"]:
-    """`texto_hash → vector float32` para o espaço vetorial (provider, model, dimensão)."""
+    """`texto_hash → vector float32` para o espaço vetorial (provider, modelo, dimensão)."""
     linhas = sessao.execute(
         text("SELECT texto_hash, vector FROM embedding_cache "
              "WHERE provider = :p AND model = :m AND dimension = :d"),

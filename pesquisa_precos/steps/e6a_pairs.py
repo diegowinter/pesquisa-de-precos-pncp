@@ -41,7 +41,7 @@ class Params(BaseModel):
         description="Score efetivo mínimo (max bm25/cosseno) p/ o par sobreviver")
 
 
-# ── Pareamento no banco + capability `pareamento` (Fases 10 e 11) ───────────────────
+# ── Pareamento no banco + capacidade `pareamento` (Fases 10 e 11) ───────────────────
 #
 # Duas mudanças na mesma passada, porque tocam o mesmo corpo:
 #   Fase 10 — catálogo e itens vêm do banco; os pares vão para a tabela `par`;

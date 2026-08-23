@@ -50,7 +50,7 @@ def gravar_itens(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> i
     Se a API mudar a descrição de um item já coletado, o `texto_hash` mudaria junto e a
     classificação paga viraria órfã. Preferimos manter o que foi coletado — a atualização de
     um documento vem como `data_atualizacao_pncp` nova, e o tratamento disso é decisão de
-    step, não de repositório.
+    etapa, não de repositório.
     """
     return copy.copiar(conn, "item", COLUNAS_ITEM, linhas, conflito=("item_key",))
 

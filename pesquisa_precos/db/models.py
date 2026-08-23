@@ -8,7 +8,7 @@ banco — `tests/test_schema_banco.py` compara os dois por reflexão e falha se 
 
 Referências circulares (02_SCHEMA.md §13): `termo.config_version_id`, `documento.descoberto_no_run_id`,
 `texto_classificacao.run_id` etc. apontam para tabelas criadas depois. No SQLAlchemy isso é
-inofensivo (a FK é resolvida por name, tarde); na migration é resolved pela ordem de criação
+inofensivo (a FK é resolvida por name, tarde); na migration é resolvido pela ordem de criação
 + ALTER TABLE no fim.
 
 Convenção: colunas de dinheiro são `Numeric(18,4)` e chegam ao Python como `Decimal` — nunca
@@ -382,7 +382,7 @@ class Termo(Base):
     __tablename__ = "termo"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     termo: Mapped[str] = mapped_column(Text, nullable=False)
-    termo_norm: Mapped[str] = mapped_column(Text, nullable=False)  # key de dedup
+    termo_norm: Mapped[str] = mapped_column(Text, nullable=False)  # chave de dedup
     categoria: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")

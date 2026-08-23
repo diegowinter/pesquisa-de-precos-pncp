@@ -21,7 +21,7 @@ from migracao._comum import Relatorio, cabecalho, console
 
 _ITEM_API = {"numeroItem": "{numero_item}", "descricao_api": "{descricao_api}"}
 
-# (name, descrição, capability, template). O name é a chave estável — é o que a Fase 6 vai
+# (name, descrição, capacidade, template). O name é a chave estável — é o que a Fase 6 vai
 # usar para casar a versão editada com o ponto de chamada no código.
 DEFINICOES = (
     ("classificar_item",

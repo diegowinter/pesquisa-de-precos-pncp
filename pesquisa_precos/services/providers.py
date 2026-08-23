@@ -4,7 +4,7 @@ Camada de serviço do CRUD de provedores (Fase 14, ADR-022 — bloco 2).
 A Fase 7 criou `provider`/`provider_capability` e a resolução por capability, mas nenhuma rota
 escrevia nessas tabelas: só dava para popular por SQL na mão, e por isso a configuração real da
 aplicação continuou num `.env` editado a dedo. Este módulo é o que faz a promessa da ADR-014
-("model, provider, URL da GPU é config, não código") chegar ao operador.
+("model, provedor, URL da GPU é config, não código") chegar ao operador.
 
 Regra que atravessa o arquivo inteiro: **a chave de API entra, nunca sai.** `gravar_api_key`
 cifra e grava; nada aqui devolve a chave em claro — quem precisa dela é `providers.resolver`,
@@ -28,7 +28,7 @@ class ProvedorInexistente(RuntimeError):
 
 
 class InvalidProvider(ValueError):
-    """Formulário incompleto ou incoerente (name/base_url vazios, capability desconhecida)."""
+    """Formulário incompleto ou incoerente (name/base_url vazios, capacidade desconhecida)."""
 
 
 class FallbackProibido(ValueError):

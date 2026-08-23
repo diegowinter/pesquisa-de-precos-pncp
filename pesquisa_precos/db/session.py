@@ -83,7 +83,7 @@ def raw_connection():
 
 
 def is_available() -> tuple[bool, str]:
-    """(ok, message) — usado pelo `--fonte banco` para falhar com message útil em vez de
+    """(ok, mensagem) — usado pelo `--fonte banco` para falhar com message útil em vez de
     stack trace de driver quando o serviço está fora ou a base não existe."""
     try:
         with engine().connect() as c:

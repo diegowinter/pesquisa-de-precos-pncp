@@ -99,7 +99,7 @@ def gravar_watermark(sessao: Session, termo_id: int, tipo_doc: str, watermark) -
 
 def geracoes(sessao: Session) -> dict[tuple[str, str], dict]:
     """`(tipo, codigo) → {'termos': [...], 'categoria': str}` — o `_ler_checkpoint()` da
-    step 1, em SQL. Formato idêntico ao do CSV para que a agregação e a cascata de categoria
+    etapa 1, em SQL. Formato idêntico ao do CSV para que a agregação e a cascata de categoria
     rodem sem saber de onde vieram."""
     return {
         (tipo, codigo): {"termos": list(termos or []), "categoria": categoria or ""}

@@ -8,7 +8,7 @@ partir do último export **oficial**, que é exatamente o que este script faz
 (docs/05_MIGRACAO.md §6.3, docs/02_SCHEMA.md §8).
 
 O CSV tem BOM (`utf-8-sig`) e três colunas: `codigo, numeroControlePNCP, numeroItem`. Falta o
-`tipo`, que a PK do destino exige — resolved pelo catálogo, com a mesma validação de
+`tipo`, que a PK do destino exige — resolvido pelo catálogo, com a mesma validação de
 ambiguidade do m12.
 
 Uso: python -m migracao.m16_export_snapshot

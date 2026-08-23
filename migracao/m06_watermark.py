@@ -10,7 +10,7 @@ nunca o salvou, então o watermark do acervo foi RECONSTRUÍDO de forma conserva
 pula documento; no máximo re-varre um pouco a mais. A semeadura foi feita uma vez só, por
 `tools/seed_watermark_v2.py`, e **não deve ser refeita**.
 
-Aqui só transportamos esse value para o banco. O termo é resolved por `termo_norm` — termos do
+Aqui só transportamos esse value para o banco. O termo é resolvido por `termo_norm` — termos do
 checkpoint que não existem mais em `termo` são contados, não inventados.
 
 Uso: python -m migracao.m06_watermark

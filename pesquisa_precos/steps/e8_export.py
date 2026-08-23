@@ -5,12 +5,12 @@ Schema (definido com o cliente):
   Código CATMAT/CATSER | Material/Serviço | Nome | Descrição Base | Descrição Específica | + params PNCP
   - Código        = codigo do catálogo (CATMAT p/ material, CATSER p/ serviço).
   - Tipo          = "Material" ou "Serviço" (coluna `tipo` do catálogo).
-  - Nome          = name do CATMAT ANTES da 1ª vírgula (o núcleo, sem as características).
+  - Nome          = nome do CATMAT ANTES da 1ª vírgula (o núcleo, sem as características).
   - Descrição Base= descrição CATMAT completa (núcleo + características).
   - Desc. Específica = descrição ENRIQUECIDA do item PNCP (descricao_final: PDF quando houver,
                     senão a da API).
   - Params PNCP preservados p/ rastreio: órgão, CNPJ, UF, nº controle, sequencial compra,
-    sequencial ata, ano, item, unidade, quantidade, value homologado, value estimado,
+    sequencial ata, ano, item, unidade, quantidade, valor homologado, valor estimado,
     fornecedor, data do resultado.
   - Origem = "Ata" ou "Contrato" (do tipo_doc).
   - Fim de Vigencia = Ata → data final da ata; Contrato → assinatura + 1 ano (calculada).

@@ -52,12 +52,12 @@ VAR_CHAVE_ANTIGA = "APP_SECRET_KEY_ANTIGA"
 
 class ChaveMestraAusente(RuntimeError):
     """`APP_SECRET_KEY` não está no ambiente. Sem ela não há como cifrar nem decifrar chave de
-    provider — e, desde a ADR-022, não há provedor sem key. Falha alta e clara, na mesma
+    provedor — e, desde a ADR-022, não há provedor sem key. Falha alta e clara, na mesma
     linha do que a ADR-020 fez com `DATABASE_URL`: um caminho só, sem mode degradado."""
 
 
 class SegredoInvalido(ValueError):
-    """O blob não decifra: key-mestra errada (ou rotacionada sem re-cifrar), blob truncado,
+    """O blob não decifra: chave-mestra errada (ou rotacionada sem re-cifrar), blob truncado,
     ou criptograma movido de uma linha para outra (o AAD não bate)."""
 
 
@@ -65,7 +65,7 @@ def _material(value: str) -> bytes:
     """Aceita a chave-mestra como base64url de 32 bytes (o formato que `gerar_chave_mestra`
     emite) ou como texto livre, derivando 32 bytes por SHA-256. A segunda forma existe porque
     operador vai colar senha à mão em algum momento — melhor derivar do que recusar e ver a
-    key virar um `APP_SECRET_KEY=123` improvisado noutro lugar."""
+    chave virar um `APP_SECRET_KEY=123` improvisado noutro lugar."""
     try:
         bruto = base64.urlsafe_b64decode(value.encode("ascii"))
         if len(bruto) == 32:

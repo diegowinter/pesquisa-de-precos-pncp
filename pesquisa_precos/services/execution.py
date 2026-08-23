@@ -229,7 +229,7 @@ def listar_exports(*, run_id: int | None = None) -> list[dict[str, Any]]:
 
 
 def conteudo_export(export_id: int):
-    """(registro, bytes do XLSX, name do arquivo) — o export vive em `export.conteudo`
+    """(registro, bytes do XLSX, nome do arquivo) — o export vive em `export.conteudo`
     (ADR-018 §2), não em disco. `(None, None, None)` se o registro não existe.
 
     Linhas geradas ANTES da Fase 10 têm `conteudo` nulo e só `arquivo` (um caminho relativo em
@@ -257,7 +257,7 @@ def saude_provedores() -> list[dict[str, Any]]:
     capabilities = ["chat", "embed", "rerank", "pdf", "matching"]
 
     def uma(capability: str, sessao) -> dict[str, Any]:
-        # Uma capacidade que nem dá para resolver (schema do banco atrás do código, provider
+        # Uma capacidade que nem dá para resolver (schema do banco atrás do código, provedor
         # ausente) vira uma LINHA reprovada, não uma tela em branco: a tela de diagnóstico
         # precisa ser a última coisa a cair.
         try:

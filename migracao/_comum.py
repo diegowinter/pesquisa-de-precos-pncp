@@ -6,7 +6,7 @@ script, justamente para não dependerem de alguém lembrar:
 
   idempotente   → toda escrita passa por `db/copy.py`, que faz `ON CONFLICT`;
   resumível     → `Retomada` grava quantas linhas do CSV já foram consumidas;
-  source só p/ leitura → nenhuma função deste pacote abre CSV em mode de escrita;
+  origem só p/ leitura → nenhuma função deste pacote abre CSV em mode de escrita;
   streaming     → `ler_csv()` é um gerador; `2_itens_coletados.csv` tem 746 MB e
                   `5_pdf_texto.csv` tem 2,6 GB, e nenhum dos dois cabe confortavelmente
                   em memória via `pd.read_csv`.

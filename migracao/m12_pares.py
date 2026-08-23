@@ -8,7 +8,7 @@ o da **6b**, com `LEFT JOIN` nas outras duas — usar a 6a como base descartaria
 rerankeados. Os pares sem correspondente na 6a ficam com `score_bm25`/`score_cosseno` nulos, e
 quantos são aparece no relatório (docs/05_MIGRACAO.md §m12).
 
-`codigo` nos CSVs não traz o `tipo`. Ele é resolved pelo join com `catalogo_item`, sob a
+`codigo` nos CSVs não traz o `tipo`. Ele é resolvido pelo join com `catalogo_item`, sob a
 premissa de que o código é único no catálogo filtrado — premissa que este script **valida e
 aborta** se for falsa, em vez de assumir. Um código ambíguo migrado com o tipo errado apontaria
 para outro item de catálogo, e o erro só apareceria como um preço estranho no export.

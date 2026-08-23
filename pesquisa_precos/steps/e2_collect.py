@@ -108,7 +108,7 @@ def _linha_documento(linha: dict, data_atualizacao: str | None, n_itens: int) ->
     Por que da linha de item e não do `identificar()` da busca: `COLUNAS_ITENS` já carrega
     todos os campos do documento (é uma tabela desnormalizada — foi assim que o CSV único
     funcionou até aqui), incluindo `url_pncp` e os dois sequenciais, que `identificar()` NÃO
-    devolve (ele expõe o sequencial da ata como `_seq_ata`, key privada). Usar a linha é o
+    devolve (ele expõe o sequencial da ata como `_seq_ata`, chave privada). Usar a linha é o
     mesmo caminho que a migração `m07` faz sobre o CSV — uma fonte só, já validada.
 
     `data_atualizacao_pncp` é a exceção: não está na linha de item, vem do resultado da busca.

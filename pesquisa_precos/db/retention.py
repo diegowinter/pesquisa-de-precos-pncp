@@ -8,8 +8,8 @@ novo problema dos 111 GB de PDF.
 O que **não** é apagado, nunca, e o motivo (ADR-007 — reprocessar é perda):
 
     item, item_enriquecido, par, grupo_item     é o produto
-    texto_classificacao, embedding_cache        active caro; recomprá-lo é perda de dinheiro
-    label                                      base de calibração; append-only
+    texto_classificacao, embedding_cache        ativo caro; recomprá-lo é perda de dinheiro
+    rótulo                                      base de calibração; append-only
     llm_call                                 série histórica de custo
     documento_extracao.itens_json               pequeno, e é o insumo da estratégia 'full'
 

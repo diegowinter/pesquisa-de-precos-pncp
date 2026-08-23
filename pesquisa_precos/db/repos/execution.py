@@ -79,7 +79,7 @@ def config_versao_por_id(sessao: Session, config_version_id: int) -> dict[str, A
 
 def diff_config(sessao: Session, id_a: int, id_b: int) -> dict[str, Any]:
     """Diferença chave a chave entre duas `config_version` (docs/06_API_E_WEB.md
-    `GET /api/config/versions/{id}/diff/{outro_id}`). Só reporta chaves que mudaram — key
+    `GET /api/config/versions/{id}/diff/{outro_id}`). Só reporta chaves que mudaram — chave
     ausente de um lado aparece com value `None` do lado que não a define."""
     valores_a = ler_config(sessao, id_a)
     valores_b = ler_config(sessao, id_b)

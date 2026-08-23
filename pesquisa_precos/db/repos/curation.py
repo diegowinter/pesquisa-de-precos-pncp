@@ -117,7 +117,7 @@ SQL_REVOGAR = """
 def revogar(sessao: Session, tipo: str, codigo: str, *, reason: str | None = None) -> int:
     """Tira um código do escopo. DESATIVA, nunca apaga — mesmo princípio de
     `catalogo.marcar_inativos`: o código já foi origem de linhas de export entregues, e o
-    reason da exclusão é justamente o que se perde primeiro."""
+    motivo da exclusão é justamente o que se perde primeiro."""
     return sessao.execute(
         text(SQL_REVOGAR),
         {"tipo": tipo, "codigo": str(codigo), "reason": reason}).rowcount

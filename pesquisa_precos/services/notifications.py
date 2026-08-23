@@ -1,5 +1,5 @@
 """
-Notificações (Fase 9, docs/04_FASES.md item 3) — step concluída / falhou / gate aguardando.
+Notificações (Fase 9, docs/04_FASES.md item 3) — etapa concluída / falhou / gate aguardando.
 "Pipeline em background sem aviso vira pipeline esquecido" (docs/06_API_E_WEB.md §6).
 
 Canal implementado: e-mail via Resend (`POST https://api.resend.com/emails`, API HTTP simples —

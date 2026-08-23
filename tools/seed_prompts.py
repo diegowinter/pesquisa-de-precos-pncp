@@ -19,7 +19,7 @@ Chaves `{`/`}` literais do JSON de exemplo pedido na resposta vêm escapadas (`{
 sintaxe de `str.format`, não do prompt em si.
 
 Uso:
-  uv run python -m tools.seed_prompts            # semeia (não sobrescreve se já active)
+  uv run python -m tools.seed_prompts            # semeia (não sobrescreve se já ativo)
   uv run python -m tools.seed_prompts --forcar    # sobrescreve o texto da versão 1
 """
 

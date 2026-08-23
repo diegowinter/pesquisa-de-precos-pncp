@@ -79,7 +79,7 @@ def checar_capacidade(capability: str, *,
     devolve o resultado — é o caso do `estimar()` fora de um run)."""
     # Capacidade sem provider apontado é uma LINHA VERMELHA, não uma exceção: esta função é a
     # tela de diagnóstico e o gate pré-play, e nos dois lugares o operador precisa ver qual
-    # capability está faltando — não uma stack trace no lugar do painel (Fase 14, ADR-022).
+    # capacidade está faltando — não uma stack trace no lugar do painel (Fase 14, ADR-022).
     try:
         resolucao = resolver_capacidade(capability, sessao=sessao)
     except CapabilityNotConfigured as exc:
