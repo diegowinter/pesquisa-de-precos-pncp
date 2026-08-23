@@ -8,7 +8,7 @@ a 3 invalida 4→8", que é frágil e cresce rápido.
 
 Duas coisas importantes que este módulo NÃO faz:
   - não decide o que fazer com uma etapa desatualizada. Invalidar nunca apaga (ADR-009): quem
-    lê `esta_desatualizada()` marca `⚠` na UI/CLI e deixa o usuário decidir.
+    lê `esta_desatualizada()` sinaliza a etapa na tela e deixa o usuário decidir.
   - não olha `run_id`. O fingerprint de uma dependência é o da sua última execução CONCLUÍDA em
     QUALQUER run — `atualizar` é incremental entre runs, então a execução que vale é sempre a
     mais recente da etapa, não a do run corrente (ver `execucao.ultimo_fingerprint_concluido`).

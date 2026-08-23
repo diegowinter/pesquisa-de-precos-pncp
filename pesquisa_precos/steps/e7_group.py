@@ -12,7 +12,7 @@ Entrada: `par` com `final_decision='confirmado'` (derivada da 6b/6c). Saída: `g
 carimbado com o `run_id`.
 Chave de resumo: nenhuma — recomputa o corpus inteiro (comparar preço exige todos os itens).
 
-⚠ NÃO fazer: tratar `top_n = 0` como "zero itens". Zero significa SEM TETO — traz todas as
+Não tratar `top_n = 0` como "zero itens": zero significa sem teto, e traz todas as
 referências confirmadas não sinalizadas por código. Mais de 5 itens por código é o
 comportamento esperado (ADR-016: a "regra dos 5" está desativada, `min_itens=1`, `top_n=0`).
 """

@@ -1,19 +1,14 @@
 """
 Registry das etapas — fonte única da ordem, das dependências e dos metadados.
 
-CLI, API e runner descobrem as etapas por aqui; ninguém hardcoda a sequência `0a → 8`
-(docs/03_ETAPAS.md §2). Antes da Fase 1 a sequência estava escrita à mão em `rodar.py`,
-junto com uma tabela de "quem aceita --provider" — dois lugares para esquecer de atualizar.
+A web e o runner descobrem as etapas por aqui; ninguém escreve a sequência `0a -> 8` à mão
+(docs/03_ETAPAS.md §2).
 
-Fase 8 (ADR-010): a extração é uma etapa só (`5`), com estratégias plugáveis (`janela`|
-`completa`|`visao`|`auto`) roteadas por documento — `etapas/e5_extract.py`. Antes da Fase 8
-ela existia como `5a` (parse/OCR) + `5b` (extração por janela), que a Fase 1 só extraiu
-`executar()` de, sem mudar lógica; a unificação (e o download que passou da etapa 2 para
-esta) é o que a Fase 8 entrega.
+A extração é uma etapa só (`5`), com estratégias plugáveis (janela, completa, visão) roteadas
+por documento — ver `steps/e5_extract.py` e a ADR-010.
 
-`params_model` é resolvido por import preguiçoso: o registry é importado pela CLI e pelo
-`main()` de cada etapa, e importar as 12 etapas de uma vez arrastaria pymupdf/pandas/torch
-para dentro de um `--help`.
+`params_model` é resolvido por import preguiçoso: importar as 12 etapas de uma vez arrastaria
+pandas para dentro de qualquer uso do registry, inclusive o de só listar os nomes.
 """
 
 import importlib
@@ -33,10 +28,6 @@ class StepDefinition:
     custo: Custo
     precisa_gate: bool               # padrão do modo assistido
     recomputa_corpus: bool           # True = sempre recalcula o corpus inteiro, não só o novo
-    # Capacidades (Fase 7: 'chat'|'embed'|'rerank'|'ocr') que a etapa consome — é o que
-    # `runner.launcher` sonda ANTES de subir o subprocesso (health check pré-play,
-    # docs/04_FASES.md §Fase 7 item 6). Etapa sem capacidade paga (custo='gratis') não tem
-    # nenhuma.
     capabilities: tuple[str, ...] = ()
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 

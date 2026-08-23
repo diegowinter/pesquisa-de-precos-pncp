@@ -1,22 +1,18 @@
 """
-Semeia `provider`/`provider_capability` a partir do `.env` — a ponte de mão única da Fase 14
-(ADR-022, bloco 4).
+Semeia `provider`/`provider_capability` a partir do `.env`.
 
-Roda UMA vez, na virada. Depois dela, quem configura provedor é a tela `/provedores`, e o
-`.env` fica só com `DATABASE_URL` e `APP_SECRET_KEY`.
+Roda uma vez, na virada da ADR-022. Depois dela, quem configura provedor é a tela
+`/provedores`, e o `.env` fica só com `DATABASE_URL` e `APP_SECRET_KEY`.
 
-Por que aqui e não numa migração Alembic (como a ADR-022 previa): semear depende de duas coisas
-que uma migração não deveria exigir — o `.env` de origem e a chave-mestra no ambiente. Migração
-que precisa de segredo para rodar quebra em qualquer máquina que não seja a do operador, e o
-`downgrade` dela não teria como desfazer a cifra. `tools/` é exatamente o lugar de script
-de apoio pontual (ver CLAUDE.md), e este é pontual por definição.
+Ficou aqui e não numa migração Alembic porque semear depende do `.env` de origem e da
+chave-mestra no ambiente: uma migração que exige segredo para rodar quebra em qualquer máquina
+que não seja a do operador, e o `downgrade` dela não desfaria a cifra.
 
     uv run python -m tools.seed_providers --conferir   # não escreve nada
     uv run python -m tools.seed_providers              # grava
 
-É IDEMPOTENTE: reexecutar atualiza as mesmas linhas (o `upsert` é por nome) e não duplica nada.
-Só toca no que o `.env` descreve; provedor que você já cadastrou pela tela e não existe no
-`.env` fica intacto.
+Reexecutar é seguro: o upsert é por nome, então as mesmas linhas são atualizadas e nada
+duplica. Provedor que já existe na tela e não aparece no `.env` fica intacto.
 """
 
 from __future__ import annotations
@@ -135,7 +131,7 @@ def run(conferir: bool = False) -> int:
     if avisos:
         print("\nAvisos:\n")
         for aviso in avisos:
-            print(f"  ⚠ {aviso}")
+            print(f"  AVISO: {aviso}")
 
     if conferir:
         print("\n--conferir: nada foi gravado.")

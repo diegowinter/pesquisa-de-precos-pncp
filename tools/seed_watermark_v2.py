@@ -1,25 +1,18 @@
 """
-Semeia ARTIFICIALMENTE o watermark da etapa 2 a partir do acervo já coletado (seed do v2),
-sem tocar no PNCP.
+Semeia o watermark da etapa 2 a partir do acervo já coletado, sem consultar o PNCP.
 
-Contexto: o watermark de verdade usa `data_atualizacao_pncp` (a data por onde a busca do PNCP
-vem ordenada). O v2 NÃO salvou esse campo — só a `data_publicacao_pncp` (coluna `data`). Como
-substituto SEGURO usamos a publicação: vale sempre `publicação ≤ atualização`, então o carimbo
-fica "atrás" (conservador). Consequência desejada: a próxima rodada `--atualizar` para de paginar
-só num ponto mais antigo → ela VOLTA e coleta a lacuna v2→agora, nunca pula nada.
+O watermark real usa `data_atualizacao_pncp`, o campo por onde a busca do PNCP vem ordenada,
+e o v2 não salvou esse campo — só a `data_publicacao_pncp`. Como a publicação é sempre menor
+ou igual à atualização, usá-la deixa o carimbo atrasado de propósito: a próxima rodada de
+atualização para de paginar num ponto mais antigo, volta e coleta a lacuna, e não pula nada.
 
-Para cada (termo, fonte) grava a MAIOR data de publicação entre os itens que aquele termo trouxe:
-  - termo = conceito (esquema novo: 1 termo por linha), lido de `conceitos_origem`
-  - fonte = tipo_doc (contrato | ata)
-Termos que não coletaram nada ficam de fora → a etapa 2 os varre por completo (seguro).
+Para cada (termo, fonte) grava a maior data de publicação entre os itens que aquele termo
+trouxe. Termo que não coletou nada fica de fora, e a etapa 2 o varre por completo.
 
-Saída: data/checkpoints/2_watermark.csv  (termo, tipo_doc, data_max)
+Saída: data/checkpoints/2_watermark.csv (termo, tipo_doc, data_max).
 
-Uso:
-  python tools/seed_watermark_v2.py            # calcula e grava
-  python tools/seed_watermark_v2.py --dry-run  # só mostra, não grava
-  python tools/seed_watermark_v2.py --com-extra # inclui 2_conceitos_extra.csv (mais fiel)
-  python tools/seed_watermark_v2.py --forcar   # sobrescreve um watermark já existente
+    python tools/seed_watermark_v2.py            # calcula e grava
+    python tools/seed_watermark_v2.py --dry-run  # só mostra
 """
 
 import argparse

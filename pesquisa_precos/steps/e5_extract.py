@@ -1,7 +1,7 @@
 """
 Etapa 5 — Download + extração + enriquecimento, com estratégias plugáveis (Fase 8, ADR-010).
 
-Substitui o par `e5a_ocr.py` (parse/OCR) + `e5b_extrair.py` (janela) e o embrião
+Substitui o par `e5a_ocr.py` (parse/OCR) + `e5b_extrair.py` (janela) e a primeira versão
 `e5_alt_a_tabela.py`/`e5_alt_b_casar.py` (tabela por visão). Fluxo por documento
 (docs/03_ETAPAS.md §5, docs/04_FASES.md Fase 8):
 

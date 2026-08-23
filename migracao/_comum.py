@@ -220,7 +220,7 @@ class Relatorio:
         for key, value in self.contadores.items():
             console.print(f"  {key:<{largura}}  {value:>12,}".replace(",", "."))
         for msg in self.avisos:
-            console.print(f"  [yellow]⚠ {msg}[/]")
+            console.print(f"  [yellow]AVISO: {msg}[/]")
 
 
 def cabecalho(titulo: str, source: Path | list[Path], destino: str) -> None:

@@ -1,30 +1,16 @@
 """
-Política de retenção — implementação da tabela de docs/02_SCHEMA.md §11.
+Política de retenção (docs/02_SCHEMA.md §11).
 
-Decidida na Fase 2 e não depois, porque `documento_pagina` cresce sem limite: 888 mil linhas e
-2,6 GB de texto já hoje, e a etapa 5 acrescenta a cada coleta. Sem política, o banco vira o
-novo problema dos 111 GB de PDF.
+Duas coisas expiram: o texto de página 180 dias depois de o documento chegar a `extraido`, e
+o `run_log` em 90 dias. Nada mais — item, par, grupo, classificação, embedding, rótulo e
+histórico de custo são o produto ou ativo caro, e ficam (ADR-007).
 
-O que **não** é apagado, nunca, e o motivo (ADR-007 — reprocessar é perda):
+Apagar o texto de página só é seguro porque o documento guarda `url_pncp`, `hash_arquivo` e
+`n_paginas`, o que permite baixar do PNCP e reextrair; por isso `limpar_paginas()` se recusa
+a tocar em documento sem URL.
 
-    item, item_enriquecido, par, grupo_item     é o produto
-    texto_classificacao, embedding_cache        ativo caro; recomprá-lo é perda de dinheiro
-    rótulo                                      base de calibração; append-only
-    llm_call                                 série histórica de custo
-    documento_extracao.itens_json               pequeno, e é o insumo da estratégia 'full'
-
-Só duas coisas expiram:
-
-    documento_pagina.texto   180 dias após o documento chegar a 'extraido'
-    run_log                   90 dias
-
-O texto de página é o único caso em que apagar é seguro, e mesmo assim só porque existe rede:
-o documento guarda `url_pncp` + `hash_arquivo` + `n_paginas`, então dá para rebaixar do PNCP e
-reextrair. Sem `url_pncp` preenchida, apagar seria irreversível — por isso `limpar_paginas()`
-se recusa a tocar em documento sem URL.
-
-Nada aqui roda sozinho. Todas as funções têm `simular=True` por padrão: devolvem o que
-apagariam sem apagar. Quem dá o play é o operador (ADR-005).
+Nada roda sozinho: todas as funções têm `simular=True` por padrão e devolvem o que apagariam.
+Ainda não há tela que as chame — quem quiser rodar, chama daqui.
 """
 
 from dataclasses import dataclass

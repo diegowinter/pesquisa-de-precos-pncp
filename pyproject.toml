@@ -14,33 +14,20 @@ dependencies = [
     "python-dotenv",
     "rich",
     "openpyxl",
-    # Fase 1: contrato de etapa (Params/Estimativa/ResultadoEtapa). Desde a Fase 13 o mesmo
-    # schema alimenta SÓ o formulário da web — `typer` saiu junto com a CLI (ADR-020).
-    "pydantic>=2",
+    "pydantic>=2",          # Params de cada etapa; o mesmo schema gera o formulário da web
     "langchain-openai",
     "langchain-core",
-    # ADR-021: `pymupdf`, `rank-bm25` e `sentence-transformers` não estão aqui nem em extra
-    # nenhum — saíram do repositório. Parse de PDF, rasterização, OCR, embedding, rerank e
-    # BM25 vivem em `../pncp-servicos-locais` e são alcançados por HTTP. Este processo faz
-    # scraping, orquestra e escreve no banco; é o que o mantém rodando num servidor modesto.
-    # Fase 2: o banco vira a fonte da verdade. `psycopg` 3 (não 2) porque a migração depende
-    # de `cursor.copy()` — `COPY` é o que faz 1,6 milhão de itens entrarem em minutos em vez
-    # de horas. O extra `[binary]` evita exigir libpq instalada no Windows.
+    # `psycopg` 3, não 2, porque a migração depende de `cursor.copy()`; o extra [binary]
+    # evita exigir libpq instalada no Windows.
     "sqlalchemy>=2",
     "alembic>=1.19.1",
     "psycopg[binary]>=3",
-    # Fase 4: API — o processo web nunca executa etapa (ADR-002), só comanda/observa por HTTP.
-    # Fase 13: HTML e JSON saem do MESMO app e da mesma porta (`python -m pesquisa_precos`).
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    # Fase 5: interface web — Jinja2 + HTMX + Alpine.js, sem bundler (ADR-003).
-    "jinja2>=3.1",
-    "python-multipart>=0.0.9",   # form POST (login, formulários de Params)
-    "itsdangerous>=2.2",         # SessionMiddleware (cookie de sessão, docs §5)
-    # Fase 14 (ADR-022): a chave de API de cada provedor mora no banco, cifrada em AES-GCM.
-    # A chave-mestra (`APP_SECRET_KEY`) fica fora do banco, no ambiente do processo — um
-    # `pg_dump` sozinho não decifra nada. Ver `db/segredo.py`.
-    "cryptography>=43",
+    "jinja2>=3.1",          # web: Jinja2 + HTMX + Alpine.js, sem bundler (ADR-003)
+    "python-multipart>=0.0.9",
+    "itsdangerous>=2.2",    # cookie de sessão
+    "cryptography>=43",     # cifra a chave de API de cada provedor (AES-GCM, db/secret.py)
 ]
 
 [project.optional-dependencies]
@@ -57,24 +44,19 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-# As duas listas abaixo são diferentes em natureza. Não fundir.
 ignore = [
-    # ── Desligados por serem incompatíveis com o código, não por dívida ────────────────
-    # E402/I001: as etapas fazem `sys.stdout.reconfigure(encoding="utf-8")` ANTES de importar
-    # rich/pandas — é o que evita acentos corrompidos no console do Windows (cp1252). Isso
-    # obriga imports depois de código; pior, o autofix do isort MOVERIA os imports para cima
-    # do reconfigure, reintroduzindo o bug. Ordenação de import fica manual nestes módulos.
+    # As etapas fazem `sys.stdout.reconfigure(encoding="utf-8")` ANTES de importar rich e
+    # pandas — é o que evita acento corrompido no console do Windows. Isso obriga import
+    # depois de código, e o autofix do isort moveria os imports para cima do reconfigure,
+    # trazendo o bug de volta. Nesses módulos a ordem de import é manual.
     "E402",
     "I001",
 
-    # ── Dívida herdada da pipeline em scripts ─────────────────────────────────────────
-    # A Fase 0 move o código sem tocar no corpo (o critério de aceite é saída byte a byte
-    # idêntica), então reflowar 125 linhas longas aqui seria trocar risco por estética.
-    # Reativar por módulo à medida que a Fase 1 reescrever cada etapa em `executar()`.
-    "E501",   # 125 ocorrências — linhas de 100-115 col
-    "E741",   # `l` como variável de laço em list comprehensions de CSV
-    "E702",   # `t.add_column(...); t.add_column(...)` em blocos de montagem de tabela rich
-    "B905",   # zip() sem strict= — comportamento atual depende do truncamento silencioso
+    # Dívida da pipeline em scripts, herdada. Reativar por módulo quando houver motivo.
+    "E501",   # linhas de 100-115 colunas
+    "E741",   # `l` como variável de laço
+    "E702",   # duas instruções na mesma linha, em blocos que montam tabela do rich
+    "B905",   # zip() sem strict=
 ]
 
 [tool.ruff.lint.isort]
