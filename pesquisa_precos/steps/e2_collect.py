@@ -238,7 +238,7 @@ def _revisitar_pendentes(db, repo, pendentes_docs: dict, conhecidos: set,
         try:
             linhas, status = collect_pncp.revisitar_pendente(rec["base"], rec["tipo_doc"], "")
         except Exception as exc:  # noqa: BLE001
-            ctx.erro_item(ctrl, exc, tipo=rec["tipo_doc"], name="revisita")
+            ctx.item_error(ctrl, exc, tipo=rec["tipo_doc"], name="revisita")
             feitos += 1
             ctx.progresso(feitos)
             continue
@@ -276,6 +276,11 @@ def _coletar_busca(busca: _Busca, params: Params, db, repo, repo_termo, *,
             **tam_pagina_kw):
         n_docs += 1
         subprogresso(ctx, processed=n_docs)
+        # Uma busca do PNCP tem centenas de documentos e leva muitos minutos; checar o
+        # cancelamento só entre buscas faria o operador esperar a busca inteira depois de
+        # clicar em Cancelar — com o lock preso o tempo todo.
+        if ctx.cancelado():
+            break
         atu = r.get("data_atualizacao_pncp") or ""
         if atu > max_atu:
             max_atu = atu
@@ -295,7 +300,7 @@ def _coletar_busca(busca: _Busca, params: Params, db, repo, repo_termo, *,
         if status != "ok":
             if status == "erro":
                 totais.erros += 1
-                ctx.erro_item(ctrl, status, tipo=busca.fonte, name=busca.termo)
+                ctx.item_error(ctrl, status, tipo=busca.fonte, name=busca.termo)
             elif status == "sem_homologado":
                 base = collect_pncp.identificar(r, busca.fonte)
                 with db.session() as s:
@@ -368,7 +373,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         except Exception as exc:  # noqa: BLE001
             totais.erros += 1
             ctx.log("erro", f"[red]erro[/] {busca.termo} ({busca.fonte}): {str(exc)[:80]}")
-            ctx.erro_item(busca.termo, exc, tipo=busca.fonte, name=busca.termo)
+            ctx.item_error(busca.termo, exc, tipo=busca.fonte, name=busca.termo)
         finally:
             feitas_buscas += 1
             ctx.progresso(feitas_buscas,

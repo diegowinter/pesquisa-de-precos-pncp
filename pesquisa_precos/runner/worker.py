@@ -58,27 +58,44 @@ def run(run_etapa_id: int) -> int:
         return 1
 
     try:
-        run_step = repo.run_etapa_por_id(sessao_execucao, run_etapa_id)
-        if run_step is None:
+        # O PREÂMBULO também marca `failed` (2026-08-23). Antes, qualquer erro aqui — params
+        # inválidos, step fora do registry, import da etapa — subia direto para o `finally`,
+        # que liberava o lock e encerrava o processo: a linha ficava `running` para sempre, sem
+        # log, sem heartbeat e sem mensagem, e a tela mostrava uma etapa "em andamento" que já
+        # tinha morrido. Falha silenciosa é pior que falha barulhenta.
+        try:
+            run_step = repo.run_etapa_por_id(sessao_execucao, run_etapa_id)
+            if run_step is None:
+                return 1
+            run = repo.run_por_id(sessao_execucao, run_step["run_id"])
+            definicao = registry.obter(run_step["step"])
+            params = definicao.params_model(**run_step["effective_params"])
+
+            repo.heartbeat(sessao_execucao, run_etapa_id, os.getpid())
+            lock.renovar(sessao_execucao, run_etapa_id)
+            sessao_execucao.commit()
+
+            teto = run["cost_cap_usd"]
+            db_etapa = db.create_session()
+            ctx = DbContext(
+                db_etapa, sessao_execucao=sessao_execucao, run_id=run_step["run_id"],
+                run_etapa_id=run_etapa_id, step=run_step["step"],
+                action=run_step["action"] or "update", mode=run["mode"],
+                cost_cap_usd=float(teto) if teto is not None else None,
+            )
+        except Exception:
+            erro = traceback.format_exc()[-4000:]
+            print(erro, file=sys.stderr)
+            sessao_execucao.rollback()
+            repo.marcar_falhou(sessao_execucao, run_etapa_id,
+                               "falha ao preparar a execução:\n" + erro)
+            sessao_execucao.commit()
             return 1
-        run = repo.run_por_id(sessao_execucao, run_step["run_id"])
-        definicao = registry.obter(run_step["step"])
-        params = definicao.params_model(**run_step["effective_params"])
-
-        repo.heartbeat(sessao_execucao, run_etapa_id, os.getpid())
-        lock.renovar(sessao_execucao, run_etapa_id)
-        sessao_execucao.commit()
-
-        teto = run["cost_cap_usd"]
-        db_etapa = db.create_session()
-        ctx = DbContext(
-            db_etapa, sessao_execucao=sessao_execucao, run_id=run_step["run_id"],
-            run_etapa_id=run_etapa_id, step=run_step["step"],
-            action=run_step["action"] or "update", mode=run["mode"],
-            cost_cap_usd=float(teto) if teto is not None else None,
-        )
 
         codigo_saida = 0
+        ctx.iniciar_heartbeat()
+        erros_antes = repo.erros_pendentes_tentativas(
+            sessao_execucao, run_step["run_id"], run_step["step"])
         try:
             modulo = definicao.carregar()
             resultado = modulo.run(params, ctx)
@@ -88,9 +105,20 @@ def run(run_etapa_id: int) -> int:
             else:
                 fp = fingerprint.calcular_para_etapa(
                     sessao_execucao, run_step["step"], run_step["effective_params"])
+                # `resumo` viaja dentro de metrics: é texto de exibição, não merece coluna
+                # (e uma migration no meio de um teste assistido é fricção sem retorno).
+                metricas = dict(resultado.metrics)
+                if resultado.resumo:
+                    metricas["resumo"] = resultado.resumo
+                # O que estava pendente e não falhou de novo está resolvido.
+                depois = repo.erros_pendentes_tentativas(
+                    sessao_execucao, run_step["run_id"], run_step["step"])
+                repo.resolver_erros(
+                    sessao_execucao, run_step["run_id"], run_step["step"],
+                    [k for k, n in erros_antes.items() if depois.get(k, n) == n])
                 repo.marcar_concluida(
                     sessao_execucao, run_etapa_id, processed=resultado.processed,
-                    errors=resultado.errors, metrics=resultado.metrics, fingerprint=fp)
+                    errors=resultado.errors, metrics=metricas, fingerprint=fp)
                 sessao_execucao.commit()
                 _notificar_best_effort(
                     run_step["run_id"], run_step["step"], "finished",
@@ -100,6 +128,16 @@ def run(run_etapa_id: int) -> int:
             sessao_execucao.commit()
             codigo_saida = 2
             _notificar_best_effort(run_step["run_id"], run_step["step"], "failed", str(exc))
+        except SystemExit as exc:
+            # As etapas usam `raise SystemExit("mensagem")` para pré-condição não satisfeita
+            # ("nenhum termo ativo", "banco indisponível"). SystemExit NÃO é Exception: sem
+            # este ramo ela subia até o `finally`, o processo morria calado e a linha ficava
+            # `running` para sempre — a etapa 2 passou uma hora assim em 2026-08-23.
+            mensagem = str(exc) or "a step encerrou sem mensagem"
+            repo.marcar_falhou(sessao_execucao, run_etapa_id, mensagem)
+            sessao_execucao.commit()
+            codigo_saida = 1
+            _notificar_best_effort(run_step["run_id"], run_step["step"], "failed", mensagem)
         except Exception:
             erro = traceback.format_exc()[-4000:]
             repo.marcar_falhou(sessao_execucao, run_etapa_id, erro)
@@ -107,6 +145,7 @@ def run(run_etapa_id: int) -> int:
             codigo_saida = 1
             _notificar_best_effort(run_step["run_id"], run_step["step"], "failed", erro)
         finally:
+            ctx.encerrar()
             db_etapa.close()
         return codigo_saida
     finally:

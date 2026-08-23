@@ -470,7 +470,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         return StepResult(metrics=dict(cont))
 
     ctx.log("info", f"[bold][5] {len(grupos)} documentos sobreviventes, pendentes: {len(pend)}[/] "
-                    f"— estratégia: {params.estrategia}, provider: {params.provedor}, "
+                    f"— estratégia: {params.estrategia}, provider: {params.provider}, "
                     f"concorrência: {params.concurrency_docs} docs × {params.concurrency_llm} itens")
 
     prompts_ativos = {}
@@ -502,7 +502,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     def err_doc(doc_ctrl, exc):
         n_erros[0] += 1
-        ctx.erro_item(doc_ctrl, exc)
+        ctx.item_error(doc_ctrl, exc)
         ctx.log("aviso", f"[yellow][5] erro em {doc_ctrl}: {str(exc)[:120]}[/]")
 
     from pesquisa_precos.db.repos import extraction as repo_extr

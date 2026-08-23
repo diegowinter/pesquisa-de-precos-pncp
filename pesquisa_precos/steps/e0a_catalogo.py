@@ -7,11 +7,10 @@ separada porque o download é pesado e roda esporadicamente.
 A etapa não escreve NADA em disco (ADR-018/ADR-020):
     catalogo_raw     ← catálogo completo, uma página por transação
     catalogo_download← checkpoint de página (o que era a pasta de parquet-partes)
-    catalogo_item    ← DERIVADO por SQL de `catalogo_raw ∩ pdm_permitido` (ADR-017)
-    catalogo_snapshot← baseline do delta
-A allow-list não vive mais no código: `pdm_permitido` é editável pela interface, e
-`core/catalogo/local.py` guarda só o método de filtro. Mudar a curadoria e rederivar não
-exige rebaixar a API.
+
+Baixar é tudo o que ela faz. O CORTE (`catalogo_raw ∩ pdm_permitido` → `catalogo_item`)
+mudou-se para a etapa 0b em 2026-08-23: é decisão do operador sobre o escopo do pipeline
+inteiro, e merece o próprio gate em vez de acontecer de brinde no fim do download.
 
 RESUMÍVEL / à prova de queda: cada página é persistida assim que chega (linha em
 `catalogo_download`) e um novo run pula o que já entrou. No pior caso perde-se a última.
@@ -19,8 +18,6 @@ RESUMÍVEL / à prova de queda: cada página é persistida assim que chega (linh
 Entradas: nenhuma (é a raiz do grafo).
 Chave de resumo: página da API (linha em `catalogo_download`).
 
-NÃO fazer: tratar a primeira execução sem snapshot como "tudo novo" (ver
-`repo.delta_catalogo`) — sem baseline, o delta é zerado por definição.
 """
 
 import sys
@@ -40,8 +37,8 @@ from pesquisa_precos.core.catalogo.local import GRUPOS_MATERIAIS, GRUPOS_SERVICO
 from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 
 KEY = "0a"
-# 2.0.0 (Fase 13): o caminho CSV/parquet saiu — o banco é o único destino (ADR-020).
-CODE_VERSION = "2.0.0"
+# 3.0.0: o corte saiu daqui e virou a etapa 0b — esta só baixa.
+CODE_VERSION = "3.0.0"
 
 FONTES = {
     "material": {
@@ -237,8 +234,7 @@ def baixar_tipo_para_banco(tipo: str, so_grupos: bool, forcar: bool,
 
 
 def run(params: Params, ctx: RunContext) -> StepResult:
-    """0a inteira sem tocar em disco (ADR-018): baixa → `catalogo_raw` → deriva
-    `catalogo_item` pela allow-list → delta por snapshot no banco."""
+    """Baixa o catálogo para `catalogo_raw` e para por aí. Quem aplica a allow-list é a 0b."""
     from sqlalchemy import text as text_sql
 
     from pesquisa_precos.db import session as db
@@ -263,28 +259,20 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     with db.session() as s:
         total_raw = repo.contar_raw(s)
-        derivacao = repo.derivar_catalogo_item(s)
-        delta = repo.delta_catalogo(s)
-        s.commit()
         preview = [
             {"tipo": t, "codigo": c, "descricao": (d or "")[:80]}
             for t, c, d in s.execute(text_sql(
-                "SELECT tipo::text, codigo, description FROM catalogo_item "
-                "WHERE active ORDER BY tipo, codigo LIMIT 20")).all()
+                "SELECT tipo::text, codigo, description FROM catalogo_raw "
+                "ORDER BY tipo, codigo LIMIT 20")).all()
         ]
 
-    ctx.log("info", f"[bold]Catálogo completo:[/] {total_raw:,} · "
-                    f"[bold green]curado: {derivacao['ativos']:,}[/] "
-                    f"({derivacao['desativados']} desativados)")
-    if delta.get("baseline"):
-        ctx.log("info", "[dim]Primeiro snapshot no banco — delta zerado por definição.[/]")
-    else:
-        ctx.log("info", f"[bold]Delta:[/] {delta['codigos_novos']} novos, "
-                        f"{delta['codigos_removidos']} removidos")
+    ctx.log("info", f"[bold]Catálogo completo no banco:[/] {total_raw:,} linhas · "
+                    "[dim]o corte é a etapa 0b[/]")
 
     return StepResult(
-        processed=derivacao["ativos"], errors=0,
-        metrics={"itens_no_catalogo_raw": total_raw, **por_tipo, **derivacao, **delta},
+        processed=estado["feitos"], errors=0,
+        resumo=f"{total_raw:,} linhas no catálogo completo (o corte é a etapa 0b)",
+        metrics={"itens_no_catalogo_raw": total_raw, **por_tipo},
         preview=preview,
     )
 
@@ -304,13 +292,4 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
             # o que falta baixar só se sabe consultando a API — que é justamente o que uma
             # estimativa não pode fazer (ela não gasta nada, nem tempo de rede).
             detalhes[tipo] = f"{repo.contar_raw(s, tipo):,} linhas já em catalogo_raw"
-        detalhes["curados_hoje"] = len(repo.listar_permitidos(s))
     return Estimate(unidades=len(params.tipos()), chamadas_llm=0, detalhes=detalhes)
-
-    a_baixar = [t for t in params.tipos()
-                if params.forcar or not FONTES[t]["parquet"].exists()]
-    detalhes = {t: ("re-baixa" if params.forcar else
-                    ("já existe — pula" if FONTES[t]["parquet"].exists() else "baixa"))
-                for t in params.tipos()}
-    detalhes["grupos"] = "só segurança pública" if params.so_grupos_seguranca else "todos"
-    return Estimate(unidades=len(a_baixar), chamadas_llm=0, detalhes=detalhes)

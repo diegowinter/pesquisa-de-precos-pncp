@@ -95,7 +95,7 @@ def checar_capacidade(capability: str, *,
     else:
         resultado = sondar_url(resolucao.info.base_url)
     resultado.update(capability=capability, provider=resolucao.info.name,
-                     base_url=resolucao.info.base_url, source=resolucao.origem)
+                     base_url=resolucao.info.base_url, source=resolucao.source)
     # `provider_status` é o cache de saúde; a FK aponta para `provider`. Desde a ADR-022 toda
     # resolução vem do banco, então sempre há linha para atualizar.
     if sessao is not None:
@@ -109,7 +109,7 @@ def checar_capacidade(capability: str, *,
             # precisa da resposta, não do histórico.
             sessao.rollback()
             resultado["message"] = (
-                f"{resultado['mensagem'] or ''} "
+                f"{resultado['message'] or ''} "
                 f"[status não registrado: {type(exc).__name__}]").strip()
     return resultado
 

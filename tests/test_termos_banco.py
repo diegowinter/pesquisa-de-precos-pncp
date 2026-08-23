@@ -52,6 +52,25 @@ def catalogo_de_teste():
     limpar()
 
 
+def _norms_ativos_exceto(sessao, *termos_de_teste: str) -> list[str]:
+    """Os `termo_norm` de LLM ativos que NÃO são deste teste.
+
+    `desativar_llm_ausentes` é global por natureza — "o que não veio nesta geração sai de
+    cena" — então chamá-la com uma lista curta desativa o acervo inteiro do operador. Em
+    2026-08-23 foi exatamente o que aconteceu: um `pytest` contra o banco real derrubou os 87
+    termos de uma coleta em andamento, e a etapa 2 passou a morrer com "nenhum termo ativo".
+    Passar os termos reais junto mantém o teste testando a MESMA regra, sem vítimas.
+    """
+    from pesquisa_precos.core.text import normalizar_termo
+
+    reais = sessao.execute(text(
+        "SELECT termo_norm FROM termo WHERE active AND coalesce(source, 'llm') <> 'manual'"
+    )).scalars().all()
+    de_teste = {normalizar_termo(t) for t in termos_de_teste}
+    return [n for n in reais if n not in de_teste]
+
+
+
 def test_geracao_guarda_o_termo_cru_e_volta_no_formato_do_checkpoint(catalogo_de_teste):
     with db.session() as s:
         repo.gravar_geracao(s, "material", COD_TESTE, ["colete", "colete balistico"],
@@ -110,8 +129,8 @@ def test_termo_manual_sobrevive_a_regeracao(catalogo_de_teste):
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
 
-        # Regeração que NÃO produziu nenhum dos dois termos.
-        repo.desativar_llm_ausentes(s, ["outro termo qualquer"])
+        # Regeração que NÃO produziu nenhum dos dois termos (mas preserva o acervo real).
+        repo.desativar_llm_ausentes(s, _norms_ativos_exceto(s, TERMO_LLM, TERMO_MANUAL))
         s.commit()
         estados = dict(s.execute(text(
             "SELECT id, active FROM termo WHERE id = ANY(:ids)"),
@@ -127,7 +146,8 @@ def test_termo_de_llm_regerado_continua_ativo(catalogo_de_teste):
     with db.session() as s:
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
-        repo.desativar_llm_ausentes(s, [normalizar_termo(TERMO_LLM)])
+        repo.desativar_llm_ausentes(
+            s, [normalizar_termo(TERMO_LLM), *_norms_ativos_exceto(s, TERMO_LLM)])
         s.commit()
         active = s.execute(text("SELECT active FROM termo WHERE id = :i"),
                           {"i": id_llm}).scalar_one()
@@ -140,7 +160,7 @@ def test_termo_desativado_nao_e_apagado(catalogo_de_teste):
     with db.session() as s:
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")
         s.commit()
-        repo.desativar_llm_ausentes(s, [])
+        repo.desativar_llm_ausentes(s, _norms_ativos_exceto(s, TERMO_LLM))
         s.commit()
         existe = s.execute(text("SELECT count(*) FROM termo WHERE id = :i"),
                            {"i": id_llm}).scalar_one()

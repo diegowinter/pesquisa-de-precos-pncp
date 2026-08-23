@@ -90,6 +90,15 @@ input, select, textarea {
 label { display: block; font-size: .8rem; color: var(--texto-fraco); margin: .5rem 0 .2rem; }
 form.linha { display: inline; }
 
+/* Busca à esquerda, contagem do recorte à direita, na mesma linha. */
+.barra-busca { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+/* `form.linha` é `display: inline`, então o form não estica: sem isto o `space-between` não
+   tem folga para distribuir e a contagem fica colada no botão. */
+.barra-busca > .dim { margin-left: auto; }
+.barra-busca + table { margin-top: 1.25rem; }
+/* Barra secundária: mais fina e apagada que a principal — é contexto, não o placar. */
+.barra-sub { height: 6px; opacity: .65; }
+
 .tag { font-size: .72rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid var(--borda); color: var(--texto-fraco); }
 .log { background: #0b0d10; border-radius: 6px; padding: .6rem; max-height: 320px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: .78rem; }
 .log .linha { white-space: pre-wrap; }

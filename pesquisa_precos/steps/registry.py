@@ -55,8 +55,13 @@ class StepDefinition:
 ETAPAS: tuple[StepDefinition, ...] = (
     StepDefinition("0a", "Obter catálogo CATMAT/CATSER", "e0a_catalogo",
                    (), "gratis", False, True),
+    # 0a baixa, 0b corta. A separação é o que dá ao operador uma parada com gate ANTES de
+    # aplicar a allow-list — o corte define todo o escopo do resto do pipeline, e até
+    # 2026-08-23 acontecia embutido no fim do download, sem ninguém ver.
+    StepDefinition("0b", "Aplicar curadoria (allow-list de PDMs)", "e0b_curation",
+                   ("0a",), "gratis", True, True),
     StepDefinition("1", "Gerar termos de busca", "e1_termos",
-                   ("0a",), "pago", True, False, ("chat",)),
+                   ("0b",), "pago", True, False, ("chat",)),
     StepDefinition("2", "Coletar no PNCP", "e2_collect",
                    ("1",), "gratis", True, False),
     StepDefinition("3", "Classificar itens", "e3_classify",

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}Pesquisa de Preços PLASEG{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ versao_estatica }}">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/vendor/alpine.min.js" defer></script>
 </head>
@@ -16,6 +16,7 @@
     <a href="/cost">Custo</a>
     <a href="/exports">Exports</a>
     <a href="/diff">Diff entre runs</a>
+    <a href="/catalog">Allow-list</a>
     <a href="/config">Configuração</a>
     <a href="/recalibrate">Recalibrar</a>
     <a href="/prompts">Prompts</a>

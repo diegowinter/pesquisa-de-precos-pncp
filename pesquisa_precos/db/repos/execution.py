@@ -390,10 +390,9 @@ def marcar_executando(sessao: Session, run_etapa_id: int, *, action: str, pid: i
 
 def marcar_concluida(sessao: Session, run_etapa_id: int, *, processed: int, errors: int,
                      metrics: dict[str, Any], fingerprint: str) -> None:
-    """No fecho, `total` passa a ser o próprio `processed`: o total vinha da barra de
-    progresso, cuja unidade é a do trabalho (páginas, linhas baixadas), e o `processed`
-    final é o resultado da etapa (itens derivados). Misturar os dois deixava a tela
-    exibindo coisas como "2.283 / 346.976" numa etapa que terminou inteira."""
+    """`total` recebe o `processed` final para a barra fechar cheia — as duas grandezas agora
+    são a MESMA (trabalho realizado), porque o resultado da etapa mudou-se para
+    `StepResult.resumo` e é exibido em linha própria."""
     import json
     sessao.execute(
         text("UPDATE run_step SET status = 'finished', processed = :p, total = :p, "
@@ -475,6 +474,23 @@ def atualizar_progresso(sessao: Session, run_etapa_id: int, processed: int,
         sessao.execute(
             text("UPDATE run_step SET processed = :p, total = :t WHERE id = :id"),
             {"p": processed, "t": total, "id": run_etapa_id})
+
+
+def atualizar_subprogresso(sessao: Session, run_etapa_id: int, processed: int,
+                           total: int | None, descricao: str) -> None:
+    """Barra secundária (documento dentro da busca, item dentro do lote) dentro de `metrics`.
+
+    Vive em `metrics.sub` em vez de colunas próprias porque é estado efêmero de execução: no
+    fecho, `marcar_concluida` reescreve `metrics` e o resto some junto, sem limpeza.
+    """
+    import json
+
+    sessao.execute(
+        text("UPDATE run_step SET metrics = COALESCE(metrics, '{}'::jsonb) || "
+             "                    jsonb_build_object('sub', CAST(:sub AS jsonb)) "
+             "WHERE id = :id"),
+        {"sub": json.dumps({"processed": processed, "total": total,
+                            "descricao": descricao}), "id": run_etapa_id})
 
 
 def heartbeat(sessao: Session, run_etapa_id: int, pid: int) -> None:
@@ -626,6 +642,29 @@ def status_provedores(sessao: Session) -> list[dict[str, Any]]:
         text("SELECT provider, healthy, latency_ms, message, checked_at "
              "FROM provider_status ORDER BY provider")).mappings().all()
     return [dict(linha) for linha in linhas]
+
+
+def erros_pendentes_tentativas(sessao: Session, run_id: int, step: str) -> dict[str, int]:
+    """`key -> attempts` dos erros ainda pendentes desta etapa."""
+    return {k: a for k, a in sessao.execute(
+        text("SELECT key, attempts FROM item_error "
+             "WHERE run_id = :r AND step = :e AND NOT resolved"),
+        {"r": run_id, "e": step}).all()}
+
+
+def resolver_erros(sessao: Session, run_id: int, step: str, keys: Sequence[str]) -> int:
+    """Marca `resolved` os erros que a nova execução não repetiu.
+
+    Nada marcava `resolved` — a coluna existia e ninguém a escrevia, então "Erros pendentes
+    (10)" ficava na tela para sempre, mesmo depois de os 10 itens serem reprocessados com
+    sucesso. Quem decide é a comparação de `attempts` antes/depois: item que a etapa refez sem
+    falhar não teve nova tentativa registrada."""
+    if not keys:
+        return 0
+    return sessao.execute(
+        text("UPDATE item_error SET resolved = true "
+             "WHERE run_id = :r AND step = :e AND NOT resolved AND key = ANY(:k)"),
+        {"r": run_id, "e": step, "k": list(keys)}).rowcount
 
 
 def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,

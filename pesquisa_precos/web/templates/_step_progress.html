@@ -21,6 +21,22 @@
   <p class="tag">{{ detalhe.processed or 0 }} processados</p>
   {% endif %}
 
+  {# Barra secundária: onde a etapa está DENTRO da unidade atual. Sem ela, uma busca da
+     etapa 2 com milhares de documentos fica meia hora parada em "0 / 174". #}
+  {% set sub = detalhe.metrics.sub if detalhe.metrics else None %}
+  {% if detalhe.status == 'running' and sub %}
+  {% if sub.total %}
+  <div class="barra barra-sub" style="margin-top:.4rem;">
+    <div style="width:{{ ((sub.processed or 0) / sub.total * 100) | round(1) }}%;"></div>
+  </div>
+  {% endif %}
+  <p class="tag">{{ sub.descricao }} · {{ sub.processed or 0 }}{% if sub.total %} / {{ sub.total }}{% endif %}</p>
+  {% endif %}
+
+  {% if detalhe.metrics and detalhe.metrics.resumo %}
+  <p><strong>Resultado:</strong> {{ detalhe.metrics.resumo }}</p>
+  {% endif %}
+
   {% if detalhe.error_message %}
   <p class="flash-erro">{{ detalhe.error_message }}</p>
   {% endif %}
@@ -28,6 +44,9 @@
 
 <div class="painel">
   <h3>Ações</h3>
+  {% if key == '0b' %}
+  <p><a href="/catalog">Editar allow-list de PDMs</a></p>
+  {% endif %}
   {# Um estado, um caminho de frente. Executando: só cancelar — dar play de novo esbarraria
      no lock e refazer no meio não faz sentido. Nunca rodou: nada a "atualizar" nem a
      "refazer". Parou no meio — falhou ou foi cancelada — retomar de onde parou (o

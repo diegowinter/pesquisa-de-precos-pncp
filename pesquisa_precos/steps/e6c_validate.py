@@ -121,7 +121,7 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
 
         def err(linha, exc):
             n_erros[0] += 1
-            ctx.erro_item(linha[0], exc)
+            ctx.item_error(linha[0], exc)
 
         ctx.progresso(0, len(pend), descricao="validando ambíguos")
         try:

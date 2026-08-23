@@ -87,6 +87,80 @@ def listar_permitidos(sessao: Session, tipo: str | None = None,
     ]
 
 
+SQL_CANDIDATOS = """
+    SELECT chave AS codigo,
+           max(nome) AS name,
+           count(*)  AS n_itens,
+           bool_or(permitido) AS permitido
+      FROM (
+        SELECT CASE WHEN r.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END AS chave,
+               CASE WHEN r.tipo = 'material' THEN r.nome_pdm ELSE r.description END AS nome,
+               EXISTS (SELECT 1 FROM pdm_permitido p
+                        WHERE p.tipo = r.tipo AND p.active
+                          AND p.codigo = CASE WHEN r.tipo = 'material'
+                                              THEN r.codigo_pdm ELSE r.codigo END) AS permitido
+          FROM catalogo_raw r
+         WHERE r.tipo = CAST(:tipo AS tipo_catalogo)
+      ) t
+     WHERE chave IS NOT NULL
+       AND (CAST(:busca AS text) IS NULL
+            OR lower(nome) LIKE lower(CAST(:busca AS text))
+            OR chave LIKE CAST(:busca AS text))
+     GROUP BY chave
+     ORDER BY {ordem}
+     LIMIT :limite
+"""
+
+# A ordem útil depende do tipo, e a diferença é do PNCP, não nossa: material é agrupado por
+# PDM (20.336 PDMs para 343.880 itens — "quantos itens traz" separa o relevante do resto),
+# enquanto serviço é 1:1 (2.964 códigos, 2.964 itens). Ordenar serviço por n_itens é ordenar
+# por nada: todo mundo empata em 1, e o desempate vira o código.
+ORDEM_CANDIDATOS = {
+    "material": "n_itens DESC, chave",
+    "servico": "max(nome), chave",
+}
+
+
+SQL_CONTAR_CANDIDATOS = """
+    SELECT count(DISTINCT chave) FROM (
+      SELECT CASE WHEN r.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END AS chave,
+             CASE WHEN r.tipo = 'material' THEN r.nome_pdm ELSE r.description END AS nome
+        FROM catalogo_raw r
+       WHERE r.tipo = CAST(:tipo AS tipo_catalogo)
+    ) t
+     WHERE chave IS NOT NULL
+       AND (CAST(:busca AS text) IS NULL
+            OR lower(nome) LIKE lower(CAST(:busca AS text))
+            OR chave LIKE CAST(:busca AS text))
+"""
+
+
+def contar_candidatos(sessao: Session, tipo: str, *, busca: str | None = None) -> int:
+    """Quantos códigos a busca casa no total — a lista mostra só os primeiros, e sem este
+    número não dá para saber se o que interessa ficou de fora do recorte."""
+    padrao = f"%{busca.strip()}%" if busca and busca.strip() else None
+    return sessao.execute(text(SQL_CONTAR_CANDIDATOS),
+                          {"tipo": tipo, "busca": padrao}).scalar_one()
+
+
+def pdms_candidatos(sessao: Session, tipo: str, *, busca: str | None = None,
+                    limite: int = 100) -> list[dict]:
+    """O que a etapa 0b oferece para escolher: os PDMs (material) ou códigos (serviço) que
+    EXISTEM no catálogo baixado, com quantos itens cada um traz e se já está na allow-list.
+
+    Sem busca: material vem pelos maiores (são 20 mil PDMs — a lista só faz sentido por
+    relevância ou por busca); serviço vem em ordem alfabética, porque lá todo código traz
+    exatamente um item.
+    """
+    padrao = f"%{busca.strip()}%" if busca and busca.strip() else None
+    sql = SQL_CANDIDATOS.format(ordem=ORDEM_CANDIDATOS.get(tipo, "n_itens DESC, chave"))
+    linhas = sessao.execute(
+        text(sql),
+        {"tipo": tipo, "busca": padrao, "limite": limite}).all()
+    return [{"codigo": c, "name": n, "n_itens": q, "permitido": perm}
+            for c, n, q, perm in linhas]
+
+
 SQL_PERMITIR = """
     INSERT INTO pdm_permitido (tipo, codigo, name, observacao, active, created_by)
     VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :name, :obs, true, :por)

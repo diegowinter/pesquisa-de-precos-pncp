@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block titulo %}Allow-list de PDMs{% endblock %}
+{% block conteudo %}
+{# A tela EDITA a allow-list; quem aplica o corte é a etapa 0b. #}
+<div class="painel">
+  <h2>Allow-list de PDMs</h2>
+  <p class="dim">Gerencie quais PDMs serão considerados no corte da etapa 0b.</p>
+  <p>
+    <span class="tag">catálogo: {{ "{:,}".format(resumo.linhas_no_catalogo) }} linhas</span>
+    <span class="tag">permitidos: {{ resumo.codigos_permitidos }}</span>
+    <span class="tag">passariam no corte: {{ "{:,}".format(resumo.itens_no_corte) }}</span>
+    <span class="tag">curado hoje: {{ "{:,}".format(resumo.itens_derivados) }}</span>
+  </p>
+  {% if resumo.itens_no_corte != resumo.itens_derivados %}
+  <p class="flash-erro">Allow-list mudou — rode a etapa 0b para aplicar.</p>
+  {% endif %}
+</div>
+
+<div class="painel">
+  <h3>Procurar</h3>
+  <div class="barra-busca">
+    <form method="get" action="/catalog" class="linha">
+      <select name="tipo" aria-label="tipo">
+        <option value="material" {% if tipo == 'material' %}selected{% endif %}>material (PDM)</option>
+        <option value="servico" {% if tipo == 'servico' %}selected{% endif %}>serviço (código)</option>
+      </select>
+      <input name="busca" value="{{ busca or '' }}" placeholder="ex.: colete, drone, radio">
+      <button class="principal" type="submit">Procurar</button>
+    </form>
+    <span class="dim">Exibindo {{ candidatos | length }} de {{ "{:,}".format(total_candidatos) }} códigos</span>
+  </div>
+  <table>
+    <thead><tr><th>código</th><th>nome</th>{% if tipo == 'material' %}<th>itens</th>{% endif %}<th></th></tr></thead>
+    <tbody>
+      {% for c in candidatos %}
+      <tr>
+        <td>{{ c.codigo }}</td>
+        <td>{{ c.name }}</td>
+        {% if tipo == 'material' %}<td>{{ "{:,}".format(c.n_itens) }}</td>{% endif %}
+        <td>
+          <form method="post" action="/catalog/{{ 'revoke' if c.permitido else 'allow' }}" class="linha">
+            <input type="hidden" name="tipo" value="{{ tipo }}">
+            <input type="hidden" name="codigo" value="{{ c.codigo }}">
+            <input type="hidden" name="name" value="{{ c.name }}">
+            <input type="hidden" name="busca" value="{{ busca or '' }}">
+            <button {% if c.permitido %}class="perigo"{% endif %} type="submit">{{ 'revogar' if c.permitido else 'incluir' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="dim">Nada encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="painel">
+  <h3>Allow-list atual ({{ permitidos | selectattr('active') | list | length }} ativos)</h3>
+  <table>
+    <thead><tr><th>tipo</th><th>código</th><th>nome</th><th>itens</th><th>estado</th><th></th></tr></thead>
+    <tbody>
+      {% for p in permitidos %}
+      <tr class="{{ '' if p.active else 'dim' }}">
+        <td>{{ p.tipo }}</td>
+        <td>{{ p.codigo }}</td>
+        <td>{{ p.name or '' }}</td>
+        <td>{{ "{:,}".format(p.n_itens) }}{% if p.n_itens == 0 %} <span class="tag">não casa nada</span>{% endif %}</td>
+        <td>{{ 'ativo' if p.active else 'revogado' }}</td>
+        <td>
+          <form method="post" action="/catalog/{{ 'revoke' if p.active else 'allow' }}" class="linha">
+            <input type="hidden" name="tipo" value="{{ p.tipo }}">
+            <input type="hidden" name="codigo" value="{{ p.codigo }}">
+            <button {% if p.active %}class="perigo"{% endif %} type="submit">{{ 'revogar' if p.active else 'reativar' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="dim">Vazia.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

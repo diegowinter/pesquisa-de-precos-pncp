@@ -32,6 +32,7 @@ from pesquisa_precos.services import config as service_config
 from pesquisa_precos.services import diff as service_diff
 from pesquisa_precos.services import execution as service
 from pesquisa_precos.services import notification_recipients as service_recipients
+from pesquisa_precos.services import catalog as service_catalog
 from pesquisa_precos.services import prompts as service_prompts
 from pesquisa_precos.services import providers as service_providers
 from pesquisa_precos.services.config import ConfigVersaoInexistente
@@ -114,6 +115,10 @@ templates.env.globals["icone_step"] = ICONE_STEP
 templates.env.globals["classe_step"] = CLASSE_STEP
 templates.env.globals["rotulo_step"] = ROTULO_STEP
 templates.env.globals["rotulo_acao"] = ROTULO_ACAO
+# Assinatura do CSS na URL: sem ela o navegador segura a folha antiga entre reinícios, e uma
+# correção de layout parece não ter sido aplicada.
+templates.env.globals["versao_estatica"] = int(
+    (RAIZ_WEB / "static" / "style.css").stat().st_mtime)
 
 
 def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,
@@ -530,6 +535,45 @@ async def criar_config(request: Request, label: str = Form(...), notes: str = Fo
             valores[key.removeprefix("campo__")] = str(valor).strip()
     service_config.criar_config_versao(label, valores, created_by=user, notes=notes or None)
     return RedirectResponse("/config", status_code=303)
+
+
+# ── Curadoria do catálogo (a allow-list que a etapa 0b aplica) ────────────────────────
+
+@app.get("/catalog")
+def tela_catalogo(request: Request, tipo: str = "material", busca: str | None = None,
+                  user: str = Depends(auth.exigir_login)):
+    if tipo not in ("material", "servico"):
+        tipo = "material"
+    candidatos, total = service_catalog.candidatos(tipo, busca=busca)
+    return _render(request, "catalog.html", {
+        "resumo": service_catalog.resumo(),
+        "permitidos": service_catalog.listar_permitidos(),
+        "candidatos": candidatos, "total_candidatos": total,
+        "tipo": tipo, "busca": busca})
+
+
+@app.post("/catalog/allow")
+def permitir_codigo(tipo: str = Form(...), codigo: str = Form(...),
+                    name: str | None = Form(None), busca: str | None = Form(None),
+                    user: str = Depends(auth.exigir_login)):
+    service_catalog.permitir(tipo, codigo, name=name, created_by=user)
+    return RedirectResponse(_volta_catalogo(tipo, busca), status_code=303)
+
+
+@app.post("/catalog/revoke")
+def revogar_codigo(tipo: str = Form(...), codigo: str = Form(...),
+                   busca: str | None = Form(None),
+                   user: str = Depends(auth.exigir_login)):
+    service_catalog.revogar(tipo, codigo, reason=f"revogado por {user} em /catalog")
+    return RedirectResponse(_volta_catalogo(tipo, busca), status_code=303)
+
+
+def _volta_catalogo(tipo: str, busca: str | None) -> str:
+    """Preserva o filtro: incluir 20 códigos seguidos com a busca zerando a cada clique é
+    a diferença entre a tela ser usável e ser um castigo."""
+    from urllib.parse import urlencode
+
+    return "/catalog?" + urlencode({"tipo": tipo, "busca": busca or ""})
 
 
 # ── Prompts (Fase 6) ──────────────────────────────────────────────────────────────────

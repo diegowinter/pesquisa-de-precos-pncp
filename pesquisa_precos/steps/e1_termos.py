@@ -173,12 +173,12 @@ def carregar_catalogo_do_banco() -> pd.DataFrame:
     with db.session() as s:
         linhas = s.execute(sa_text(
             "SELECT tipo::text, codigo, coalesce(codigo_pdm, '') AS codigo_pdm, "
-            "       coalesce(nome_pdm, '') AS nome_pdm, coalesce(descricao, '') AS descricao, "
+            "       coalesce(nome_pdm, '') AS nome_pdm, coalesce(description, '') AS descricao, "
             "       coalesce(nome_grupo, '') AS nome_grupo "
             "  FROM catalogo_item WHERE active ORDER BY tipo, codigo")).all()
     if not linhas:
-        raise SystemExit("catalogo_item vazio — rode a etapa 0a antes (ou revise a "
-                         "allow-list em pdm_permitido).")
+        raise SystemExit("catalogo_item vazio — revise a allow-list em /catalog e rode a "
+                         "etapa 0b.")
     return pd.DataFrame(linhas, columns=["tipo", "codigo", "codigo_pdm", "nome_pdm",
                                          "descricao", "nome_grupo"])
 
@@ -226,13 +226,13 @@ def gerar_por_item_no_banco(df, criar_curador, concurrency, params,
         with db.session() as s:
             repo_termo.gravar_geracao(s, row["tipo"], row["codigo"], res["termos"],
                                       res["categoria"], model=model,
-                                      provider=params.provedor)
+                                      provider=params.provider)
             s.commit()
 
     def err(row, exc):
         n_erros[0] += 1
         ctx.log("erro", f"[red]erro[/] {row.get('tipo')}/{row.get('codigo')}: {exc}")
-        ctx.erro_item(str(row.get("codigo")), exc, tipo=str(row.get("tipo")),
+        ctx.item_error(str(row.get("codigo")), exc, tipo=str(row.get("tipo")),
                       name=str(row.get("nome_pdm")))
 
     ctx.progresso(0, len(pendentes), descricao="itens")
@@ -290,7 +290,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     def criar_curador():
         return ctx.providers.novo_chat(curador_kwargs={"max_retries": 6}).curador
 
-    ctx.log("debug", f"[dim][1] Provedor: {params.provedor} · model: "
+    ctx.log("debug", f"[dim][1] Provedor: {params.provider} · model: "
                      f"{'PASS2 (forte)' if params.forte else 'PASS1'} · fonte: banco[/]")
     n_ok, n_erros = gerar_por_item_no_banco(df, criar_curador, params.concurrency, params, ctx)
 

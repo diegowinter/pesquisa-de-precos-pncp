@@ -20,6 +20,7 @@ expõe (docs/03_ETAPAS.md §1), resolvido e instanciado sob demanda — montar o
 uma etapa que só usa `chat` não deve pagar pelo resto — e cacheado pela vida do contexto.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
@@ -172,6 +173,27 @@ def create_matching(*, sessao: "Session | None" = None):
     return PareamentoRemotoAdapter(r.info, api_key=r.api_key)
 
 
+@contextmanager
+def _sessao_de_resolucao():
+    """Sessão CURTA e exclusiva para resolver um provedor.
+
+    As variantes `novo_*` existem para uso concorrente — a etapa 1 monta um cliente por thread.
+    Passar a sessão de domínio da etapa (compartilhada) para três threads ao mesmo tempo faz o
+    SQLAlchemy levantar "This session is provisioning a new connection; concurrent operations
+    are not permitted", e a etapa perde os itens numa corrida que às vezes passa e às vezes
+    não: em 2026-08-23, 10 de 11 itens falharam assim, depois de 71 terem passado ilesos na
+    execução anterior. `Session` não é thread-safe; resolver é leitura curta, então cada
+    chamada abre e fecha a sua.
+    """
+    from pesquisa_precos.db import session as db
+
+    sessao = db.create_session()
+    try:
+        yield sessao
+    finally:
+        sessao.close()
+
+
 @dataclass
 class Providers:
     """`ctx.providers` (docs/03_ETAPAS.md §1). Cada capacidade é resolvida e instanciada na
@@ -241,11 +263,14 @@ class Providers:
     # novo, para o chamador guardar num `threading.local()` como já fazia antes da Fase 7.
 
     def novo_chat(self, *, curador_kwargs: dict | None = None):
-        return criar_chat(sessao=self._sessao, curador_kwargs=curador_kwargs)
+        with _sessao_de_resolucao() as sessao:
+            return criar_chat(sessao=sessao, curador_kwargs=curador_kwargs)
 
     def novo_embed(self):
-        return criar_embed(sessao=self._sessao)
+        with _sessao_de_resolucao() as sessao:
+            return criar_embed(sessao=sessao)
 
     def novo_rerank(self, *, batch: int | None = None):
-        return criar_rerank(sessao=self._sessao, batch=batch)
+        with _sessao_de_resolucao() as sessao:
+            return criar_rerank(sessao=sessao, batch=batch)
 

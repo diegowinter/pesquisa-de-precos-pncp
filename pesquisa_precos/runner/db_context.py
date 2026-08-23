@@ -17,22 +17,38 @@ Duas sessões, de propósito:
     própria, independente do que a etapa fizer com `db`.
 
 `cancelado()` não bate no banco a cada chamada (seria uma consulta por item nalgumas etapas):
-reaproveita o mesmo intervalo do heartbeat — no máximo `min(30s, lease/3)` de atraso para
-perceber um cancelamento, o que é aceitável frente ao custo de uma SELECT por item.
+reaproveita o cache que a thread de heartbeat atualiza — no máximo um intervalo de atraso
+para perceber um cancelamento, o que é aceitável frente ao custo de uma SELECT por item.
+
+O heartbeat roda em THREAD PRÓPRIA, com sessão própria (2026-08-23). Antes ele pegava carona
+em `progresso()`/`cancelado()`, o que confundia duas perguntas diferentes: "a etapa avançou?"
+e "o processo está vivo?". A etapa 2 mostrou a diferença na prática — 12 minutos dentro de uma
+única busca do PNCP, sem chamar nenhum dos dois, com a lease de 300 s vencendo e o supervisor
+pronto para matar como zumbi uma execução que estava coletando normalmente.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import threading
 import time
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from pesquisa_precos.db.repos import execution as repo
-from pesquisa_precos.steps.base import Acao, Modo, TetoDeCustoExcedido
+from pesquisa_precos.steps.base import MANTER, Acao, Modo, TetoDeCustoExcedido
 from pesquisa_precos.providers.resolver import Providers
 from pesquisa_precos.runner import lock
+
+
+_MARKUP_RICH = re.compile(r"\[/?[a-z0-9 #]*\]")
+
+
+def _sem_markup(texto: str) -> str:
+    """As etapas escrevem para o `rich` (`[cyan]capacete[/]`); a tela é HTML."""
+    return _MARKUP_RICH.sub("", texto).strip()
 
 
 class DbContext:
@@ -57,6 +73,10 @@ class DbContext:
         self._intervalo_heartbeat_s = min(30, max(5, lease_timeout_s / 3))
         self._ultimo_heartbeat = 0.0
         self._cancelado_cache = False
+        self._sub = {"processed": 0, "total": None, "descricao": ""}
+        self._ultimo_sub = 0.0
+        self._parar = threading.Event()
+        self._thread_heartbeat: threading.Thread | None = None
 
     # ── contrato RunContext ────────────────────────────────────────────────
     def progresso(self, processed: int, total: int | None = None,
@@ -76,6 +96,30 @@ class DbContext:
             tipo or type(exc).__name__, name or str(exc))
         self._sessao_execucao.commit()
 
+    def subprogresso(self, processed: int | None = None, total: Any = MANTER,
+                     descricao: str | None = None) -> None:
+        """Barra secundária: onde a etapa está DENTRO da unidade principal. Sem ela, uma busca
+        da etapa 2 com 3 mil documentos fica meia hora marcando "0 / 174" na tela.
+
+        Cada argumento omitido preserva o valor anterior — a etapa chama isto três vezes por
+        motivos diferentes (nova unidade, total descoberto, mais um item)."""
+        if processed is not None:
+            self._sub["processed"] = processed
+        if total is not MANTER:
+            self._sub["total"] = total
+        if descricao is not None:
+            self._sub["descricao"] = _sem_markup(descricao)
+        # Limite de taxa: isto é chamado uma vez por documento, e a barra não fica melhor com
+        # mais de uma escrita por segundo.
+        agora = time.monotonic()
+        if agora - self._ultimo_sub < 1.0:
+            return
+        self._ultimo_sub = agora
+        repo.atualizar_subprogresso(self._sessao_execucao, self.run_etapa_id,
+                                    self._sub["processed"], self._sub["total"],
+                                    self._sub["descricao"])
+        self._sessao_execucao.commit()
+
     def cancelado(self) -> bool:
         self._heartbeat()
         return self._cancelado_cache
@@ -92,13 +136,59 @@ class DbContext:
                 f"step {self.step} (gasto acumulado US$ {float(total_run):.2f})")
 
     # ── mecânica interna ─────────────────────────────────────────────────────────
+    def iniciar_heartbeat(self) -> None:
+        """Sobe a thread que bate o heartbeat enquanto a etapa roda. Chamada pelo worker."""
+        if self._thread_heartbeat is not None:
+            return
+        self._thread_heartbeat = threading.Thread(
+            target=self._laco_heartbeat, name="heartbeat", daemon=True)
+        self._thread_heartbeat.start()
+
+    def encerrar(self) -> None:
+        self._parar.set()
+        if self._thread_heartbeat is not None:
+            self._thread_heartbeat.join(timeout=5)
+            self._thread_heartbeat = None
+
+    def _laco_heartbeat(self) -> None:
+        """Sessão PRÓPRIA: `Session` do SQLAlchemy não é thread-safe, e a sessão de execução
+        é justamente a que carrega o `pg_advisory_lock` — dividi-la com outra thread
+        corromperia o estado de transação da etapa. `renovar()` e `heartbeat()` são UPDATEs
+        simples, indiferentes a qual conexão os emite."""
+        from pesquisa_precos.db import session as db
+
+        sessao = db.create_session()
+        try:
+            while not self._parar.wait(self._intervalo_heartbeat_s):
+                try:
+                    self._bater(sessao)
+                except Exception:  # noqa: BLE001 — heartbeat não derruba a etapa
+                    # Um blip no banco não pode matar a coleta: a lease é a rede de baixo,
+                    # e ela ainda tem `lease_timeout_s` de folga até vencer.
+                    sessao.rollback()
+        finally:
+            sessao.close()
+
+    def _bater(self, sessao: Session) -> None:
+        status = repo.status_run_etapa(sessao, self.run_etapa_id)
+        self._cancelado_cache = status == "cancelled"
+        repo.heartbeat(sessao, self.run_etapa_id, os.getpid())
+        # Etapa cancelada NÃO renova a lease. A etapa sai quando chegar ao próximo ponto de
+        # checagem (o cancelamento é cooperativo), mas até lá o lock precisa poder expirar —
+        # senão um worker que ninguém mais quer trava o sistema inteiro, que foi o que
+        # aconteceu em 2026-08-23: run abortado, etapa cancelada, e a lease sendo empurrada
+        # de 30 em 30 segundos por um processo condenado.
+        if not self._cancelado_cache:
+            lock.renovar(sessao, self.run_etapa_id, timeout_s=self._lease_timeout_s)
+        sessao.commit()
+        self._ultimo_heartbeat = time.monotonic()
+
     def _heartbeat(self, forcar: bool = False) -> None:
+        """Caminho antigo, mantido para quem não sobe a thread (testes e `NullContext`-likes):
+        só bate se a thread não estiver cuidando disso."""
+        if self._thread_heartbeat is not None:
+            return
         agora = time.monotonic()
         if not forcar and (agora - self._ultimo_heartbeat) < self._intervalo_heartbeat_s:
             return
-        self._ultimo_heartbeat = agora
-        repo.heartbeat(self._sessao_execucao, self.run_etapa_id, os.getpid())
-        lock.renovar(self._sessao_execucao, self.run_etapa_id, timeout_s=self._lease_timeout_s)
-        status = repo.status_run_etapa(self._sessao_execucao, self.run_etapa_id)
-        self._sessao_execucao.commit()
-        self._cancelado_cache = status == "cancelled"
+        self._bater(self._sessao_execucao)

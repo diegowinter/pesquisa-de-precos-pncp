@@ -187,7 +187,7 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
             # Texto com erro não entra na tabela: entrar o marcaria como pago sem ter sido
             # classificado, e o retry nunca mais o encontraria.
             acumulador.registra_erro()
-            ctx.erro_item(grupo["texto_hash"], res.get("_erro"), name=grupo["descricao"])
+            ctx.item_error(grupo["texto_hash"], res.get("_erro"), name=grupo["descricao"])
             return
         # `confianca` é `real` no banco e palavra no LLM; a escala ordinal é declarada em
         # `repo.CONFIANCA_ORDINAL`, a mesma que a migração usa.
@@ -198,7 +198,7 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
 
     def ao_falhar(grupo, exc):
         acumulador.registra_erro()
-        ctx.erro_item(grupo["texto_hash"], exc, name=grupo["descricao"])
+        ctx.item_error(grupo["texto_hash"], exc, name=grupo["descricao"])
 
     ctx.progresso(0, len(tarefas), descricao="classificando")
     try:

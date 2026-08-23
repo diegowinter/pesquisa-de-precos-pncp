@@ -5,7 +5,7 @@ Toda etapa expõe `Params`, `executar(params, ctx)` e `estimar(params, ctx)`. O 
 por conta própria:
   - imprimir com `print`/`console`    → `ctx.log(...)`;
   - montar a própria `rich.Progress`  → `ctx.progresso(...)`;
-  - gravar erro de item à mão         → `ctx.erro_item(...)`.
+  - gravar erro de item à mão         → `ctx.item_error(...)`.
 
 `RunContext` é um `Protocol`: a etapa nunca importa a implementação, só o contrato. Quem
 implementa é `runner/contexto_banco.py` (durante um run) e `runner/contexto_nulo.py` (para
@@ -52,10 +52,17 @@ class Estimate(BaseModel):
 
 
 class StepResult(BaseModel):
-    """Resposta de `executar()`. `metrics` vai para a UI; `preview` alimenta o gate."""
+    """Resposta de `executar()`. `metrics` vai para a UI; `preview` alimenta o gate.
+
+    `processed`/`errors` medem o TRABALHO (a unidade da barra de progresso); `resumo` conta
+    o RESULTADO em uma frase, na unidade que fizer sentido para a etapa. Os dois foram um
+    campo só até 2026-08-23, e a tela exibia coisas como "2.283 / 346.976" — uma fração
+    entre grandezas diferentes.
+    """
 
     processed: int = 0
     errors: int = 0
+    resumo: str = ""
     metrics: dict[str, Any] = Field(default_factory=dict)
     preview: list[dict] = Field(default_factory=list)
 

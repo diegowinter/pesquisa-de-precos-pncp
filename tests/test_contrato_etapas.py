@@ -96,3 +96,45 @@ def test_contexto_console_satisfaz_o_protocolo():
 def test_modelos_de_resultado_tem_defaults():
     assert StepResult().processed == 0
     assert Estimate().cost_usd is None
+
+
+# ── Atributos que a etapa lê de `params` e de `ctx` ──────────────────────────────────
+#
+# O rename pt→en de 2026-08-22 deixou seis sobras (`params.provedor`, `resultado.metricas`,
+# `resolucao.origem`, ...) e TODAS só apareceram em runtime, no meio de um teste assistido:
+# são linhas de log e caminhos de erro que nenhum teste percorre. Uma leitura estática do
+# AST pega a próxima sem precisar executar a etapa.
+
+def _atributos_lidos(modulo, nome_variavel: str) -> list[tuple[int, str]]:
+    import ast
+    import pathlib
+
+    fonte = pathlib.Path(modulo.__file__).read_text(encoding="utf-8")
+    return [(no.lineno, no.attr) for no in ast.walk(ast.parse(fonte))
+            if isinstance(no, ast.Attribute) and isinstance(no.value, ast.Name)
+            and no.value.id == nome_variavel]
+
+
+@pytest.mark.parametrize("key", CHAVES)
+def test_etapa_so_le_campos_que_o_proprio_params_declara(key):
+    definicao = registry.obter(key)
+    modulo = definicao.carregar()
+    permitidos = set(definicao.params_model.model_fields) | set(dir(definicao.params_model))
+    erradas = [f"linha {linha}: params.{attr}"
+               for linha, attr in _atributos_lidos(modulo, "params")
+               if attr not in permitidos]
+    assert not erradas, f"step {key} lê campo inexistente em Params: {erradas}"
+
+
+@pytest.mark.parametrize("key", CHAVES)
+def test_etapa_so_usa_o_que_o_runcontext_oferece(key):
+    """`ctx.config` foi removido na Fase 14 e `ctx.subprogresso` é opcional — o resto tem de
+    estar no Protocol, senão a etapa quebra na primeira linha de log que o chame."""
+    modulo = registry.obter(key).carregar()
+    # `dir()` não enxerga anotação sem valor (`providers: "Providers"`).
+    permitidos = (set(dir(RunContext)) | set(RunContext.__annotations__)
+                  | {"subprogresso"})
+    erradas = [f"linha {linha}: ctx.{attr}"
+               for linha, attr in _atributos_lidos(modulo, "ctx")
+               if attr not in permitidos]
+    assert not erradas, f"step {key} usa algo fora do RunContext: {erradas}"

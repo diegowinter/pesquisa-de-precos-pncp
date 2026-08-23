@@ -18,7 +18,7 @@ desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fa
 pesquisa_precos/
   __main__.py  ← `python -m pesquisa_precos` sobe TUDO (HTML + /api) numa porta só
   config/    settings.py (só bootstrap, ver ADR-022) · paths.py (só do importador)
-  steps/     e0a_catalogo · e1_termos · e2_collect · e3_classify · e4_cut
+  steps/     e0a_catalogo · e0b_curation · e1_termos · e2_collect · e3_classify · e4_cut
              e5_extract · e6a_pairs · e6b_rerank · e6c_validate · e7_group · e8_export
   core/      regras, parallel, prompts, collection (PNCP), catálogo, classification
   providers/ chat · embed · rerank · pdf · matching (resolver + adapters — TODOS clientes
@@ -143,6 +143,31 @@ Três coisas descobertas rodando a amostra, que já estão tratadas no código:
 
 Diferença conhecida no export entre CSV e banco: a coluna `Unidade` perde o espaço à direita
 que o PNCP devolve (473 de 8.154 linhas na amostra). Só isso; nenhuma outra célula difere.
+
+## 0a baixa, 0b corta (2026-08-23)
+
+A etapa 0a fazia duas coisas: baixar o catálogo (346 mil linhas) e aplicar a allow-list
+(`catalogo_raw ∩ pdm_permitido` → `catalogo_item`, ~2,3 mil itens). O corte define o escopo
+do pipeline inteiro e acontecia embutido no fim do download, sem o operador ver.
+
+Agora são duas: **0a só baixa**; **0b só corta**, com gate. A allow-list se edita em
+**`/catalog`** (tela nova, `services/catalog.py`), e o painel de ações da 0b linka para lá —
+edita, volta, aprova o corte. A tela NÃO deriva nada: aplicar é sempre a 0b.
+
+A etapa 1 passou a depender de `0b`, não de `0a`.
+
+## `pytest` roda contra o banco REAL — e isso já destruiu dado
+
+Não há banco de teste: a suíte usa o `DATABASE_URL` do `.env`. Em 2026-08-23 um `pytest`
+rodado durante o teste assistido desativou **os 87 termos** da coleta em andamento —
+`test_termos_banco.py` chamava `desativar_llm_ausentes(s, ["outro termo"])`, e esse SQL é
+global por natureza ("o que não veio nesta geração sai de cena"). A etapa 2 passou a morrer
+com "nenhum termo ativo". Os termos foram restaurados pelo carimbo `excluido_em`, e os testes
+agora passam junto os `termo_norm` reais (`_norms_ativos_exceto`).
+
+Antes de escrever ou rodar teste que toque tabela de domínio: ele precisa se limitar aos
+próprios dados (prefixo de teste, id fixo) e limpar o que criou. As fixtures de
+`test_runner.py` também deixavam `run`/`config_version` para trás — hoje apagam no teardown.
 
 ## Regra nº 1: quem roda a pipeline é o usuário
 

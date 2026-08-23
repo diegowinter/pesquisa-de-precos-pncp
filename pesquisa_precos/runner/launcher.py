@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from pesquisa_precos.db import session as db
@@ -95,6 +96,28 @@ def checar_saude_previa(key: str) -> list[dict]:
         return health.checar_capabilities(configuradas, sessao=sessao)
 
 
+def _arquivo_de_saida(run_etapa_id: int) -> Path:
+    """Onde o console do worker é guardado. Um arquivo por `run_step`, em append: retomar a
+    mesma etapa acumula as tentativas, na ordem em que aconteceram."""
+    pasta = Path("data") / "worker"
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta / f"run_step_{run_etapa_id}.log"
+
+
+def _mensagem_lock_ocupado(sessao) -> str:
+    """Frase para o operador, não o `dict` do detentor cru — que era o que a tela mostrava."""
+    detentor = lock.quem_detem(sessao)
+    if detentor is None:
+        return "já existe uma execução em andamento"
+    dono = repo.run_etapa_por_id(sessao, detentor["run_etapa_id"])
+    quem = (f"a step {dono['step']} do run {dono['run_id']}" if dono
+            else f"a execução {detentor['run_etapa_id']}")
+    desde = detentor["acquired_at"].strftime("%H:%M") if detentor.get("acquired_at") else "?"
+    ate = detentor["expires_at"].strftime("%H:%M") if detentor.get("expires_at") else "?"
+    return (f"{quem} está em execução desde as {desde} — só roda uma etapa por vez. "
+            f"Cancele-a e aguarde ela encerrar, ou espere a reserva expirar (às {ate}).")
+
+
 def iniciar_subprocesso(run_etapa_id: int, *, action: str = "update",
                         lease_timeout_s: int = lock.LEASE_PADRAO_S,
                         pular_checagem_saude: bool = False) -> subprocess.Popen:
@@ -114,7 +137,7 @@ def iniciar_subprocesso(run_etapa_id: int, *, action: str = "update",
             indisponiveis = [r for r in checar_saude_previa(run_step["step"])
                              if not r["healthy"]]
             if indisponiveis:
-                detalhe = "; ".join(f"{r['capability']}/{r['provider']}: {r['mensagem']}"
+                detalhe = "; ".join(f"{r['capability']}/{r['provider']}: {r['message']}"
                                     for r in indisponiveis)
                 raise ProvedorIndisponivel(
                     f"provider indisponível para a step {run_step['step']} — {detalhe}")
@@ -123,14 +146,22 @@ def iniciar_subprocesso(run_etapa_id: int, *, action: str = "update",
         if repo.run_etapa_por_id(sessao, run_etapa_id) is None:
             raise ValueError(f"run_step {run_etapa_id} não existe — chame preparar() primeiro")
         if not lock.tentar_adquirir(sessao, run_etapa_id, pid=0, timeout_s=lease_timeout_s):
-            detentor = lock.quem_detem(sessao)
-            raise lock.LockOcupado(
-                f"já existe uma execução em andamento (run_step={detentor}) — "
-                f"cancele-a ou aguarde a lease expirar")
+            raise lock.LockOcupado(_mensagem_lock_ocupado(sessao))
         repo.marcar_executando(sessao, run_etapa_id, action=action, pid=0)
 
+    # stdout/stderr do worker vão para arquivo: sem isto, um traceback que aconteça antes de
+    # o contexto existir (e portanto antes de `run_log`) some junto com o processo — foi
+    # exatamente o que escondeu uma falha de preparação por meia hora em 2026-08-23.
+    destino = _arquivo_de_saida(run_etapa_id)
+    saida = destino.open("ab")
+    # `CREATE_NEW_PROCESS_GROUP` (Windows): a etapa é um subprocesso INDEPENDENTE (ADR-002).
+    # Sem isto, o Ctrl+C que para o servidor web manda o sinal para o grupo inteiro e mata a
+    # etapa no meio — o que já custou uma coleta de 19 minutos.
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     processo = subprocess.Popen(
-        [sys.executable, "-m", "pesquisa_precos.runner.worker", str(run_etapa_id)])
+        [sys.executable, "-m", "pesquisa_precos.runner.worker", str(run_etapa_id)],
+        stdout=saida, stderr=saida, stdin=subprocess.DEVNULL, creationflags=flags)
+    saida.close()
 
     with db.session() as sessao:
         repo.heartbeat(sessao, run_etapa_id, processo.pid)
