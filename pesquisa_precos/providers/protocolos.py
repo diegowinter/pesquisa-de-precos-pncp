@@ -1,7 +1,7 @@
 """
-Contratos de provider (Fase 7, ADR-006) — quatro capabilities: chat, embed, rerank, ocr.
+Contratos de provedor (Fase 7, ADR-006) — quatro capacidades: chat, embed, rerank, ocr.
 
-Cada `Protocol` é o que uma etapa pode assumir de QUALQUER adapter daquela capability,
+Cada `Protocol` é o que uma etapa pode assumir de QUALQUER adapter daquela capacidade,
 independente de quem atende de verdade (GPU caseira, LM Studio, OpenRouter, um servidor
 OpenAI-compatible genérico ou um servidor de OCR). A etapa nunca importa uma classe concreta
 de `adaptadores.py` — só recebe um objeto que satisfaz o `Protocol` via `ctx.providers`.
@@ -19,7 +19,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class ProviderInfo:
-    """Metadados de UM provider resolvido para UMA capability — não é a linha crua do banco,
+    """Metadados de UM provedor resolvido para UMA capacidade — não é a linha crua do banco,
     é o que o adapter precisa para operar e para se descrever (dashboard, estimativa)."""
 
     name: str
@@ -53,7 +53,7 @@ class ChatProvider(Protocol):
 
     def custo_estimado(self, tokens_in: int, tokens_out: int) -> float:
         """USD para essa quantidade de tokens, pelo preço por Mtok deste provider. 0.0 quando
-        não há preço configurado (provider local não custa dinheiro)."""
+        não há preço configurado (provedor local não custa dinheiro)."""
 
 
 @runtime_checkable
@@ -100,7 +100,7 @@ class OcrProvider(Protocol):
 class PdfProvider(Protocol):
     """Capacidade `pdf` (Fase 11, ADR-019) — documento inteiro → texto por página.
 
-    O provider BAIXA o PDF ele mesmo e, quando a página é escaneada, chama o OCR por dentro.
+    O provedor BAIXA o PDF ele mesmo e, quando a página é escaneada, chama o OCR por dentro.
     O container nunca vê um byte de PDF: recebe só texto. Isso é deliberado — `ocr_pdf` fazia
     o parse E a rasterização com PyMuPDF, então tirar o fitz do processo sem mover o OCR
     junto quebraria o OCR (ADR-019).

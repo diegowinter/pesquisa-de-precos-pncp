@@ -125,7 +125,7 @@ class Curador:
         self._prompts_ativos = prompts_ativos
 
     # `from_provedor(cfg, provider, forte=...)` foi REMOVIDO na Fase 14 (ADR-022): ele
-    # resolvia model/URL/key pelo `.env`, contornando `provider_capability` — o segundo
+    # resolvia modelo/URL/chave pelo `.env`, contornando `provider_capability` — o segundo
     # caminho que a ADR-022 existe para eliminar. Quem precisa de um Curador pede
     # `ctx.providers.novo_chat(...)`, que passa pelo resolver.
 

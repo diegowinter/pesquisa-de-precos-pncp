@@ -1,5 +1,5 @@
 """
-m02 — Prompts: `core/prompts.py` → `prompt` + `prompt_version` (v1 active).
+m02 — Prompts: `core/prompts.py` → `prompt` + `prompt_version` (v1 ativo).
 
 Na Fase 2 o objetivo é modesto e específico: dar a `texto_classificacao.prompt_version_id` e a
 `llm_call.prompt_version_id` uma linha real a que apontar. Migrar a EDIÇÃO de prompt para a
@@ -7,7 +7,7 @@ interface é entrega da Fase 6 — aqui os prompts continuam vindo do código.
 
 Os prompts de `core/prompts.py` são FUNÇÕES que montam texto, não templates estáticos. Para
 gravar um template de verdade, cada função é chamada com os próprios nomes dos parâmetros como
-value (`"{description}"`), o que devolve o texto real com placeholders no lugar certo. É o mais
+valor (`"{description}"`), o que devolve o texto real com placeholders no lugar certo. É o mais
 próximo do prompt em produção que se consegue sem reescrever `prompts.py` — e reescrever
 `prompts.py` aqui seria mudar o método numa fase cujo objetivo é mudar a persistência.
 
@@ -21,7 +21,7 @@ from migracao._comum import Relatorio, cabecalho, console
 
 _ITEM_API = {"numeroItem": "{numero_item}", "descricao_api": "{descricao_api}"}
 
-# (name, descrição, capacidade, template). O name é a chave estável — é o que a Fase 6 vai
+# (nome, descrição, capacidade, template). O nome é a chave estável — é o que a Fase 6 vai
 # usar para casar a versão editada com o ponto de chamada no código.
 DEFINICOES = (
     ("classificar_item",

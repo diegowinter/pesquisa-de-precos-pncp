@@ -80,7 +80,7 @@ def config_versao_por_id(sessao: Session, config_version_id: int) -> dict[str, A
 def diff_config(sessao: Session, id_a: int, id_b: int) -> dict[str, Any]:
     """Diferença chave a chave entre duas `config_version` (docs/06_API_E_WEB.md
     `GET /api/config/versions/{id}/diff/{outro_id}`). Só reporta chaves que mudaram — chave
-    ausente de um lado aparece com value `None` do lado que não a define."""
+    ausente de um lado aparece com valor `None` do lado que não a define."""
     valores_a = ler_config(sessao, id_a)
     valores_b = ler_config(sessao, id_b)
     chaves = sorted(set(valores_a) | set(valores_b))
@@ -139,7 +139,7 @@ def upsert_prompt(sessao: Session, name: str, description: str, capability: str,
                   template: str, version: int = 1, active: bool = True) -> int:
     """Registra o prompt e uma versão. `ux_prompt_ativa` garante no máximo um ativo por name.
 
-    Por isso o UPDATE que desativa as outras vem ANTES do insert: inserir uma segunda active
+    Por isso o UPDATE que desativa as outras vem ANTES do insert: inserir uma segunda ativo
     violaria o índice único parcial e derrubaria a transação inteira.
     """
     sessao.execute(
@@ -171,7 +171,7 @@ def prompt_versao_ativa(sessao: Session, name: str) -> int | None:
 def template_prompt_ativo(sessao: Session, name: str) -> dict[str, Any] | None:
     """`(id, template)` da versão ativo — é o que `core.prompts_resolver` usa para montar o
     prompt de verdade em tempo de execução. `None` quando o prompt não existe no banco ainda
-    (step cai no fallback hardcoded de `core/prompts.py`, ver docstring do resolver)."""
+    (etapa cai no fallback hardcoded de `core/prompts.py`, ver docstring do resolver)."""
     linha = sessao.execute(
         text("SELECT id, template FROM prompt_version WHERE prompt_name = :n AND active"),
         {"n": name}).mappings().first()
@@ -229,7 +229,7 @@ def criar_prompt_versao(sessao: Session, name: str, template: str, *,
 
 def ativar_prompt_versao(sessao: Session, name: str, version: int) -> bool:
     """Promove `version` o ativo e desativa qualquer outra do mesmo prompt — `ux_prompt_ativa`
-    garante no máximo um ativo por name, então o UPDATE que desativa vem antes do que active."""
+    garante no máximo um ativo por nome, então o UPDATE que desativa vem antes do que active."""
     sessao.execute(
         text("UPDATE prompt_version SET active = false WHERE prompt_name = :n AND active"),
         {"n": name})
@@ -285,7 +285,7 @@ def upsert_provedor(sessao: Session, name: str, capabilities: Sequence[str], bas
 
 
 def gravar_api_key(sessao: Session, provider: str, api_key: str) -> None:
-    """Cifra e grava a chave de API de um provedor (Fase 14, ADR-022). O name do provedor entra
+    """Cifra e grava a chave de API de um provedor (Fase 14, ADR-022). O nome do provedor entra
     como AAD, então o criptograma só decifra na linha dele. Write-only: não existe função que
     devolva a chave em claro para fora de `providers.resolver`."""
     from pesquisa_precos.db import secret as seg
@@ -531,7 +531,7 @@ def logs_do_run(sessao: Session, run_id: int, *, step: str | None = None,
 def erros_do_run(sessao: Session, run_id: int, *, step: str | None = None,
                  apenas_pendentes: bool = True) -> list[dict[str, Any]]:
     """`item_error` do run — a Fase 4 expõe isto em `GET /api/runs/{id}/errors` para o gate/tela
-    de step mostrar "reprocessar pendentes" sem o operador abrir o banco."""
+    de etapa mostrar "reprocessar pendentes" sem o operador abrir o banco."""
     condicoes = "run_id = :r"
     parametros: dict[str, Any] = {"r": run_id}
     if step is not None:
@@ -578,7 +578,7 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
 
 
 def capacidade_provedor_info(sessao: Session, capability: str) -> dict[str, Any] | None:
-    """Uma capability + o `provider` que a atende, já com os campos do adapter (base_url,
+    """Uma capacidade + o `provider` que a atende, já com os campos do adapter (base_url,
     batch_size, custo por Mtok, `api_key_ref`...). `None` quando `provider_capability` ainda
     não tem linha para esta capacidade — quem chama (`providers.resolver`) cai no `.env`.
     """
@@ -608,7 +608,7 @@ def atualizar_status_provedor(sessao: Session, provider: str, healthy: bool,
 
 
 def status_provedores(sessao: Session) -> list[dict[str, Any]]:
-    """Última sondagem de cada provider — o que a tela/CLI de saúde lê para não ter que
+    """Última sondagem de cada provedor — o que a tela/CLI de saúde lê para não ter que
     sondar de novo a cada refresh."""
     linhas = sessao.execute(
         text("SELECT provider, healthy, latency_ms, message, checked_at "
@@ -721,7 +721,7 @@ def listar_exports(sessao: Session, *, run_id: int | None = None) -> list[dict[s
 
 
 def conteudo_export(sessao: Session, export_id: int) -> tuple[bytes | None, str | None]:
-    """Os bytes do XLSX e o name sugerido. Consulta à parte de `export_por_id` de propósito:
+    """Os bytes do XLSX e o nome sugerido. Consulta à parte de `export_por_id` de propósito:
     `conteudo` é um `bytea` de dezenas de MB e não pode entrar em toda listagem."""
     linha = sessao.execute(
         text("SELECT conteudo, nome_arquivo FROM export WHERE id = :id"),
@@ -737,7 +737,7 @@ def export_por_id(sessao: Session, export_id: int) -> dict[str, Any] | None:
 
 
 def ultimo_fingerprint_concluido(sessao: Session, step: str) -> str | None:
-    """Fingerprint da última execução CONCLUÍDA desta step, em qualquer run — é contra isto
+    """Fingerprint da última execução CONCLUÍDA desta etapa, em qualquer run — é contra isto
     que uma etapa dependente calcula se está `desatualizada` (ADR-009). Não escopado a um
     `run_id` porque `atualizar` é incremental entre runs; a última execução real da etapa é
     sempre a que vale, não a do run corrente."""

@@ -19,7 +19,7 @@ from pesquisa_precos.providers.resolver import Providers
 
 
 class NullContext:
-    """Contexto silencioso. Use como context manager para simetria com os outros."""
+    """Contexto silencioso. Use como contexto manager para simetria com os outros."""
 
     def __init__(self, step: str, *,
                  action: str = "update", mode: str = "assisted",

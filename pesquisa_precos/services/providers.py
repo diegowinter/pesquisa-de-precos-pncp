@@ -1,7 +1,7 @@
 """
 Camada de serviço do CRUD de provedores (Fase 14, ADR-022 — bloco 2).
 
-A Fase 7 criou `provider`/`provider_capability` e a resolução por capability, mas nenhuma rota
+A Fase 7 criou `provider`/`provider_capability` e a resolução por capacidade, mas nenhuma rota
 escrevia nessas tabelas: só dava para popular por SQL na mão, e por isso a configuração real da
 aplicação continuou num `.env` editado a dedo. Este módulo é o que faz a promessa da ADR-014
 ("model, provedor, URL da GPU é config, não código") chegar ao operador.
@@ -28,7 +28,7 @@ class ProvedorInexistente(RuntimeError):
 
 
 class InvalidProvider(ValueError):
-    """Formulário incompleto ou incoerente (name/base_url vazios, capacidade desconhecida)."""
+    """Formulário incompleto ou incoerente (nome/base_url vazios, capacidade desconhecida)."""
 
 
 class FallbackProibido(ValueError):
@@ -157,7 +157,7 @@ def testar(name: str) -> dict[str, Any]:
 
 def diagnostico_chave_mestra() -> dict[str, Any]:
     """Para a tela dizer, em vez de explodir, que `APP_SECRET_KEY` não está no ambiente — sem
-    ela não é possível gravar nem ler chave de provider (ADR-022)."""
+    ela não é possível gravar nem ler chave de provedor (ADR-022)."""
     if not seg.configurada():
         return {"configurada": False, "key_id": None, "variavel": seg.VAR_CHAVE}
     return {"configurada": True, "key_id": seg.key_id_atual(), "variavel": seg.VAR_CHAVE}

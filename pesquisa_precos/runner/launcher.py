@@ -1,9 +1,9 @@
 """
-Orquestração de uma execução de step (Fase 3) — o que decide QUEM sobe o subprocesso, com
+Orquestração de uma execução de etapa (Fase 3) — o que decide QUEM sobe o subprocesso, com
 QUAIS parâmetros e sob QUAL lock. O que roda DENTRO do subprocesso é `runner.worker`.
 
 Chamado pela CLI (comandos `run *`) e, nas fases seguintes, pela API — é o único caminho de
-"dar play numa step via banco" (ADR-002: o processo web nunca executa a etapa na própria
+"dar play numa etapa via banco" (ADR-002: o processo web nunca executa a etapa na própria
 thread, sempre sobe um subprocesso).
 
 Fluxo de `tocar()`:
@@ -79,7 +79,7 @@ def checar_saude_previa(key: str) -> list[dict]:
     """Sonda as capacidades que a etapa declara no registry (Fase 7) ANTES do play. Só sonda
     capacidades que têm linha em `provider_capability` — enquanto o banco de provedores está
     vazio (estado de hoje, ver CLAUDE.md), a etapa resolve pelo `.env` como sempre resolveu, e
-    esta checagem fica muda: ela é uma feature de quem já configurou provider pela interface,
+    esta checagem fica muda: ela é uma feature de quem já configurou provedor pela interface,
     não um bloqueio novo para quem nunca usou.
 
     Devolve a lista de sondagens (mesmo formato de `providers.health.checar_capacidade`).

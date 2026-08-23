@@ -35,7 +35,7 @@ class StepDefinition:
     recomputa_corpus: bool           # True = sempre recalcula o corpus inteiro, não só o novo
     # Capacidades (Fase 7: 'chat'|'embed'|'rerank'|'ocr') que a etapa consome — é o que
     # `runner.launcher` sonda ANTES de subir o subprocesso (health check pré-play,
-    # docs/04_FASES.md §Fase 7 item 6). Etapa sem capability paga (custo='gratis') não tem
+    # docs/04_FASES.md §Fase 7 item 6). Etapa sem capacidade paga (custo='gratis') não tem
     # nenhuma.
     capabilities: tuple[str, ...] = ()
     _cache: dict = field(default_factory=dict, repr=False, compare=False)

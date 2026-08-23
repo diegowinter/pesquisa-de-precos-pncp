@@ -339,7 +339,7 @@ def baixar_export(export_id: int, user: str = Depends(auth.exigir_login)):
 # ── Providers: saúde + CRUD (Fase 13 / Fase 14 bloco 2, ADR-022) ────────────────────
 #
 # A tela era só leitura: sondava as capacidades e mostrava o resultado. Com a Fase 14 ela vira
-# a superfície onde se CONFIGURA quem atende cada capability — modelo, base_url e chave de API
+# a superfície onde se CONFIGURA quem atende cada capacidade — modelo, base_url e chave de API
 # deixam de exigir editar `.env` e reiniciar o servidor.
 #
 # A chave de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
@@ -428,7 +428,7 @@ def alternar_ativo_provedor(request: Request, name: str, active: str = Form("on"
 
 @app.post("/providers/{name}/test")
 def testar_provedor(request: Request, name: str, user: str = Depends(auth.exigir_login)):
-    """Sondagem HTTP leve — não gasta e não dispara step, então não fere a regra nº 1 do
+    """Sondagem HTTP leve — não gasta e não dispara etapa, então não fere a regra nº 1 do
     CLAUDE.md ("quem roda a pipeline é o usuário")."""
     try:
         service_providers.testar(name)
@@ -458,7 +458,7 @@ def recifrar_chaves(request: Request, user: str = Depends(auth.exigir_login)):
         return _redirecionar_com_erro("/providers", exc)
     if resultado["falharam"]:
         # Falha parcial é informação, não erro: o resto foi re-cifrado, e estas linhas não
-        # decifram com nenhuma key disponível — a saída é recadastrar a chave delas.
+        # decifram com nenhuma chave disponível — a saída é recadastrar a chave delas.
         return _redirecionar_com_erro("/providers", RuntimeError(
             f"{resultado['recifradas']} re-cifradas. NÃO foi possível decifrar: "
             f"{', '.join(resultado['falharam'])} — recadastre a key desses provedores "

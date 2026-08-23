@@ -15,7 +15,7 @@ v2/v3 não era perfeito, e o número aparece no relatório (docs/05_MIGRACAO.md 
 tratá-la como tal seria inventar precisão que o dado nunca teve. 'erro' vira NULL, porque
 aquela linha não é uma classificação: é a marca de uma chamada que falhou.
 
-`model`/`provider` são constantes: o acervo foi classificado pelo model local (LM Studio) ao
+`model`/`provider` são constantes: o acervo foi classificado pelo modelo local (LM Studio) ao
 longo da v2/v3 e não há registro por linha de qual build era. Ficam sobrescrevíveis por flag em
 vez de gravados como um palpite fixo.
 
@@ -57,7 +57,7 @@ PROVEDOR_PADRAO = "lm_studio"
 
 def preparar_staging(conn) -> None:
     """Tabela de apoio UNLOGGED: ela existe por minutos e não precisa sobreviver a um crash
-    (o CSV de source é intocado e a retomada recomeça o lote). UNLOGGED evita escrever 1,6
+    (o CSV de origem é intocado e a retomada recomeça o lote). UNLOGGED evita escrever 1,6
     milhão de linhas no WAL à toa."""
     with conn.cursor() as cur:
         cur.execute(f"""

@@ -1,5 +1,5 @@
 """
-Resolução de provedor por capability — de onde vem "quem atende chat/embed/rerank/pdf/
+Resolução de provedor por capacidade — de onde vem "quem atende chat/embed/rerank/pdf/
 pareamento agora".
 
 **Uma fonte só: o banco** (`provider` + `provider_capability`, docs/02_SCHEMA.md §10),
@@ -52,7 +52,7 @@ def _api_key_de(linha: dict, default: str = "") -> str:
     API, template — pode chamar `db.secret.decifrar`, e
     `tests/test_segredo.py::test_so_o_resolver_decifra` guarda a regra.
 
-    O `api_key_ref` (name de env var) que existia antes da ADR-022 sumiu junto com o caminho
+    O `api_key_ref` (nome de env var) que existia antes da ADR-022 sumiu junto com o caminho
     `.env`: a chave mora no banco, cifrada.
     """
     blob = linha.get("api_key_encrypted")
@@ -78,11 +78,11 @@ class ResolucaoCapacidade:
 
 def resolver_capacidade(capability: str, *,
                         sessao: "Session | None" = None) -> ResolucaoCapacidade:
-    """Resolve UMA capability pelo banco. Levanta `CapabilityNotConfigured` se ninguém a
+    """Resolve UMA capacidade pelo banco. Levanta `CapabilityNotConfigured` se ninguém a
     atende.
 
-    Qual modelo e qual endereço atendem cada capability é decisão do banco (ADR-014) — é o
-    que permite trocar de provider pela tela sem mudar código.
+    Qual modelo e qual endereço atendem cada capacidade é decisão do banco (ADR-014) — é o
+    que permite trocar de provedor pela tela sem mudar código.
     """
     if capability not in CAPACIDADES:
         raise ValueError(f"capability desconhecida: {capability!r} "
@@ -174,7 +174,7 @@ def create_matching(*, sessao: "Session | None" = None):
 
 @dataclass
 class Providers:
-    """`ctx.providers` (docs/03_ETAPAS.md §1). Cada capability é resolvida e instanciada na
+    """`ctx.providers` (docs/03_ETAPAS.md §1). Cada capacidade é resolvida e instanciada na
     PRIMEIRA vez que a etapa acessa o atributo, não na construção — importar
     sentence-transformers/torch para uma etapa que só usa `chat` seria desperdício.
     """
@@ -184,7 +184,7 @@ class Providers:
 
     def resolucao(self, capability: str) -> ResolucaoCapacidade:
         """Resolve a capacidade SEM instanciar o adapter — para quem só precisa saber quem vai
-        atendê-la (name do provedor para log, ou uma decisão de comportamento por provider como
+        atendê-la (nome do provedor para log, ou uma decisão de comportamento por provedor como
         o `reasoning_effort` da etapa 3) sem pagar o custo de montar o cliente."""
         return resolver_capacidade(capability, sessao=self._sessao)
 
@@ -196,7 +196,7 @@ class Providers:
         da etapa, antes de qualquer play, e nesse momento é normal a configuração ainda estar
         incompleta. Derrubar a tela por isso esconderia justamente os números que o operador
         foi ali ver — e o gate de verdade (`checar_saude_previa`) continua no play, onde
-        faltar provider TEM de barrar.
+        faltar provedor TEM de barrar.
         """
         try:
             return self.resolucao(capability)
@@ -237,7 +237,7 @@ class Providers:
     # Etapas com concorrência (3, 1) precisam de um cliente HTTP por thread — compartilhar
     # um único cliente serializa as chamadas e mata a concorrência (comentário original na
     # etapa 3). `.chat`/`.embed`/... acima bastam para etapas sequenciais; estas variantes
-    # `novo_*` resolvem a MESMA capability (banco → `.env`, ADR-006) mas sempre instanciam de
+    # `novo_*` resolvem a MESMA capacidade (banco → `.env`, ADR-006) mas sempre instanciam de
     # novo, para o chamador guardar num `threading.local()` como já fazia antes da Fase 7.
 
     def novo_chat(self, *, curador_kwargs: dict | None = None):

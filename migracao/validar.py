@@ -5,7 +5,7 @@ Validação por agregado — docs/05_MIGRACAO.md §4.
 diferentes, e a distinção entre elas é o ponto:
 
   **Contagem** — quantas linhas chegaram, contra os números medidos no acervo em 2026-08-16.
-  Divergência aqui é ACEITÁVEL desde que explicada (duplicata no CSV, dedup por key natural,
+  Divergência aqui é ACEITÁVEL desde que explicada (duplicata no CSV, dedup por chave natural,
   linha órfã descartada). Cada script de migração já reporta a sua explicação.
 
   **Integridade referencial** — órfãos. Aqui **toda contagem tem de ser zero**. Um item sem

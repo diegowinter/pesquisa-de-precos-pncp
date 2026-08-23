@@ -258,7 +258,7 @@ def _extrair_texto(provedor_pdf, doc_ctrl: str, item0: dict,
     paginas = resultado.get("paginas") or []
     if pular_ocr:
         # A capacidade já devolveu tudo; aqui só se descarta o que veio de OCR. Pedir ao
-        # provedor para não fazer OCR seria melhor, mas nem todo provider honra a flag — e
+        # provedor para não fazer OCR seria melhor, mas nem todo provedor honra a flag — e
         # filtrar aqui garante o comportamento independentemente de quem atendeu.
         paginas = [pg for pg in paginas if pg.get("fonte") != "ocr"]
     linhas_paginas = [{

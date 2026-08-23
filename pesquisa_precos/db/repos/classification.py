@@ -47,7 +47,7 @@ def gravar(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Upsert por `texto_hash` (ordem de `COLUNAS`). `categorias` é `list[str]` → `text[]`.
 
     `DO NOTHING`: reclassificar um texto já classificado é exatamente o gasto que esta tabela
-    existe para evitar. Trocar de prompt/model é uma operação explícita (apagar as linhas da
+    existe para evitar. Trocar de prompt/modelo é uma operação explícita (apagar as linhas da
     versão antiga), nunca um efeito colateral de rodar a etapa de novo.
     """
     return copy.copiar(conn, "texto_classificacao", COLUNAS, linhas,
@@ -75,7 +75,7 @@ def textos_pendentes(sessao: Session, limite: int | None = None) -> list[dict]:
 
     É o dedup da etapa 3 virando consulta: no CSV era preciso carregar 1,6 milhão de linhas
     em memória e agrupar por `(description, unidade)`; aqui o `texto_hash` já foi calculado na
-    ingestão (step 2) e o agrupamento é do banco.
+    ingestão (etapa 2) e o agrupamento é do banco.
 
     A ordem por `n_itens` não é cosmética: com `--limite`, classificar primeiro os textos que
     se repetem mais é o que dá mais cobertura de itens por chamada paga.

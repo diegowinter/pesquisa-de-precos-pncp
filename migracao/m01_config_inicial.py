@@ -7,10 +7,10 @@ não teria a que se prender e o m03 não conseguiria criar o run do acervo.
 
 O que vai para o banco é o que muda a RESPOSTA (thresholds, min_itens, top_n, modelos, URLs) —
 ADR-014. O que muda o MÉTODO fica no código. `min_itens=1` e `top_n=0` entram como estão no
-`.env`, que é a "regra dos 5" desativada (ADR-016), não um value a corrigir.
+`.env`, que é a "regra dos 5" desativada (ADR-016), não um valor a corrigir.
 
 CHAVE DE API NÃO VAI PARA O BANCO (§5.10). `provider.api_key_ref` guarda o NOME da variável de
-ambiente; o value continua no `.env`, fora do git.
+ambiente; o valor continua no `.env`, fora do git.
 
 Uso: python -m migracao.m01_config_inicial
 """
@@ -64,7 +64,7 @@ def migrar() -> Relatorio:
         repo.upsert_provedor(
             s, "gpu_caseira", ["embed", "rerank"], cfg["gpu_base_url"],
             api_key_ref="GPU_API_KEY", default_model=cfg["embedder_model"],
-            allows_fallback=False)  # embed NUNCA cai para outro provider (ADR-006 §2)
+            allows_fallback=False)  # embed NUNCA cai para outro provedor (ADR-006 §2)
         repo.upsert_provedor(
             s, "ocr_local", ["ocr"], cfg["ocr_base_url"],
             api_key_ref="OCR_API_KEY", default_model=cfg["ocr_model"],

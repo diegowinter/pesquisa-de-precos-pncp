@@ -18,11 +18,11 @@ from pesquisa_precos.db.repos import grupo as repo_grupo
 
 
 class RunSemRankingError(RuntimeError):
-    """Run não tem linhas em `grupo_item` — não há o que comparar (step 7 não rodou nele)."""
+    """Run não tem linhas em `grupo_item` — não há o que comparar (etapa 7 não rodou nele)."""
 
 
 def _chave(linha: dict) -> tuple[str, str, int]:
-    """Identidade de uma linha do ranking: (código, nº controle PNCP, item) — a mesma key
+    """Identidade de uma linha do ranking: (código, nº controle PNCP, item) — a mesma chave
     de `export`/`export_snapshot` (etapas 7/8), só que agora comparando dois runs quaisquer."""
     return (linha["codigo"], linha["numero_controle_pncp"], linha["numero_item"])
 

@@ -31,17 +31,17 @@ VOLTA = {
 }
 
 ALVO = "|".join(sorted(VOLTA, key=len, reverse=True))
-RX = re.compile(rf"(?<![A-Za-z0-9_`.\"']) ({ALVO})(?![A-Za-z0-9_`\"'(=\[.])")
+RX = re.compile(rf"(?<![A-Za-z0-9_`.\"'-])({ALVO})(?![A-Za-z0-9_`\"'(=\[.-])")
 CRASE = re.compile(r"`[^`]*`")
 
 
 def _troca_fora_de_crases(txt: str) -> str:
     partes, fim = [], 0
     for m in CRASE.finditer(txt):
-        partes.append(RX.sub(lambda x: " " + VOLTA[x.group(1)], txt[fim:m.start()]))
+        partes.append(RX.sub(lambda x: VOLTA[x.group(1)], txt[fim:m.start()]))
         partes.append(m.group(0))
         fim = m.end()
-    partes.append(RX.sub(lambda x: " " + VOLTA[x.group(1)], txt[fim:]))
+    partes.append(RX.sub(lambda x: VOLTA[x.group(1)], txt[fim:]))
     return "".join(partes)
 
 

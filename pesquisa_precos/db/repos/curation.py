@@ -29,12 +29,12 @@ COLUNAS_RAW = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "description",
                "codigo_grupo", "nome_grupo", "nome_classe")
 
 
-# ── Catálogo completo (step 0a) ────────────────────────────────────────────────────
+# ── Catálogo completo (etapa 0a) ────────────────────────────────────────────────────
 
 def gravar_raw(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Upsert em massa do catálogo completo. `linhas` na ordem de `COLUNAS_RAW`.
 
-    `DO UPDATE` pelo mesmo reason de `catalogo.gravar_itens`: descrição e classe mudam no
+    `DO UPDATE` pelo mesmo motivo de `catalogo.gravar_itens`: descrição e classe mudam no
     CATMAT, e manter a versão antiga faria o export divergir da fonte oficial em silêncio.
     """
     return copy.copiar(
@@ -160,7 +160,7 @@ SQL_LISTAR_GRUPOS = """
 def listar_grupos(sessao: Session, tipo: str | None = None,
                   incluir_inativos: bool = False) -> list[dict]:
     """Os grupos como a tela de curadoria os mostra, com quantos itens do catálogo completo
-    cada um traz. Os `CAST` existem pelo mesmo reason de `listar_permitidos`: parâmetro NULL
+    cada um traz. Os `CAST` existem pelo mesmo motivo de `listar_permitidos`: parâmetro NULL
     sem tipo faz o Postgres levantar `AmbiguousParameter`."""
     linhas = sessao.execute(text(SQL_LISTAR_GRUPOS),
                             {"tipo": tipo, "todos": incluir_inativos}).all()
@@ -242,7 +242,7 @@ UPDATE catalogo_item c
 def derivar_catalogo_item(sessao: Session) -> dict[str, int]:
     """Recomputa `catalogo_item` a partir do catálogo completo e da allow-list active.
 
-    Chamada pela step 0a e por qualquer edição de curadoria na interface — é o que faz
+    Chamada pela etapa 0a e por qualquer edição de curadoria na interface — é o que faz
     "mudei a allow-list" ter efeito sem reexecutar a etapa (que rebaixaria a API inteira).
 
     NÃO toca em `categoria`: ela vem da etapa 1, custa LLM e não é derivável daqui. O

@@ -4,7 +4,7 @@ Suite de regressão de qualidade (Fase 9, docs/04_FASES.md item 1).
 Roda a decisão da 6b (thresholds `rerank_t_aceita`/`rerank_t_rejeita`, sem LLM nenhum) contra
 uma amostra de `label` (ou uma fixture sintética, se o banco estiver vazio/indisponível — hoje
 é o caso: "ZERO linhas", ver CLAUDE.md) e reporta precisão/recall. É o que permite trocar de
-model/threshold/prompt sem ser no escuro (docs/08_CONVENCOES.md §6).
+modelo/threshold/prompt sem ser no escuro (docs/08_CONVENCOES.md §6).
 
 A lógica de decisão vive em `pesquisa_precos.core.regression` (pura, sem I/O) — este script só
 resolve DE ONDE vem a amostra e IMPRIME o relatório. `--reprovar-abaixo-de` faz o processo

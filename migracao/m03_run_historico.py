@@ -1,7 +1,7 @@
 """
 m03 — Run sintético "acervo migrado v2/v3".
 
-Todo resultado carrega o `run_id` de source (ADR-015), e `grupo_item.run_id` é `NOT NULL`. O
+Todo resultado carrega o `run_id` de origem (ADR-015), e `grupo_item.run_id` é `NOT NULL`. O
 acervo herdado, porém, não veio de nenhum run: veio de dezenas de execuções manuais de script
 ao longo de meses, sem registro. Inventar um run por execução seria fabricar histórico que não
 existe; deixar `run_id` nulo quebraria a rastreabilidade que o schema promete.

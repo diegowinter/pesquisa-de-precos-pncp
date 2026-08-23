@@ -1,8 +1,8 @@
 """
 m14 — Cache de embeddings: `checkpoints/6a_emb_cache.parquet` → `embedding_cache`.
 
-O parquet é chaveado só por `sha1(texto)`. A chave nova inclui **provider, modelo e dimensão**
-(ADR-006 §1) — sem isso, trocar de provider mistura espaços vetoriais em silêncio, e o sintoma
+O parquet é chaveado só por `sha1(texto)`. A chave nova inclui **provedor, modelo e dimensão**
+(ADR-006 §1) — sem isso, trocar de provedor mistura espaços vetoriais em silêncio, e o sintoma
 seria um cosseno que parou de fazer sentido, sem nenhum erro.
 
 Como o parquet não guarda de onde os vetores vieram, os três valores são preenchidos com o que
@@ -31,7 +31,7 @@ from migracao._comum import Relatorio, cabecalho, console, existe
 LOTE = 5_000
 
 # Quem gerou o cache: o servidor de GPU caseira rodando bge-m3 (ver `providers/gpu_remoto.py`
-# e `embedder_local.py` — ambos gravam no MESMO parquet, com a mesma key sha1(texto)).
+# e `embedder_local.py` — ambos gravam no MESMO parquet, com a mesma chave sha1(texto)).
 PROVEDOR_PADRAO = "gpu_caseira"
 DIMENSAO_ESPERADA = 1024  # bge-m3
 
@@ -65,7 +65,7 @@ def migrar(provider: str = PROVEDOR_PADRAO, model: str | None = None) -> Relator
     rel.mais("vetores enviados", enviados)
 
     # Medido, não assumido. Uma dimensão diferente da esperada significa que o parquet foi
-    # gerado por outro model — e migrá-lo sob o name errado é exatamente o bug silencioso
+    # gerado por outro modelo — e migrá-lo sob o nome errado é exatamente o bug silencioso
     # que a chave composta existe para evitar.
     rel.mais("dimensões distintas", len(dimensoes))
     if dimensoes != {DIMENSAO_ESPERADA}:

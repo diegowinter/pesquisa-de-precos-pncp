@@ -1,5 +1,5 @@
 """
-Health check por provider (Fase 7, docs/04_FASES.md §Fase 7 item 6).
+Health check por provedor (Fase 7, docs/04_FASES.md §Fase 7 item 6).
 
 Objetivo: detectar o túnel caído (ou o servidor de GPU fora) ANTES de dar play numa etapa —
 não 40 minutos depois, no meio da 6a. Uma checagem é uma sondagem HTTP leve (GET, timeout
@@ -77,7 +77,7 @@ def checar_capacidade(capability: str, *,
                       sessao: "Session | None" = None) -> dict[str, Any]:
     """Resolve + sonda UMA capability. Grava em `provider_status` quando há `sessao` (senão só
     devolve o resultado — é o caso do `estimar()` fora de um run)."""
-    # Capacidade sem provider apontado é uma LINHA VERMELHA, não uma exceção: esta função é a
+    # Capacidade sem provedor apontado é uma LINHA VERMELHA, não uma exceção: esta função é a
     # tela de diagnóstico e o gate pré-play, e nos dois lugares o operador precisa ver qual
     # capacidade está faltando — não uma stack trace no lugar do painel (Fase 14, ADR-022).
     try:
@@ -116,7 +116,7 @@ def checar_capacidade(capability: str, *,
 
 def checar_capabilities(capabilities: list[str], *,
                        sessao: "Session | None" = None) -> list[dict[str, Any]]:
-    """Uma checagem por capability pedida — usada por `runner.launcher` antes do play e por
+    """Uma checagem por capacidade pedida — usada por `runner.launcher` antes do play e por
     a tela `/providers` para diagnóstico manual (leitura/diagnóstico é sempre permitido,
     CLAUDE.md "Regra nº 1")."""
     return [checar_capacidade(c, sessao=sessao) for c in capabilities]

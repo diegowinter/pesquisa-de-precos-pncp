@@ -3,7 +3,7 @@ Autenticação da web (docs/06_API_E_WEB.md §5): sessão por cookie, password �
 ambiente. Sem cadastro de usuários — "não construir gestão de usuários, papéis, SSO".
 
 `nome_usuario` fica na sessão e alimenta `created_by`/`approved_by` nos serviços: serve para
-auditoria (quem aprovou o gate), não para controle de acesso — qualquer name livre é aceito.
+auditoria (quem aprovou o gate), não para controle de acesso — qualquer nome livre é aceito.
 
 `WEB_SENHA` vazia/ausente desliga o login (conveniente local, igual a `API_TOKEN` na Fase 4);
 quem expor a interface além do laptop precisa setar a variável.
@@ -25,7 +25,7 @@ def autenticado(request: Request) -> bool:
 
 
 def exigir_login(request: Request) -> str:
-    """Dependency das rotas protegidas. Devolve o name do usuário da sessão (para
+    """Dependency das rotas protegidas. Devolve o nome do usuário da sessão (para
     `created_by`/`approved_by`), redirecionando para `/login` via 303 quando ausente."""
     if not autenticado(request):
         raise HTTPException(status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})

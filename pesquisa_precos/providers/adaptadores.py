@@ -44,7 +44,7 @@ def _com_retry(fn, *args, **kwargs):
 
 class ChatAdapter:
     """`lm_studio` / `openrouter` / `openai_compat` — os três são o mesmo protocolo HTTP
-    (OpenAI-compatible); o que muda é só base_url/model/key, já resolvidos em `info`."""
+    (OpenAI-compatible); o que muda é só base_url/modelo/chave, já resolvidos em `info`."""
 
     def __init__(self, info: ProviderInfo, *, api_key: str, curador_kwargs: dict | None = None):
         from pesquisa_precos.providers.llm_curador import Curador
@@ -221,7 +221,7 @@ class PareamentoRemotoAdapter:
 def custo_estimado_generico(info: ProviderInfo, tokens_in: int, tokens_out: int) -> float:
     """Mesma fórmula de `ChatAdapter.custo_estimado`, exposta solta p/ `estimar()` de etapas
     que não têm (e não precisam) instanciar o adapter de verdade (docs/03_ETAPAS.md §1.1
-    regra 5: `estimar()` nunca gasta nem chama provider pago)."""
+    regra 5: `estimar()` nunca gasta nem chama provedor pago)."""
     if info.cost_in_per_mtok is None or info.cost_out_per_mtok is None:
         return 0.0
     return ((tokens_in / 1_000_000) * info.cost_in_per_mtok

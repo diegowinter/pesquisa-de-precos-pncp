@@ -1,7 +1,7 @@
 """
 Repositório de pareamento (`par`, `label`, `embedding_cache`).
 
-Uma tabela `par` para as etapas 6a, 6b e 6c (ADR-013). Cada step escreve só as SUAS colunas —
+Uma tabela `par` para as etapas 6a, 6b e 6c (ADR-013). Cada etapa escreve só as SUAS colunas —
 daí as três funções de gravação separadas, todas com `ON CONFLICT DO UPDATE` restrito. Uma
 função genérica que sobrescrevesse a linha inteira apagaria o score do reranker toda vez que a
 6a recomputasse os candidatos.
@@ -137,7 +137,7 @@ def gravar_embeddings(conn: psycopg.Connection, provider: str, model: str,
                       itens: Sequence[tuple[str, "np.ndarray"]]) -> int:
     """Grava vetores como float16 little-endian em `bytea`.
 
-    A key inclui provider+model+dimensão (ADR-006 §1). Chavear só por texto misturaria
+    A chave inclui provedor+modelo+dimensão (ADR-006 §1). Chavear só por texto misturaria
     espaços vetoriais em silêncio quando o provedor mudasse — o bug caro que a Fase 7 herda
     se isto estiver errado agora.
 
@@ -158,7 +158,7 @@ def gravar_embeddings(conn: psycopg.Connection, provider: str, model: str,
 
 def ler_embeddings(sessao: Session, provider: str, model: str,
                    dimension: int) -> dict[str, "np.ndarray"]:
-    """`texto_hash → vector float32` para o espaço vetorial (provider, modelo, dimensão)."""
+    """`texto_hash → vector float32` para o espaço vetorial (provedor, modelo, dimensão)."""
     linhas = sessao.execute(
         text("SELECT texto_hash, vector FROM embedding_cache "
              "WHERE provider = :p AND model = :m AND dimension = :d"),

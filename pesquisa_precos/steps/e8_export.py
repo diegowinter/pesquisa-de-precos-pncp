@@ -20,7 +20,7 @@ Schema (definido com o cliente):
 Entrada: `grupo_item` do run indicado (default: o último que produziu ranking), com catálogo,
 item, documento e enriquecido no mesmo SELECT.
 Saída: uma linha em `export`, com o XLSX em `export.conteudo` (ADR-018) — a interface serve o
-download de lá. A step NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
+download de lá. A etapa NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
 Chave de resumo: nenhuma — recomputa o corpus inteiro.
 
 NÃO fazer: deixar o export completo tocar o snapshot do `--novos` (isso "consumiria" o delta
@@ -328,7 +328,7 @@ def registrar_export(params: Params, run_id: int | None, tipo: str, nome_arquivo
                      linhas: list) -> int | None:
     """Uma linha em `export` por export gerado — é o registro E o arquivo.
 
-    É o que permite responder "qual arquivo saiu de qual run" sem depender do name, que é
+    É o que permite responder "qual arquivo saiu de qual run" sem depender do nome, que é
     sempre o mesmo.
     """
     if run_id is None:

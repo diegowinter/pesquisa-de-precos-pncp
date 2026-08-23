@@ -1,7 +1,7 @@
 """
-Contrato de step — o que toda step expõe e o que ela recebe do mundo externo.
+Contrato de etapa — o que toda etapa expõe e o que ela recebe do mundo externo.
 
-Toda step expõe `Params`, `executar(params, ctx)` e `estimar(params, ctx)`. O que ela não faz
+Toda etapa expõe `Params`, `executar(params, ctx)` e `estimar(params, ctx)`. O que ela não faz
 por conta própria:
   - imprimir com `print`/`console`    → `ctx.log(...)`;
   - montar a própria `rich.Progress`  → `ctx.progresso(...)`;
@@ -29,7 +29,7 @@ Modo = Literal["assisted", "sequential", "sample", "simulation"]
 
 
 class TetoDeCustoExcedido(RuntimeError):
-    """`ctx.gastar()` estourou o teto do run. A step deve parar de forma limpa.
+    """`ctx.gastar()` estourou o teto do run. A etapa deve parar de forma limpa.
 
     Só ganha efeito real na Fase 3 (tabela `llm_call` + teto por run); aqui existe para
     que as etapas já sejam escritas contra ele — ver ADR-004 (custo é a restrição nº 1).

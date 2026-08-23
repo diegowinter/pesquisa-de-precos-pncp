@@ -2,13 +2,13 @@
 Modelos SQLAlchemy 2.x — espelho do DDL normativo de docs/02_SCHEMA.md.
 
 Estes modelos NÃO são a fonte da verdade do schema: quem cria as tabelas é a migration
-`0001_schema_inicial`, escrita com o DDL literal do documento (que é normativo até o name do
+`0001_schema_inicial`, escrita com o DDL literal do documento (que é normativo até o nome do
 índice). Os modelos existem para os repositórios terem tipos, e por isso precisam bater com o
 banco — `tests/test_schema_banco.py` compara os dois por reflexão e falha se divergirem.
 
 Referências circulares (02_SCHEMA.md §13): `termo.config_version_id`, `documento.descoberto_no_run_id`,
 `texto_classificacao.run_id` etc. apontam para tabelas criadas depois. No SQLAlchemy isso é
-inofensivo (a FK é resolvida por name, tarde); na migration é resolvido pela ordem de criação
+inofensivo (a FK é resolvida por nome, tarde); na migration é resolvido pela ordem de criação
 + ALTER TABLE no fim.
 
 Convenção: colunas de dinheiro são `Numeric(18,4)` e chegam ao Python como `Decimal` — nunca
@@ -99,8 +99,8 @@ class PromptVersao(Base):
 
 
 class NotificacaoDestinatario(Base):
-    """Fase 9 (CRUD via interface web) — quem recebe notificação de step concluída/falhou/gate
-    aguardando. Credencial do canal (API key do Resend) fica só no `.env` (ADR-006); esta
+    """Fase 9 (CRUD via interface web) — quem recebe notificação de etapa concluída/falhou/gate
+    aguardando. Credencial do canal (API chave do Resend) fica só no `.env` (ADR-006); esta
     tabela guarda apenas QUEM recebe."""
 
     __tablename__ = "notification_recipient"
@@ -357,7 +357,7 @@ class CatalogoItem(Base):
 class CatalogoDownload(Base):
     """Checkpoint de página do download da 0a — o que era `checkpoints/0a_parts_<tipo>/`.
 
-    `prefixo` é `full` ou `g<codigoGrupo>`: o mode `--so-grupos-seguranca` pagina cada grupo
+    `prefixo` é `full` ou `g<codigoGrupo>`: o modo `--so-grupos-seguranca` pagina cada grupo
     separadamente, e sem o prefixo as páginas de dois grupos colidiriam na PK.
     """
 
@@ -395,7 +395,7 @@ class Termo(Base):
 
 
 class TermoGeracao(Base):
-    """Saída BRUTA do LLM por item do catálogo (step 1) — o que era `1_termos_item.csv`.
+    """Saída BRUTA do LLM por item do catálogo (etapa 1) — o que era `1_termos_item.csv`.
 
     Não é derivável de `termo`/`termo_codigo`: aquelas guardam o termo já expandido (variações
     de grafia + cópia sem acento) e já agregado por termo. `resolver_categorias()` usa o
@@ -689,7 +689,7 @@ class Rotulo(Base):
 
 
 class EmbeddingCache(Base):
-    """A key INCLUI provider+model+dimensão (ADR-006 §1) — sem isso, trocar de provider
+    """A chave INCLUI provedor+modelo+dimensão (ADR-006 §1) — sem isso, trocar de provedor
     mistura espaços vetoriais em silêncio. `vector` é float16 little-endian em bytea."""
 
     __tablename__ = "embedding_cache"

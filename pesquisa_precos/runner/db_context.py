@@ -3,7 +3,7 @@
 
 Onde o `ContextoConsole` (Fase 1) fala com `rich.Progress` e um arquivo de errors, este fala
 com `run_step`, `run_log`, `item_error` e o lock — e é isso, não a etapa, que muda: o corpo de
-`executar()` de cada step continua igual, porque os dois implementam o mesmo `Protocol`
+`executar()` de cada etapa continua igual, porque os dois implementam o mesmo `Protocol`
 (docs/03_ETAPAS.md §1).
 
 Duas sessões, de propósito:

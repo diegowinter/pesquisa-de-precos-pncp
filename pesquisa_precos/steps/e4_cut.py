@@ -1,7 +1,7 @@
 """
 Etapa 4 — Filtro de classificados: quem tem ≥1 categoria de conteúdo sobrevive. Sem LLM.
 
-A step inteira é um UPDATE. "Sobrevivente" é ATRIBUTO do item (`item.sobrevivente`), não um
+A etapa inteira é um UPDATE. "Sobrevivente" é ATRIBUTO do item (`item.sobrevivente`), não um
 conjunto à parte: não existe tabela de sobreviventes para sair de sincronia com `item`. Mantém
 TODAS as caixas — a antiga regra dos 5 (descartar categoria com < MIN_ITENS) foi removida; a
 contagem por caixa é só diagnóstico.

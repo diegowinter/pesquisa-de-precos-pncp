@@ -11,7 +11,7 @@ Cada passo é um script independente e resumível, na ordem das dependências de
 
 `python -m migracao` lista os passos e o que já foi feito.
 
-**Nenhum CSV é apagado ou alterado.** A source é somente-leitura durante toda a fase; o
+**Nenhum CSV é apagado ou alterado.** A origem é somente-leitura durante toda a fase; o
 roteiro de rollback (§7) depende disso.
 
 Este pacote NÃO faz parte do pacote instalável (`pyproject.toml` inclui só `pesquisa_precos*`):

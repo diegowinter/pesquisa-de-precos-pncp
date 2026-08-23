@@ -65,7 +65,7 @@ def ligar_termos(conn: psycopg.Connection,
 def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
     """Resultado da etapa 4. Recebe as chaves em lote e usa `unnest` — uma consulta, não N.
 
-    Só marca; NÃO desmarca o que ficou de fora. A step 4 recomputa o corpus inteiro, então
+    Só marca; NÃO desmarca o que ficou de fora. A etapa 4 recomputa o corpus inteiro, então
     quem quiser um recorte limpo chama `limpar_sobreviventes()` antes, explicitamente.
     """
     if not item_keys:
@@ -78,7 +78,7 @@ def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
 
 
 def marcar_sobreviventes_por_categoria(sessao: Session) -> dict[str, int]:
-    """A step 4 inteira, em SQL: sobrevive o item com ao menos UMA categoria de conteúdo.
+    """A etapa 4 inteira, em SQL: sobrevive o item com ao menos UMA categoria de conteúdo.
 
     O caminho CSV carrega dois arquivos (182 MB de saída), faz merge, explode o multi-label e
     reagrega — tudo para produzir um booleano por item. Aqui é um UPDATE nos dois sentidos,
@@ -150,7 +150,7 @@ def mapa_pasta_para_controle(sessao: Session) -> dict[str, str]:
     """Não existe no banco — a `pasta_arquivos` deliberadamente NÃO foi migrada (ADR-012).
 
     Fica aqui como marcador: quem precisar do mapa `doc_key(caminho) → numero_controle_pncp`
-    (só o m10, que lê `5_pdf_texto.csv`) deve construí-lo do CSV de source, não do banco.
+    (só o m10, que lê `5_pdf_texto.csv`) deve construí-lo do CSV de origem, não do banco.
     """
     raise NotImplementedError(
         "pasta_arquivos não é migrada (ADR-012). O mapa caminho→controle vive no m10, "

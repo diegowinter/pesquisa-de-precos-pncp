@@ -47,7 +47,7 @@ def diff_config_versoes(config_version_id: int, other_id: int):
 
 @router.get("/config/schema")
 def schema_parametros():
-    """Campos do `Params` Pydantic por step — fonte do formulário de configuração
+    """Campos do `Params` Pydantic por etapa — fonte do formulário de configuração
     (docs/06_API_E_WEB.md §4.5)."""
     return service_config.schema_parametros()
 

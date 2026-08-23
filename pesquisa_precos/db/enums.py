@@ -5,7 +5,7 @@ Os `str, Enum` daqui existem para o Python; quem cria os tipos no PostgreSQL é 
 inicial, com o DDL literal do documento. `NOMES` é a lista usada pelos modelos para referenciar
 o tipo já existente (`create_type=False`), evitando que o SQLAlchemy tente recriá-lo.
 
-Os VALORES são normativos: mudar um value aqui sem migration correspondente faz o insert
+Os VALORES são normativos: mudar um valor aqui sem migration correspondente faz o insert
 falhar no banco, não no Python.
 """
 
@@ -13,7 +13,7 @@ from enum import StrEnum
 
 
 class _Valor(StrEnum):
-    """Enum de string que serializa como o próprio value (é o que o psycopg manda ao PG)."""
+    """Enum de string que serializa como o próprio valor (é o que o psycopg manda ao PG)."""
 
 
 class TipoCatalogo(_Valor):
@@ -28,7 +28,7 @@ class TipoDocumento(_Valor):
 
 class EstadoDocumento(_Valor):
     descoberto = "descoberto"          # capa obtida da API, nada baixado
-    fora_de_escopo = "fora_de_escopo"  # nenhum item sobreviveu ao corte da step 4
+    fora_de_escopo = "fora_de_escopo"  # nenhum item sobreviveu ao corte da etapa 4
     baixando = "baixando"
     extraido = "extraido"              # texto obtido, PDF já descartado
     ilegivel = "ilegivel"              # nenhuma página produziu texto útil

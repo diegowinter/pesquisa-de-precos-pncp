@@ -6,7 +6,7 @@ script, justamente para não dependerem de alguém lembrar:
 
   idempotente   → toda escrita passa por `db/copy.py`, que faz `ON CONFLICT`;
   resumível     → `Retomada` grava quantas linhas do CSV já foram consumidas;
-  origem só p/ leitura → nenhuma função deste pacote abre CSV em mode de escrita;
+  origem só p/ leitura → nenhuma função deste pacote abre CSV em modo de escrita;
   streaming     → `ler_csv()` é um gerador; `2_itens_coletados.csv` tem 746 MB e
                   `5_pdf_texto.csv` tem 2,6 GB, e nenhum dos dois cabe confortavelmente
                   em memória via `pd.read_csv`.
@@ -128,7 +128,7 @@ def ler_csv(caminho: Path, encoding: str = "utf-8") -> Iterator[dict]:
 def estimar_linhas(caminho: Path) -> int:
     """LIMITE SUPERIOR do número de registros, contando '\\n' em blocos de 1 MB.
 
-    Não é a contagem exata, e o name diz isso de propósito: as descrições do PNCP contêm
+    Não é a contagem exata, e o nome diz isso de propósito: as descrições do PNCP contêm
     quebras de linha DENTRO de campos entre aspas (um contrato de 78 mil `\\n` tem 60 mil
     registros). Contar de verdade exigiria uma passada completa do parser de CSV — cara
     justamente nos arquivos onde a barra de progresso importa, que são os de gigabytes.
@@ -152,12 +152,12 @@ def existe(caminho: Path) -> bool:
 class Retomada:
     """Quantas linhas do CSV este script já consumiu.
 
-    O contador é por LINHA DE ORIGEM, não por linha inserida: os CSVs de source são
+    O contador é por LINHA DE ORIGEM, não por linha inserida: os CSVs de origem são
     somente-leitura e append-only, então "pular as N primeiras" é estável entre execuções.
     Contar destino não serviria — o destino dedupa, e o número não voltaria a bater.
 
     O avanço só é gravado DEPOIS que o lote foi comitado no banco. Gravar antes faria uma
-    interrupção no meio do lote pular linhas nunca inseridas — o mesmo mode de falha que
+    interrupção no meio do lote pular linhas nunca inseridas — o mesmo modo de falha que
     docs/08_CONVENCOES.md §5.3 descreve para o resultado de LLM.
     """
 

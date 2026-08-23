@@ -6,7 +6,7 @@ Duas camadas, deliberadamente redundantes:
   1. **Linha `run_lock`** (`id=1`, PK fixa): o mecanismo de verdade. `tentar_adquirir` é
      um `UPDATE ... ON CONFLICT ... WHERE expires_at < now()` atômico — só rouba o lock de quem
      já expirou. Sobrevive a reinício do banco e é o que `runner.launcher` consulta para saber
-     "tem step rodando?" sem precisar de uma conexão viva.
+     "tem etapa rodando?" sem precisar de uma conexão viva.
   2. **`pg_advisory_lock`** na conexão que fica aberta pelo `processo.py` durante a etapa
      inteira: é o cinto e suspensórios que "some sozinho se a conexão cair" (docs/04_FASES.md
      §Fase 3 item 2) — se o processo morre sem conseguir atualizar a linha (kill -9, queda de
@@ -53,7 +53,7 @@ def tentar_adquirir(sessao: Session, run_etapa_id: int, pid: int, *,
 def renovar(sessao: Session, run_etapa_id: int, *, timeout_s: int = LEASE_PADRAO_S) -> None:
     """Chamado a cada heartbeat (`contexto_banco.DbContext._heartbeat`). Só renova se o
     lock ainda for desta execução — se outro processo já o tomou (lease anterior expirou e
-    outra step começou), não há nada a renovar."""
+    outra etapa começou), não há nada a renovar."""
     sessao.execute(
         text("UPDATE run_lock SET expires_at = now() + make_interval(secs => :t) "
              "WHERE id = 1 AND run_etapa_id = :re"), {"re": run_etapa_id, "t": timeout_s})

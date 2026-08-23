@@ -1,5 +1,5 @@
 """
-Fingerprint de step (ADR-009) — a alternativa ao grafo de invalidação.
+Fingerprint de etapa (ADR-009) — a alternativa ao grafo de invalidação.
 
 `fingerprint = sha256(versao_codigo || effective_params || fingerprints_das_dependências)`.
 Comparar o valor gravado da última execução concluída de uma etapa contra o recalculado agora

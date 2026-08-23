@@ -1,7 +1,7 @@
 """
 Repositórios por agregado — a única camada que fala SQL.
 
-Regra da Fase 2 (docs/04_FASES.md): **nenhuma step escreve SQL solto**. Etapa, migração e
+Regra da Fase 2 (docs/04_FASES.md): **nenhuma etapa escreve SQL solto**. Etapa, migração e
 (depois) API passam por aqui. O motivo não é purismo: a consulta que monta o export junta seis
 tabelas e um erro de join produz um preço errado no XLSX, não uma exceção. Concentrando o SQL,
 existe um lugar só para revisar e um lugar só para testar.

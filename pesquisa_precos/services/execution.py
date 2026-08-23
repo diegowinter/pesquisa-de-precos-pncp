@@ -30,7 +30,7 @@ class RunInexistente(RuntimeError):
 
 
 class ExecucaoEmAndamento(RuntimeError):
-    """Lock ocupado por outra step (ADR-001: single-writer) — 409 na API."""
+    """Lock ocupado por outra etapa (ADR-001: single-writer) — 409 na API."""
 
 
 class DependenciaNaoSatisfeita(RuntimeError):
@@ -245,7 +245,7 @@ def conteudo_export(export_id: int):
 
 def saude_provedores() -> list[dict[str, Any]]:
     """Sonda `chat`/`embed`/`rerank`/`pdf`/`pareamento` (banco → `.env`) e devolve o
-    resultado. Não gasta e não dispara step — é a mesma sondagem HTTP leve que
+    resultado. Não gasta e não dispara etapa — é a mesma sondagem HTTP leve que
     `runner.launcher` faz antes do play, exposta para diagnóstico manual.
 
     Era o comando `cli providers saude`; virou tela na Fase 13, quando a CLI saiu."""

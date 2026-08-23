@@ -1,6 +1,6 @@
 """
 Repositório de `notification_recipient` — CRUD dos destinatários de notificação (Fase 9,
-canal Resend/e-mail). A credencial (API key do Resend) não mora aqui — só em `.env`
+canal Resend/e-mail). A credencial (API chave do Resend) não mora aqui — só em `.env`
 (ADR-006); esta tabela guarda apenas QUEM recebe.
 """
 

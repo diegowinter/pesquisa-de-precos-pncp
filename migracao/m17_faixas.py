@@ -1,7 +1,7 @@
 """
 m17 — Faixas de preço: `config_faixas_preco.csv` → `faixa_preco`.
 
-Arquivo pequeno e **curado à mão**: por categoria, o preço mínimo e máximo plausível. A step 7
+Arquivo pequeno e **curado à mão**: por categoria, o preço mínimo e máximo plausível. A etapa 7
 o usa para sinalizar preço fora da faixa, ao lado do outlier por IQR. Limite vazio significa
 "sem limite deste lado" (`arma_fogo,5,` = mínimo 5, sem teto) — vira NULL, não zero. Confundir
 os dois transformaria "sem teto" em "teto zero" e sinalizaria a categoria inteira.

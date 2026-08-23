@@ -5,7 +5,7 @@ O arquivo é o maior do acervo: 888.656 linhas, cada uma com uma página inteira
 consequências práticas: lote de `COPY` de 1.000 (não 5.000), e `csv.field_size_limit` elevado —
 sem ele o módulo `csv` aborta em algum campo grande no meio do arquivo.
 
-O problema de key: `doc_key` no CSV é o **caminho absoluto** da pasta do PDF, não o número de
+O problema de chave: `doc_key` no CSV é o **caminho absoluto** da pasta do PDF, não o número de
 controle. O mapa `caminho → numero_controle_pncp` vem de `2_itens_coletados.csv`
 (`pasta_arquivos` → `numeroControlePNCP`), reconstruído aqui em streaming. Documentos cujo
 `doc_key` não mapear são **contados e reportados**, nunca silenciados

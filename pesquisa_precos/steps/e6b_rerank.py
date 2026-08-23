@@ -25,7 +25,7 @@ from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 KEY = "6b"
 # 2.1.0 — Fase 14 (ADR-022): `t_aceita`/`t_rejeita` deixaram de vir do `.env` e viraram
 # `Params`. O valor efetivo passa a sair de `config_version` (versionado e imutável), então o
-# fingerprint TEM de enxergar a mudança de source — daí o bump.
+# fingerprint TEM de enxergar a mudança de origem — daí o bump.
 CODE_VERSION = "2.1.0"
 
 

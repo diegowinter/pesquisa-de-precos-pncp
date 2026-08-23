@@ -2,7 +2,7 @@
 Semeia `provider`/`provider_capability` a partir do `.env` — a ponte de mão única da Fase 14
 (ADR-022, bloco 4).
 
-Roda UMA vez, na virada. Depois dela, quem configura provider é a tela `/provedores`, e o
+Roda UMA vez, na virada. Depois dela, quem configura provedor é a tela `/provedores`, e o
 `.env` fica só com `DATABASE_URL` e `APP_SECRET_KEY`.
 
 Por que aqui e não numa migração Alembic (como a ADR-022 previa): semear depende de duas coisas
@@ -14,7 +14,7 @@ de apoio pontual (ver CLAUDE.md), e este é pontual por definição.
     uv run python -m tools.seed_providers --conferir   # não escreve nada
     uv run python -m tools.seed_providers              # grava
 
-É IDEMPOTENTE: reexecutar atualiza as mesmas linhas (o `upsert` é por name) e não duplica nada.
+É IDEMPOTENTE: reexecutar atualiza as mesmas linhas (o `upsert` é por nome) e não duplica nada.
 Só toca no que o `.env` descreve; provedor que você já cadastrou pela tela e não existe no
 `.env` fica intacto.
 """
@@ -89,7 +89,7 @@ def plano() -> tuple[list[dict], list[dict], list[str]]:
             "base_url": _env("GPU_BASE_URL"),
             "default_model": _env("EMBEDDER_MODEL"),
             "api_key": _env("GPU_API_KEY") or None})
-        # `model` por capability: embed e rerank são modelos diferentes no mesmo serviço.
+        # `model` por capacidade: embed e rerank são modelos diferentes no mesmo serviço.
         apontamentos.append({"capability": "embed", "provider": "gpu_caseira",
                              "model": _env("EMBEDDER_MODEL")})
         apontamentos.append({"capability": "rerank", "provider": "gpu_caseira",

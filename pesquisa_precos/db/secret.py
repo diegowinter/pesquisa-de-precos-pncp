@@ -1,11 +1,11 @@
 """
 Cifra dos segredos que moram no banco (Fase 14, ADR-022).
 
-Até a Fase 13, `provider.api_key_ref` guardava o *name* de uma variável de ambiente e o value
+Até a Fase 13, `provider.api_key_ref` guardava o *nome* de uma variável de ambiente e o valor
 ficava no `.env`. A intenção era não vazar chave em `pg_dump` — mas o efeito colateral era que
 cadastrar um provedor pela tela continuava impossível sem editar arquivo e reiniciar o
 servidor, ou seja, a tela de provedores nunca virava a superfície de configuração que a ADR-014
-prometeu. A key passa a morar no banco, **cifrada**.
+prometeu. A chave passa a morar no banco, **cifrada**.
 
 O desenho é envelope simples:
 
@@ -15,7 +15,7 @@ O desenho é envelope simples:
 - **AES-256-GCM** por segredo, com nonce de 12 bytes aleatório por operação. GCM e não CBC
   porque queremos autenticação junto: um `bytea` adulterado no banco falha ao decifrar em vez
   de devolver lixo silencioso.
-- O name do provedor entra como **AAD** (dado autenticado, não cifrado). Isso amarra o
+- O nome do provedor entra como **AAD** (dado autenticado, não cifrado). Isso amarra o
   criptograma à linha: copiar o `api_key_encrypted` do provedor A para o B faz a decifra falhar,
   em vez de o B passar a usar a chave do A sem ninguém notar.
 
@@ -53,7 +53,7 @@ VAR_CHAVE_ANTIGA = "APP_SECRET_KEY_ANTIGA"
 class ChaveMestraAusente(RuntimeError):
     """`APP_SECRET_KEY` não está no ambiente. Sem ela não há como cifrar nem decifrar chave de
     provedor — e, desde a ADR-022, não há provedor sem key. Falha alta e clara, na mesma
-    linha do que a ADR-020 fez com `DATABASE_URL`: um caminho só, sem mode degradado."""
+    linha do que a ADR-020 fez com `DATABASE_URL`: um caminho só, sem modo degradado."""
 
 
 class SegredoInvalido(ValueError):
@@ -128,7 +128,7 @@ def cifrar(segredo: str, *, context: str) -> bytes:
 
 def decifrar(blob: bytes, *, context: str) -> str:
     """Devolve o segredo em claro. Só `providers/resolver` deve chamar isto, e só para montar
-    o adapter — o value nunca sobe para a API nem para o HTML (ADR-022)."""
+    o adapter — o valor nunca sobe para a API nem para o HTML (ADR-022)."""
     if not blob or not blob.startswith(_PREFIXO):
         raise SegredoInvalido("blob de segredo com formato desconhecido (esperado prefixo v1)")
     corpo = blob[len(_PREFIXO):]
@@ -158,7 +158,7 @@ def key_id_do_blob(blob: bytes) -> str | None:
 
 
 def recifrar(blob: bytes, *, context: str) -> bytes:
-    """Decifra com qualquer key aceita e cifra de novo com a atual (rotação)."""
+    """Decifra com qualquer chave aceita e cifra de novo com a atual (rotação)."""
     return cifrar(decifrar(blob, context=context), context=context)
 
 

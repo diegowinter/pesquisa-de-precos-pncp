@@ -52,7 +52,7 @@ class EmbedderRemoto:
                 self._cache[h] = np.asarray(v, dtype=np.float32)
         return np.vstack([self._cache[h] for h in hashes])
 
-    def liberar(self) -> None:  # o model vive no servidor; nada a liberar aqui.
+    def liberar(self) -> None:  # o modelo vive no servidor; nada a liberar aqui.
         pass
 
 

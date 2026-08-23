@@ -1,7 +1,7 @@
 """
 m04 — Catálogo: `0a_catalogo_filtrado.csv` + `1_categoria_por_codigo.csv` → `catalogo_item`.
 
-A `categoria` NÃO vem do catálogo: vem de `1_categoria_por_codigo.csv`, produzido pela step 1.
+A `categoria` NÃO vem do catálogo: vem de `1_categoria_por_codigo.csv`, produzido pela etapa 1.
 É a fonte canônica por item usada pelo pareamento da 6a — o join é feito aqui, na migração, e
 não em cada consulta depois (docs/05_MIGRACAO.md §m04).
 

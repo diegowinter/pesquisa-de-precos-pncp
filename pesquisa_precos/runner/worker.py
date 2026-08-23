@@ -48,7 +48,7 @@ def run(run_etapa_id: int) -> int:
     if not lock.advisory_tentar(sessao_execucao):
         # A linha `run_lock` já foi reservada por `executor` antes de este processo
         # subir; chegar aqui sem conseguir o advisory lock significa outro processo (mesmo
-        # host Postgres) disputando a MESMA key — não deveria acontecer sob uso normal, mas
+        # host Postgres) disputando a MESMA chave — não deveria acontecer sob uso normal, mas
         # falhar alto e claro é melhor que rodar sem a segunda trava.
         repo.marcar_falhou(sessao_execucao, run_etapa_id,
                            "não foi possível adquirir o pg_advisory_lock — outra execução "
