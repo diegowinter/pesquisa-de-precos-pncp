@@ -50,8 +50,9 @@ completo do que mudou está no corpo dela.
 ### O pesado não roda aqui (ADR-021)
 
 Desde 2026-08-22 existe `../pncp-servicos-locais/` — quatro serviços HTTP (`gpu`, `ocr`,
-`pdf`, `pareamento`) — a capacidade aqui se chama `matching` com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
-200 DPI, OCR, embedder, reranker, BM25 e o corte do produto catálogo × itens.
+`pdf`, `pareamento`) com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
+200 DPI, OCR, embedder, reranker, BM25 e o corte do produto catálogo × itens. Do lado de cá, a
+capacidade que fala com o serviço de pareamento chama-se `matching`.
 
 Aqui só ficaram **clientes**. Não existe mais `…EmProcessoAdapter`: `base_url` vazio é erro de
 configuração, não "roda na própria máquina". A razão é a mesma da ADR-020 — dois caminhos para

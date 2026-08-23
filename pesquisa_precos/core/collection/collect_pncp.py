@@ -1,13 +1,9 @@
 """
-Lógica de coleta do PNCP como funções puras (etapa 2), migrada do `1_obter_itens.py`
-da v1. Sem `__main__` de pipeline, sem `rich`/`Progress` — a etapa `e2_collect.py`
-orquestra e mostra o progresso; aqui ficam só busca → filtro homologado → explode em
-itens, além do consolidador `carregar_itens_coletados()`.
+Lógica de coleta do PNCP como funções puras (etapa 2). Sem `rich`/`Progress`: quem orquestra
+e mostra progresso é `steps/e2_collect.py`; aqui ficam busca, filtro de homologados e a
+explosão em itens.
 
-Elimina o hack de `importlib` para módulo que começa com dígito: quem precisa da coleta
-importa este módulo normalmente.
-
-Regras de negócio (idênticas à v1, MENOS o download — ver Fase 8/ADR-011):
+Regras de negócio (o download saiu daqui — ver ADR-011):
   1. Documento precisa ter arquivo do tipo alvo (Contrato / Ata de Registro de Preço).
   2. Precisa ter pelo menos um item Homologado.
   3. Passando as duas: explode 1 linha por item — SEM baixar PDF.
