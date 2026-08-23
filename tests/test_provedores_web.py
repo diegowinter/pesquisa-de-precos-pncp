@@ -34,6 +34,30 @@ def _limpar():
         sessao.execute(text("DELETE FROM provedor WHERE nome LIKE :p"), {"p": f"{PREFIXO}%"})
 
 
+def _snapshot_capacidades():
+    """Fotografa `capacidade_provedor` inteira.
+
+    Os testes apontam capacidades REAIS (`chat`, `embed`, ...) para provedores fictícios — não
+    há capacidade "de teste", o enum é fechado. Sem restaurar depois, rodar `pytest` apagaria a
+    configuração de produção do operador: as etapas parariam de resolver provedor e a culpa
+    pareceria do código. Já aconteceu uma vez.
+    """
+    with db.sessao() as sessao:
+        return [dict(r) for r in sessao.execute(text(
+            "SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor"
+        )).mappings()]
+
+
+def _restaurar_capacidades(linhas):
+    from pesquisa_precos.db.repos import execucao as repo
+
+    with db.sessao() as sessao:
+        sessao.execute(text("DELETE FROM capacidade_provedor"))
+        for linha in linhas:
+            repo.apontar_capacidade(sessao, linha["capacidade"], linha["provedor"],
+                                    linha["modelo"], linha["fallback"])
+
+
 @pytest.fixture
 def cliente(monkeypatch):
     from fastapi.testclient import TestClient
@@ -42,10 +66,12 @@ def cliente(monkeypatch):
 
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     monkeypatch.delenv("WEB_SENHA", raising=False)   # login desligado, como local
+    capacidades = _snapshot_capacidades()
     _limpar()
     with TestClient(app, follow_redirects=False) as c:
         yield c
     _limpar()
+    _restaurar_capacidades(capacidades)
 
 
 def test_criar_provedor_pela_tela(cliente):

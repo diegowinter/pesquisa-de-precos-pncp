@@ -86,6 +86,13 @@ def provedor_de_teste():
     from pesquisa_precos.db.repos import execucao as repo
 
     criados: list[str] = []
+    # Ver `_snapshot_capacidades` em test_provedores_crud.py: apontar capacidade REAL para um
+    # provedor de teste e depois apagar deixaria a instalação sem configuração.
+    from sqlalchemy import text as _text
+    with db.sessao() as sessao:
+        antes = [dict(r) for r in sessao.execute(_text(
+            "SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor"
+        )).mappings()]
 
     def criar(nome: str, capacidades: list[str], base_url: str):
         with db.sessao() as sessao:
@@ -97,12 +104,16 @@ def provedor_de_teste():
     yield criar
 
     from sqlalchemy import text
+
     with db.sessao() as sessao:
         for nome in criados:
             sessao.execute(text("DELETE FROM capacidade_provedor WHERE provedor = :n"),
                            {"n": nome})
             sessao.execute(text("DELETE FROM provedor_status WHERE provedor = :n"), {"n": nome})
             sessao.execute(text("DELETE FROM provedor WHERE nome = :n"), {"n": nome})
+        for linha in antes:
+            repo.apontar_capacidade(sessao, linha["capacidade"], linha["provedor"],
+                                    linha["modelo"], linha["fallback"])
 
 
 @pytestmark_db
