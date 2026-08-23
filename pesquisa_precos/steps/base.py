@@ -55,7 +55,7 @@ class StepResult(BaseModel):
     """Resposta de `executar()`. `metrics` vai para a UI; `preview` alimenta o gate."""
 
     processed: int = 0
-    erros: int = 0
+    errors: int = 0
     metrics: dict[str, Any] = Field(default_factory=dict)
     preview: list[dict] = Field(default_factory=list)
 

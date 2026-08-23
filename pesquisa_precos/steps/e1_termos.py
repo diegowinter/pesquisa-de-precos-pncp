@@ -310,7 +310,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"({metrics['termos_no_banco']} no banco, incluindo manuais).")
 
     return StepResult(
-        processed=n_ok, erros=n_erros,
+        processed=n_ok, errors=n_erros,
         metrics={"itens_do_catalogo": len(df), "termos_gerados": len(novas), **metrics},
         preview=novas[:50],
     )

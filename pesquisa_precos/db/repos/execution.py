@@ -561,14 +561,19 @@ def listar_provedores(sessao: Session) -> list[dict[str, Any]]:
     """Registro de `provider`/`provider_capability` (ADR-006), sem probe ao vivo — para o
     resultado da sondagem (`provider_status`), ver `checar_todos_ativos`/`checar_capacidade`
     em `providers.health` (Fase 7)."""
-    provedores = {p["name"]: {**p, "capabilities": _capabilities_como_lista(p["capabilities"]),
-                              "served_capabilities": []} for p in sessao.execute(
+    linhas = sessao.execute(
         text("SELECT name, capabilities, base_url, default_model, allows_fallback, active, "
              "       batch_size, rpm_limit, cost_in_per_mtok, cost_out_per_mtok, "
              "       cost_usd_per_call, "
              "       api_key_last4, api_key_key_id, api_key_updated_at, "
              "       (api_key_encrypted IS NOT NULL) AS has_api_key, "
-             "       updated_at FROM provider ORDER BY name")).mappings().all()}
+             "       updated_at FROM provider ORDER BY name")).mappings().all()
+    provedores = {
+        p["name"]: {**p,
+                    "capabilities": _capabilities_como_lista(p["capabilities"]),
+                    "served_capabilities": []}
+        for p in linhas
+    }
     for c in sessao.execute(
             text("SELECT capability, provider, model, fallback FROM provider_capability")
     ).mappings().all():

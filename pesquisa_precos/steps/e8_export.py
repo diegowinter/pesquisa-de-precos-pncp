@@ -366,7 +366,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         salvar_snapshot({_chave(linha) for linha in linhas_csv}, params, catmap, export_id)
         ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves).")
         return StepResult(
-            processed=len(novos), erros=0,
+            processed=len(novos), errors=0,
             metrics={"linhas_novas": len(novos), "linhas_no_export": len(linhas_csv),
                       "baseline_anterior": len(prev), "run_id": run_id},
             preview=novos[:50],
@@ -376,7 +376,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     ctx.log("info", f"[8] Exportadas {len(linhas_csv)} linhas → {NOME_COMPLETO} "
                     f"(baixe pela tela de exports)")
     return StepResult(
-        processed=len(linhas_csv), erros=0,
+        processed=len(linhas_csv), errors=0,
         metrics={"linhas_no_export": len(linhas_csv),
                   "codigos_podados": n_codigos_removidos, "run_id": run_id},
         preview=linhas_csv[:50],

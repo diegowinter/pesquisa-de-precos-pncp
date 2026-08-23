@@ -112,7 +112,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     with db.session() as s:
         contagens = repo_par.contar(s)
     ctx.log("info", f"[bold green][6b] Concluído.[/] {decisoes} → tabela `par`")
-    return StepResult(processed=sum(decisoes.values()), erros=0,
+    return StepResult(processed=sum(decisoes.values()), errors=0,
                           metrics={**decisoes, **contagens})
 
 

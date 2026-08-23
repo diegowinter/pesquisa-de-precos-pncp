@@ -280,7 +280,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                         f"{delta['codigos_removidos']} removidos")
 
     return StepResult(
-        processed=derivacao["ativos"], erros=0,
+        processed=derivacao["ativos"], errors=0,
         metrics={"itens_no_catalogo_raw": total_raw, **por_tipo, **derivacao, **delta},
         preview=preview,
     )

@@ -529,6 +529,6 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     ctx.log("info", f"[bold green][5] Concluído.[/] → banco ({cont})")
     n_itens = sum(len(grupos[d]) for d in pend)
     return StepResult(
-        processed=n_itens - n_erros[0], erros=n_erros[0],
+        processed=n_itens - n_erros[0], errors=n_erros[0],
         metrics={"documentos_processados": len(pend) - n_erros[0], **cont},
     )

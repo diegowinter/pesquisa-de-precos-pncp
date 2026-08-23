@@ -62,7 +62,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"{n_docs} documentos recontados")
 
     return StepResult(
-        processed=final["item_sobrevivente"], erros=0,
+        processed=final["item_sobrevivente"], errors=0,
         metrics={"categorias_mantidas": len(relatorio),
                   "itens_sobreviventes": final["item_sobrevivente"],
                   "documentos_recontados": n_docs, **resultado},

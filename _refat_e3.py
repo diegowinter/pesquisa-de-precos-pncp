@@ -1,104 +1,7 @@
-"""
-Etapa 3 — Classifica a categoria de cada item do PNCP no LLM (multi-label).
+"""Reescreve o miolo da etapa 3: contadores nomeados no lugar de listas de um elemento."""
+import pathlib
 
-A descrição do PNCP se repete muito: o mesmo texto reaparece milhares de vezes. Classificamos
-cada par (descrição, unidade) distinto uma vez e espalhamos o rótulo para todos os `item_key`
-iguais, o que derruba as chamadas de LLM de O(itens) para O(textos distintos). A saída
-continua por `item_key`, com a referência à ata ou contrato intacta. Item sem categoria de
-conteúdo morre aqui.
-
-Não classificar por item em vez de por texto distinto: o dedup de ~5x é o que segura o custo
-desta etapa, a mais cara do ciclo.
-"""
-
-import sys
-import threading
-
-for _s in (sys.stdout, sys.stderr):
-    try:
-        _s.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
-
-from pydantic import BaseModel, Field
-
-from pesquisa_precos.core.parallel import executar_paralelo
-from pesquisa_precos.core import prompts_resolver
-from pesquisa_precos.db import session as db
-from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
-
-KEY = "3"
-# 1.1.0 (Fase 2): o dedup passa a agrupar pelo `texto_hash` canônico de core.text, que
-# dobra acento — antes o agrupamento era por (lower, espaços colapsados) sem dobra.
-CODE_VERSION = "2.0.0"
-
-
-class Params(BaseModel):
-    provider: str | None = Field(
-        None, description="Override manual do provider de chat [local|openrouter]. "
-        "Sem valor, usa o que estiver configurado em provider_capability (Fase 7) — ou "
-        "'local' se o banco de provedores ainda não tiver sido configurado (ADR-014).")
-    limite: int | None = Field(None, description="Teto de textos únicos a classificar (debug)")
-    concurrency: int = Field(3, ge=1, le=32, description="Chamadas simultâneas ao LLM")
-    retry_erros: bool = Field(
-        False, description="Reprocessa só as chaves de erros/3_erros.csv")
-    reasoning: bool = Field(
-        False, description="Mantém o raciocínio do model LIGADO. Padrão: desligado.")
-
-
-def estimate(params: Params, ctx: RunContext) -> Estimate:
-    """Uma chamada por TEXTO único ainda não classificado — não por item."""
-    from pesquisa_precos.db.repos import classification as repo
-
-    ok, detalhe = db.is_available()
-    if not ok:
-        return Estimate(detalhes={"aviso": f"banco indisponível: {detalhe}"})
-    with db.session() as s:
-        n_textos, n_itens = repo.contar_pendentes(s)
-        ja = len(repo.hashes_ja_classificados(s))
-    n = n_textos if not params.limite else min(n_textos, params.limite)
-    resolucao = ctx.providers.resolucao_opcional("chat")
-    preco = resolucao.info.cost_usd_per_call if resolucao else None
-    return Estimate(
-        unidades=n, chamadas_llm=n,
-        cost_usd=None if preco is None else n * preco,
-        duracao_s=n / max(params.concurrency, 1) * 2,
-        detalhes={"itens_pendentes": n_itens,
-                  "textos_unicos": n_textos,
-                  "dedup": f"{n_itens / max(n_textos, 1):.1f}x",
-                  "textos_ja_classificados (nunca repagos)": ja},
-    )
-
-
-def run(params: Params, ctx: RunContext) -> StepResult:
-    # Fase 14 (ADR-022): uma fonte só. `resolucao` levanta `CapabilityNotConfigured` se
-    # ninguém atende `chat` — a validação de `.env` que existia aqui virou desnecessária.
-    resolucao_chat = ctx.providers.resolucao("chat")
-    nome_provedor = resolucao_chat.info.name
-
-    # Prompt e reasoning são resolvidos igual nos dois caminhos; só o IO muda.
-    reasoning_kw = {}
-    if not params.reasoning:
-        reasoning_kw = ({"extra_body": {"reasoning_effort": "none"}}
-                        if nome_provedor == "local" else {"reasoning": {"enabled": False}})
-    try:
-        with db.session() as sessao:
-            prompts_ativos = prompts_resolver.carregar_ativos(sessao,
-                                                              ["classificar_item"])
-    except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
-        prompts_ativos = {}
-    return _rodar(params, ctx, resolucao_chat, prompts_ativos, reasoning_kw)
-
-
-# ── Classificação no banco (Fase 10) ────────────────────────────────────────────────
-#
-# O dedup por texto — o que segura o custo desta etapa, a mais cara do ciclo — deixa de ser
-# intra-execução e vira PERMANENTE (ADR-007): `texto_classificacao` sobrevive entre runs, e
-# um texto já pago nunca mais volta ao modelo. No CSV, o agrupamento era refeito a cada
-# execução sobre 1,6 milhão de linhas em memória; aqui o `texto_hash` já veio calculado da
-# ingestão da etapa 2 e o agrupamento é do banco.
-
-class _Acumulador:
+NOVO = '''class _Acumulador:
     """Contadores e lote pendente da classificação, compartilhados entre as threads.
 
     Substitui as listas de um elemento (`n_ok = [0]`) que serviam de célula mutável. O lock
@@ -226,3 +129,16 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
         preview=[{"descricao": g["descricao"][:200], "itens": g["n_itens"]}
                  for g in tarefas[:30]],
     )
+'''
+
+
+def main() -> None:
+    p = pathlib.Path("pesquisa_precos/steps/e3_classify.py")
+    t = p.read_text(encoding="utf-8")
+    ini = t.index("def _rodar(params: Params, ctx: RunContext, resolucao_chat,")
+    p.write_text(t[:ini] + NOVO, encoding="utf-8")
+    print("ok")
+
+
+if __name__ == "__main__":
+    main()

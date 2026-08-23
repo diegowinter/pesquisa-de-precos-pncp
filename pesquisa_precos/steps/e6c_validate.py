@@ -144,7 +144,7 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
                     f"{n_erros[0]} erros · decisão final recomputada em {n_decisoes} pares · "
                     f"+{n_rotulos} rótulos")
     return StepResult(
-        processed=n_ok[0], erros=n_erros[0],
+        processed=n_ok[0], errors=n_erros[0],
         metrics={**vereditos, "decisoes_finais": n_decisoes, "rotulos_novos": n_rotulos,
                   "pares_antes": contagens_antes.get("par", 0), **contagens},
     )

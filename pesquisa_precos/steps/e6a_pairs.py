@@ -129,7 +129,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"({contagens})")
 
     return StepResult(
-        processed=len(pares), erros=0,
+        processed=len(pares), errors=0,
         metrics={"sobreviventes": len(pares), "codigos": len(catalogo),
                   "itens_categoria": len(itens), **contagens},
         preview=pares[:50],
