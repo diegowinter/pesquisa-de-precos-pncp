@@ -17,7 +17,7 @@ desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fa
 ```
 pesquisa_precos/
   __main__.py  ← `python -m pesquisa_precos` sobe TUDO (HTML + /api) numa porta só
-  config/    settings.py (.env) · paths.py (só do importador, ver abaixo)
+  config/    settings.py (só bootstrap, ver ADR-022) · paths.py (só do importador)
   etapas/    e0a_catalogo · e1_termos · e2_coletar · e3_classificar · e4_cortar
              e5_extrair · e6a_pares · e6b_rerank · e6c_validar · e7_agrupar · e8_exportar
   core/      regras, paralelo, prompts, coleta PNCP, catálogo, classificação, pareamento
@@ -55,6 +55,34 @@ O companion **não importa `pesquisa_precos`** — é independente e tem `pyproj
 `.env` próprios. Consequências práticas: `OCR_*` saiu do `.env` daqui, a etapa 5 declara
 `("pdf", "chat")` e a 6a declara `("pareamento",)`. Rodar o pipeline localmente é subir os
 serviços também.
+
+### Configuração não mora mais no `.env` (Fase 14, ADR-022)
+
+Desde 2026-08-22 o `.env` tem **4 linhas**: `DATABASE_URL`, `APP_SECRET_KEY` e as duas
+credenciais do Resend. Tudo que é configuração de operação foi para o banco e se edita pela
+tela:
+
+| O quê | Onde se configura |
+|---|---|
+| modelo, base_url, chave de API, batch, custo | `/provedores` (tabela `provedor`) |
+| quem atende `chat`/`embed`/`rerank`/`pdf`/`pareamento` | `/provedores` (`capacidade_provedor`) |
+| thresholds da 6b, `min_itens`/`top_n` da 7, todo `Params` | formulário da etapa (`config_versao`) |
+
+Consequências para quem for mexer:
+
+- **`carregar_config()` devolve `{}`.** `ctx.config` ainda existe no contrato de etapa, mas
+  está vazio. Ler configuração de lá é bug.
+- **Não existe fallback para o `.env`.** `_resolver_via_env` saiu; capacidade sem provedor
+  apontado levanta `CapacidadeNaoConfigurada` e a etapa para antes de começar. Se uma etapa
+  reprovar por isso, o conserto é cadastrar o provedor em `/provedores`, não recriar a variável.
+- **`APP_SECRET_KEY` é a chave-mestra** que cifra as chaves de API em `provedor.api_key_cifrada`
+  (AES-GCM, `db/segredo.py`). Sem ela, nenhuma etapa que use LLM/GPU roda. O único ponto do
+  código que decifra é `providers/resolver.py` — um teste estrutural guarda isso.
+- **`ferramentas/semear_provedores.py`** foi a ponte de mão única do `.env` para o banco. Já
+  rodou; não precisa rodar de novo.
+- **Estado hoje:** `chat → openrouter`, `embed`/`rerank → gpu_caseira`, `lm_studio` cadastrado
+  mas não apontado. **`pdf` e `pareamento` estão SEM provedor** — as etapas 5 e 6a não rodam
+  até serem cadastradas.
 
 ### Não existe CLI (Fase 13, ADR-020)
 
@@ -119,8 +147,10 @@ Livres: `ferramentas/`, consultas de leitura ao banco, `pytest`, `ruff`, e subir
 
 ## Restrição crítica de custo de LLM
 
-**Não há orçamento para o modelo caro** (`OPENAI_MODEL_PASS2`, hoje `qwen3.7-plus`). Use sempre
-o modelo barato (`OPENAI_MODEL_PASS1`, `inclusionai/ling-2.6-flash`).
+**Não há orçamento para o modelo caro.** O provedor `openrouter` está cadastrado com
+`inclusionai/ling-2.6-flash` (barato) e é ele que atende `chat`. O modelo caro (era
+`OPENAI_MODEL_PASS2`, `qwen3.7-plus`) **não foi semeado de propósito** na Fase 14: cadastrá-lo
+criaria um provedor pronto para ser apontado por engano.
 
 Até a Fase 0 isso dependia de lembrar de digitar `--fraco` na **etapa 6c** — sem a flag, ela
 caía no modelo caro. **A Fase 1 inverteu** (ADR-004): o barato é o padrão e o caro exige
@@ -133,11 +163,12 @@ ao ser ultrapassado, e vale a pena preenchê-lo ao criar o run.
 ## "Regra dos 5" — foi removida intencionalmente
 
 O README/GUIA ainda descrevem uma "regra dos 5" (mínimo/top-5 itens por código de catálogo).
-Essa regra **foi desativada a pedido explícito do usuário**, via `.env`:
+Essa regra **foi desativada a pedido explícito do usuário**. Desde a Fase 14 os dois valores
+são `Params` da etapa 7 (antes eram `MIN_ITENS`/`TOP_N` no `.env`), com estes defaults:
 
 ```
-MIN_ITENS=1   # qualquer código fecha com só 1 item confirmado
-TOP_N=0       # sem teto — traz TODAS as referências confirmadas não sinalizadas por código
+min_itens = 1   # qualquer código fecha com só 1 item confirmado
+top_n     = 0   # SEM TETO — traz TODAS as referências confirmadas não sinalizadas por código
 ```
 
 Isso está confirmado e é comportamento esperado desde 2026-08. **Não tratar >5 itens por
@@ -216,7 +247,7 @@ domínio — os 1,6 milhão de itens seguem só nos CSVs.
 | 5a/5b (enriquecer PDF) | ✅ | caminho base (sem alt); ~30k itens, 0 erros |
 | 6a (pares+embeddings) | ✅ | bug de `MemoryError` corrigido (corte em streaming) |
 | 6b (reranker) | ✅ | GPU remota |
-| 6c (LLM ambíguos) | ✅ | sempre com `--fraco` |
+| 6c (LLM ambíguos) | ✅ | modelo barato é o padrão (ADR-004); nunca marcar `forte` |
 | 7 (agrupar) | ✅ | sem LLM, recomputa tudo |
 | 8 (exportar) | ✅ | feature nova `--novos` (delta incremental) implementada e testada |
 
@@ -238,11 +269,12 @@ estavam iguais antes dela.
 - **Estado de execução vive no banco**, não em `data/`: `run`/`run_etapa` (progresso, custo,
   status), `run_log` (log estruturado) e `erro_item` (falha por item, que não derruba a etapa).
   `data/checkpoints/` e `data/erros/` são do pipeline antigo.
-- **A tela `/provedores`** é o primeiro lugar a olhar quando uma etapa reprova antes de começar:
-  ela sonda cada capacidade na ordem banco → `.env`. Uma linha vermelha aí costuma ser um
-  serviço de `pncp-servicos-locais` que não está no ar, não um bug do pipeline.
-- `.env` — nunca commitar (está no `.gitignore`); tem chaves de API e a URL do túnel ngrok da
-  GPU remota (`GPU_BASE_URL`), que muda de tempos em tempos.
+- **A tela `/provedores`** é o primeiro lugar a olhar quando uma etapa reprova antes de
+  começar — e desde a Fase 14 é também onde se conserta. Ela sonda cada capacidade e faz o CRUD
+  de provedor. Linha vermelha costuma ser um serviço de `pncp-servicos-locais` fora do ar, ou
+  a URL do túnel ngrok da GPU que mudou (agora se troca ali, sem editar arquivo nem reiniciar).
+- `.env` — nunca commitar (está no `.gitignore`). Desde a Fase 14 não tem mais chave de API nem
+  URL de serviço: só `DATABASE_URL`, `APP_SECRET_KEY` e as credenciais do Resend.
 - `legado/` **saiu do repositório** na Fase 0. O patch aposentado
   `2b_corrigir_precos_homologados.py` está na tag `legado-2b-precos-homologados`:
   `git show legado-2b-precos-homologados:legado/2b_corrigir_precos_homologados.py`.
