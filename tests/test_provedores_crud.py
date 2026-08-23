@@ -171,18 +171,29 @@ def test_sem_chave_mestra_nao_grava_provedor_pela_metade(monkeypatch):
 
 # ── rotação da chave-mestra ──────────────────────────────────────────────────────────
 
+def _a_recifrar_do_teste():
+    """Só as linhas deste teste. Numa instalação real há provedores de verdade no banco, e
+    trocar a chave-mestra aqui faz TODOS eles aparecerem como pendentes — o que é correto,
+    mas não é o que este teste mede."""
+    return [n for n in servico.chaves_a_recifrar() if n.startswith(PREFIXO)]
+
+
 def test_rotacao_lista_e_recifra(monkeypatch):
     antiga = seg.gerar_chave_mestra()
     monkeypatch.setenv(seg.VAR_CHAVE, antiga)
     servico.salvar(f"{PREFIXO}or", ["chat"], "http://x", api_key="sk-or-v1-supersecreta")
-    assert servico.chaves_a_recifrar() == []
+    assert _a_recifrar_do_teste() == []
 
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     monkeypatch.setenv(seg.VAR_CHAVE_ANTIGA, antiga)
-    assert f"{PREFIXO}or" in servico.chaves_a_recifrar()
+    assert f"{PREFIXO}or" in _a_recifrar_do_teste()
 
-    assert servico.recifrar_tudo() >= 1
-    assert servico.chaves_a_recifrar() == []
+    # `recifrar_tudo` varre o banco inteiro. Numa instalação real, as linhas de verdade estão
+    # cifradas por uma chave-mestra que este teste não tem — elas caem em `falharam`, e é
+    # justamente isso que se quer: uma linha ilegível não pode abortar a rotação das outras.
+    resultado = servico.recifrar_tudo()
+    assert resultado["recifradas"] >= 1
+    assert _a_recifrar_do_teste() == []
 
     # e a chave continua correta depois de re-cifrada, já sem a antiga no ambiente
     monkeypatch.delenv(seg.VAR_CHAVE_ANTIGA)
@@ -197,3 +208,24 @@ def test_diagnostico_chave_mestra(monkeypatch):
     monkeypatch.delenv(seg.VAR_CHAVE, raising=False)
     diag = servico.diagnostico_chave_mestra()
     assert diag["configurada"] is False and diag["key_id"] is None
+
+
+def test_linha_ilegivel_nao_aborta_a_rotacao(monkeypatch):
+    """Duas rotações sem re-cifrar no meio (ou um restore de dump antigo) deixam linhas que não
+    decifram com nenhuma chave disponível. Elas têm de ser REPORTADAS, não derrubar a rotação
+    das demais — senão um problema de uma linha vira um problema de todas."""
+    perdida = seg.gerar_chave_mestra()
+    monkeypatch.setenv(seg.VAR_CHAVE, perdida)
+    servico.salvar(f"{PREFIXO}perdida", ["chat"], "http://x", api_key="sk-inalcancavel")
+
+    antiga = seg.gerar_chave_mestra()
+    monkeypatch.setenv(seg.VAR_CHAVE, antiga)
+    servico.salvar(f"{PREFIXO}ok", ["chat"], "http://y", api_key="sk-recuperavel")
+
+    monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
+    monkeypatch.setenv(seg.VAR_CHAVE_ANTIGA, antiga)   # só a segunda é recuperável
+
+    resultado = servico.recifrar_tudo()
+    assert f"{PREFIXO}perdida" in resultado["falharam"]
+    assert resultado["recifradas"] >= 1
+    assert f"{PREFIXO}ok" not in _a_recifrar_do_teste()

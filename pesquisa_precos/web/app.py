@@ -27,7 +27,7 @@ from pesquisa_precos.api.routers import config as router_config
 from pesquisa_precos.api.routers import notificacoes as router_notificacoes
 from pesquisa_precos.api.routers import runs as router_runs
 from pesquisa_precos.db import sessao as db
-from pesquisa_precos.db.segredo import ChaveMestraAusente, SegredoInvalido
+from pesquisa_precos.db.segredo import ChaveMestraAusente
 from pesquisa_precos.services import config as servico_config
 from pesquisa_precos.services import diff as servico_diff
 from pesquisa_precos.services import execucao as servico
@@ -453,9 +453,16 @@ def apontar_capacidade(request: Request, capacidade: str = Form(""),
 def recifrar_chaves(request: Request, usuario: str = Depends(auth.exigir_login)):
     """Rotação de `APP_SECRET_KEY`: re-cifra o que ficou na chave anterior (ADR-022)."""
     try:
-        servico_provedores.recifrar_tudo()
-    except (ChaveMestraAusente, SegredoInvalido) as exc:
+        resultado = servico_provedores.recifrar_tudo()
+    except ChaveMestraAusente as exc:
         return _redirecionar_com_erro("/provedores", exc)
+    if resultado["falharam"]:
+        # Falha parcial é informação, não erro: o resto foi re-cifrado, e estas linhas não
+        # decifram com nenhuma chave disponível — a saída é recadastrar a chave delas.
+        return _redirecionar_com_erro("/provedores", RuntimeError(
+            f"{resultado['recifradas']} re-cifradas. NÃO foi possível decifrar: "
+            f"{', '.join(resultado['falharam'])} — recadastre a chave desses provedores "
+            f"(defina APP_SECRET_KEY_ANTIGA se a chave anterior ainda existir)."))
     return RedirectResponse("/provedores", status_code=303)
 
 

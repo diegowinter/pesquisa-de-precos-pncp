@@ -173,12 +173,20 @@ def chaves_a_recifrar() -> list[str]:
             if p.get("tem_api_key") and p.get("api_key_key_id") not in (atual, None)]
 
 
-def recifrar_tudo() -> int:
-    """Re-cifra com a chave-mestra atual toda linha que ainda está na anterior. Requer
-    `APP_SECRET_KEY_ANTIGA` no ambiente durante a janela. Devolve quantas linhas migraram."""
+def recifrar_tudo() -> dict[str, Any]:
+    """Re-cifra com a chave-mestra atual toda linha que ainda está numa anterior. Requer
+    `APP_SECRET_KEY_ANTIGA` no ambiente durante a janela.
+
+    Devolve `{"recifradas": n, "falharam": [nomes]}`. Uma linha que não decifra **não aborta as
+    outras**: ela pode ter sido cifrada por uma chave-mestra que já não existe (duas rotações
+    sem re-cifrar no meio, ou um restore de dump antigo), e nesse caso a chave dela está
+    perdida de qualquer forma — deixar isso bloquear a rotação das demais transformaria um
+    problema de uma linha num problema de todas. Quem falha aparece na tela para ser
+    recadastrado, que é a única saída real.
+    """
     from sqlalchemy import text
 
-    migradas = 0
+    recifradas, falharam = 0, []
     with db.sessao() as sessao:
         linhas = sessao.execute(
             text("SELECT nome, api_key_cifrada FROM provedor "
@@ -187,10 +195,14 @@ def recifrar_tudo() -> int:
             blob = bytes(linha["api_key_cifrada"])
             if seg.key_id_do_blob(blob) == seg.key_id_atual():
                 continue
+            try:
+                novo_blob = seg.recifrar(blob, contexto=linha["nome"])
+            except seg.SegredoInvalido:
+                falharam.append(linha["nome"])
+                continue
             sessao.execute(
                 text("UPDATE provedor SET api_key_cifrada = :b, api_key_key_id = :k, "
                      "  atualizado_em = now() WHERE nome = :n"),
-                {"n": linha["nome"], "b": seg.recifrar(blob, contexto=linha["nome"]),
-                 "k": seg.key_id_atual()})
-            migradas += 1
-    return migradas
+                {"n": linha["nome"], "b": novo_blob, "k": seg.key_id_atual()})
+            recifradas += 1
+    return {"recifradas": recifradas, "falharam": falharam}

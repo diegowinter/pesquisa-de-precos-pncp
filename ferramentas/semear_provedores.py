@@ -57,7 +57,11 @@ def plano() -> tuple[list[dict], list[dict], list[str]]:
             "nome": "openrouter", "capacidades": ["chat"],
             "base_url": _env("OPENAI_BASE_URL"),
             "modelo_padrao": _env("OPENAI_MODEL_PASS1"),
-            "custo_usd_chamada": _float("CUSTO_USD_CHAMADA_PASS1"),
+            # `or None`: no `.env` o default de CUSTO_USD_CHAMADA_* era `0.0`, e ali significava
+            # "não informado". No banco `0.0` significa GRÁTIS — semeá-lo assim faria a
+            # estimativa jurar que uma etapa paga custa zero. Provedor pago sem preço informado
+            # tem de virar NULL, para o `estimar()` responder "não estimado".
+            "custo_usd_chamada": _float("CUSTO_USD_CHAMADA_PASS1") or None,
             "api_key": _env("OPENAI_API_KEY") or None})
         apontamentos.append({"capacidade": "chat", "provedor": "openrouter"})
         if _env("OPENAI_MODEL_PASS2"):

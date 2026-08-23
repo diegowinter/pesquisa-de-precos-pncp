@@ -36,6 +36,12 @@ import os
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+# Efeito colateral deliberado (mesmo padrão de `db/sessao.py`): carrega o `.env`. Sem isto,
+# `os.getenv(VAR_CHAVE)` só enxerga a chave se ALGUÉM tiver importado `config.settings` antes
+# — o que é verdade pela web (via `db.sessao`) e falso num script que importe só este módulo.
+# O sintoma seria "APP_SECRET_KEY não definida" com a variável ali, no arquivo.
+from pesquisa_precos.config import settings  # noqa: F401
+
 _PREFIXO = b"v1"
 _TAM_KEY_ID = 16
 _TAM_NONCE = 12
