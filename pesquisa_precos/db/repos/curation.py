@@ -267,6 +267,15 @@ def paginas_baixadas(sessao: Session, tipo: str, prefixo: str) -> set[int]:
         {"t": tipo, "p": prefixo}).all())
 
 
+def linhas_ja_baixadas(sessao: Session, tipo: str, prefixo: str) -> int:
+    """Quantas linhas as páginas já baixadas trouxeram — o que a etapa 0a soma ao progresso
+    ao retomar, para a barra mostrar o catálogo inteiro e não só o trabalho desta execução."""
+    return sessao.scalar(
+        text("SELECT COALESCE(sum(n_linhas), 0) FROM catalogo_download "
+             "WHERE tipo = CAST(:t AS tipo_catalogo) AND prefixo = :p"),
+        {"t": tipo, "p": prefixo}) or 0
+
+
 def marcar_pagina(sessao: Session, tipo: str, prefixo: str, pagina: int,
                   n_linhas: int) -> None:
     """Registra a página DEPOIS de gravar suas linhas em `catalogo_raw`.

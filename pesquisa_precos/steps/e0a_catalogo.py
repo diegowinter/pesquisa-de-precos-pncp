@@ -170,6 +170,9 @@ def coletar_para_banco(tipo: str, base_url: str, params_extra: dict, prefixo: st
 
     with db.session() as s:
         ja_feitas = repo.paginas_baixadas(s, tipo, prefixo)
+        # Retomar não é recomeçar: o que já está no banco entra no progresso desde o início,
+        # senão a barra volta a zero e parece que a etapa perdeu o trabalho anterior.
+        estado["feitos"] += repo.linhas_ja_baixadas(s, tipo, prefixo)
 
     gravadas = 0
     for pagina in range(1, total_paginas + 1):

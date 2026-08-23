@@ -22,3 +22,21 @@ CLASSE_STEP = {
     "cancelled": "cancelled",
     "skipped": "cancelled",
 }
+
+# O identificador é inglês (banco/enum), mas o operador lê português (CLAUDE.md §Idioma).
+ROTULO_STEP = {
+    "not_started": "não iniciada",
+    "running": "executando",
+    "awaiting_approval": "aguardando aprovação",
+    "finished": "concluída",
+    "outdated": "desatualizada",
+    "failed": "falhou",
+    "cancelled": "cancelada",
+    "skipped": "pulada",
+}
+
+ROTULO_ACAO = {
+    "update": "atualizar",
+    "resume": "retomar",
+    "redo": "refazer",
+}

@@ -90,7 +90,7 @@ def run(run_etapa_id: int) -> int:
                     sessao_execucao, run_step["step"], run_step["effective_params"])
                 repo.marcar_concluida(
                     sessao_execucao, run_etapa_id, processed=resultado.processed,
-                    errors=resultado.errors, metrics=resultado.metricas, fingerprint=fp)
+                    errors=resultado.errors, metrics=resultado.metrics, fingerprint=fp)
                 sessao_execucao.commit()
                 _notificar_best_effort(
                     run_step["run_id"], run_step["step"], "finished",

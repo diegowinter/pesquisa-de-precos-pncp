@@ -53,7 +53,7 @@ from pesquisa_precos.services.providers import (
     InvalidProvider,
 )
 from pesquisa_precos.web import auth
-from pesquisa_precos.web.state import CLASSE_STEP, ICONE_STEP
+from pesquisa_precos.web.state import CLASSE_STEP, ICONE_STEP, ROTULO_ACAO, ROTULO_STEP
 
 RAIZ_WEB = Path(__file__).resolve().parent
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -112,6 +112,8 @@ def providers_status(_: None = Depends(exigir_token)):
 templates = Jinja2Templates(directory=RAIZ_WEB / "templates")
 templates.env.globals["icone_step"] = ICONE_STEP
 templates.env.globals["classe_step"] = CLASSE_STEP
+templates.env.globals["rotulo_step"] = ROTULO_STEP
+templates.env.globals["rotulo_acao"] = ROTULO_ACAO
 
 
 def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,
@@ -211,6 +213,8 @@ def _contexto_etapa(run_id: int, key: str) -> dict[str, Any] | None:
         estimativa_erro = str(exc)
     return {
         "run": run, "key": key, "definicao": registry.obter(key), "detalhe": detalhe,
+        # etapa que nunca rodou: não oferecer "atualizar"/"refazer", só "executar".
+        "nunca_rodou": (detalhe or {}).get("status") in (None, "not_started"),
         "dependentes": registry.dependentes(key),
         "estimativa": estimativa, "estimativa_erro": estimativa_erro,
         "erros": service.erros(run_id, step=key),

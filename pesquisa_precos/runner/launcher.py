@@ -95,7 +95,7 @@ def checar_saude_previa(key: str) -> list[dict]:
         return health.checar_capabilities(configuradas, sessao=sessao)
 
 
-def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "update",
+def iniciar_subprocesso(run_etapa_id: int, *, action: str = "update",
                         lease_timeout_s: int = lock.LEASE_PADRAO_S,
                         pular_checagem_saude: bool = False) -> subprocess.Popen:
     """Adquire o lock e sobe `runner.worker` como subprocesso independente. Levanta
@@ -127,7 +127,7 @@ def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "update",
             raise lock.LockOcupado(
                 f"já existe uma execução em andamento (run_step={detentor}) — "
                 f"cancele-a ou aguarde a lease expirar")
-        repo.marcar_executando(sessao, run_etapa_id, acao=acao, pid=0)
+        repo.marcar_executando(sessao, run_etapa_id, action=action, pid=0)
 
     processo = subprocess.Popen(
         [sys.executable, "-m", "pesquisa_precos.runner.worker", str(run_etapa_id)])
@@ -138,7 +138,7 @@ def iniciar_subprocesso(run_etapa_id: int, *, acao: str = "update",
     return processo
 
 
-def tocar(run_id: int, key: str, *, acao: str = "update",
+def tocar(run_id: int, key: str, *, action: str = "update",
          params_override: dict[str, Any] | None = None,
          lease_timeout_s: int = lock.LEASE_PADRAO_S,
          pular_checagem_saude: bool = False) -> tuple[int, subprocess.Popen]:
@@ -146,7 +146,7 @@ def tocar(run_id: int, key: str, *, acao: str = "update",
     chamador decide se espera (`processo.wait()`) ou deixa rodando em background."""
     recuperar_travados(lease_timeout_s)
     run_etapa_id = preparar(run_id, key, params_override=params_override)
-    processo = iniciar_subprocesso(run_etapa_id, acao=acao, lease_timeout_s=lease_timeout_s,
+    processo = iniciar_subprocesso(run_etapa_id, action=action, lease_timeout_s=lease_timeout_s,
                                    pular_checagem_saude=pular_checagem_saude)
     return run_etapa_id, processo
 

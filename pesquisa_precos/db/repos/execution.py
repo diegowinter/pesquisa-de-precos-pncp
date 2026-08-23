@@ -384,15 +384,20 @@ def marcar_executando(sessao: Session, run_etapa_id: int, *, action: str, pid: i
     sessao.execute(
         text("UPDATE run_step SET status = 'running', action = CAST(:a AS run_action), "
              "                     pid = :pid, heartbeat_at = now(), started_at = now(), "
-             "                     error_message = NULL "
+             "                     error_message = NULL, finished_at = NULL "
              "WHERE id = :id"), {"a": action, "pid": pid, "id": run_etapa_id})
 
 
 def marcar_concluida(sessao: Session, run_etapa_id: int, *, processed: int, errors: int,
                      metrics: dict[str, Any], fingerprint: str) -> None:
+    """No fecho, `total` passa a ser o próprio `processed`: o total vinha da barra de
+    progresso, cuja unidade é a do trabalho (páginas, linhas baixadas), e o `processed`
+    final é o resultado da etapa (itens derivados). Misturar os dois deixava a tela
+    exibindo coisas como "2.283 / 346.976" numa etapa que terminou inteira."""
     import json
     sessao.execute(
-        text("UPDATE run_step SET status = 'finished', processed = :p, errors = :e, "
+        text("UPDATE run_step SET status = 'finished', processed = :p, total = :p, "
+             "                     errors = :e, "
              "                     metrics = CAST(:m AS jsonb), fingerprint = :fp, "
              "                     finished_at = now() "
              "WHERE id = :id"),
@@ -497,8 +502,10 @@ def liberar_lease_expirada(sessao: Session, run_etapa_id: int) -> None:
     (o checkpoint por unidade de trabalho já garante que nada é perdido nem duplicado)."""
     sessao.execute(
         text("UPDATE run_step SET status = 'failed', "
-             "  error_message = 'lease expirada — processo não deu heartbeat a tempo "
-             "(provavelmente morto); rode com --action retomar', "
+             "  error_message = 'A execução foi interrompida sem aviso — o processo "
+             "parou de responder (encerrado junto com o servidor, máquina reiniciada "
+             "ou falta de memória). O que já foi processado está salvo; use \"Retomar "
+             "de onde parou\" para continuar do ponto em que estava.', "
              "  finished_at = now() "
              "WHERE id = :id AND status = 'running'"), {"id": run_etapa_id})
 

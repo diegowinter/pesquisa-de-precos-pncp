@@ -49,6 +49,31 @@ def test_fingerprint_muda_quando_qualquer_entrada_muda(mudanca):
 
 # ── fixtures de banco ────────────────────────────────────────────────────────────────
 
+# ── limpeza (a suíte roda contra o banco real) ───────────────────────────────────────
+
+def _limpar_run(run_id: int) -> None:
+    """Apaga o run de teste e tudo que pendura nele, na ordem das FKs. `run_lock` aponta para
+    `run_step`, então precisa ser solto antes."""
+    from sqlalchemy import text
+
+    with db.session() as sessao:
+        sessao.execute(text(
+            "UPDATE run_lock SET run_etapa_id = NULL WHERE run_etapa_id IN "
+            "(SELECT id FROM run_step WHERE run_id = :r)"), {"r": run_id})
+        for tabela in ("run_log", "item_error", "llm_call", "run_step"):
+            sessao.execute(text(f"DELETE FROM {tabela} WHERE run_id = :r"), {"r": run_id})
+        sessao.execute(text("DELETE FROM run WHERE id = :r"), {"r": run_id})
+
+
+def _limpar_config_versao(cv_id: int) -> None:
+    from sqlalchemy import text
+
+    with db.session() as sessao:
+        sessao.execute(text("DELETE FROM config_value WHERE config_version_id = :c"),
+                       {"c": cv_id})
+        sessao.execute(text("DELETE FROM config_version WHERE id = :c"), {"c": cv_id})
+
+
 @pytest.fixture
 def config_version_id():
     if not db.is_available()[0]:
@@ -59,6 +84,9 @@ def config_version_id():
     # só enxergam o que já foi commitado — deixar o insert dentro do `with` até o teardown
     # faria toda FK para config_version/run falhar com "key não está presente".
     yield cv_id
+    # E o que a fixture cria, a fixture apaga: a suíte roda contra o banco de verdade, e sem
+    # isto cada `pytest` deixava uma `config_version`/`run` "teste-fase3" na tela do operador.
+    _limpar_config_versao(cv_id)
 
 
 @pytest.fixture
@@ -66,6 +94,7 @@ def run_id(config_version_id):
     with db.session() as sessao:
         r_id = repo.criar_run(sessao, "teste-fase3", config_version_id)
     yield r_id
+    _limpar_run(r_id)
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +211,10 @@ def test_leases_expiradas_devolve_run_etapa_travada_a_fila(run_id):
     with db.session() as sessao:
         linha = repo.run_etapa_por_id(sessao, re_id)
     assert linha["status"] == "failed"
-    assert "lease" in linha["error_message"]
+    # a mensagem é lida pelo operador na tela, não por um dev: sem jargão de lease,
+    # e apontando a ação que resolve (o botão "Retomar de onde parou").
+    assert "Retomar" in linha["error_message"]
+    assert "lease" not in linha["error_message"].lower()
 
 
 # ── custo e teto (ADR-004) ───────────────────────────────────────────────────────────

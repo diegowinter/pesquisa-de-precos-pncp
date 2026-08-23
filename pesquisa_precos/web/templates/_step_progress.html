@@ -1,9 +1,12 @@
 {# Fragmento de progresso — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.2). #}
+{# Envolve cabeçalho E painel de ações: os botões dependem do status, e deixá-los fora do
+   fragmento fazia a tela oferecer "Cancelar" numa etapa que já havia terminado. #}
 <div id="cabecalho-etapa" hx-get="/runs/{{ run.id }}/steps/{{ key }}/fragment"
      hx-trigger="every 3s" hx-swap="outerHTML">
+<div class="painel">
   <h2>{{ icone_step[detalhe.status] }} Etapa {{ key }} — {{ definicao.titulo }}</h2>
-  <span class="tag">{{ detalhe.status }}</span>
-  {% if detalhe.action %}<span class="tag">ação: {{ detalhe.action }}</span>{% endif %}
+  <span class="tag">{{ (rotulo_step | default({})).get(detalhe.status, detalhe.status) }}</span>
+  {% if detalhe.action %}<span class="tag">ação: {{ (rotulo_acao | default({})).get(detalhe.action, detalhe.action) }}</span>{% endif %}
   <span class="tag">custo: US$ {{ "%.2f"|format(detalhe.cost_usd or 0) }}</span>
   {% if detalhe.fingerprint %}<span class="tag">fingerprint: {{ detalhe.fingerprint[:12] }}…</span>{% endif %}
   {% if detalhe.started_at %}<span class="tag">iniciada: {{ detalhe.started_at }}</span>{% endif %}
@@ -14,11 +17,55 @@
     <div style="width:{{ ((detalhe.processed or 0) / detalhe.total * 100) | round(1) }}%;"></div>
   </div>
   <p class="tag">{{ detalhe.processed or 0 }} / {{ detalhe.total }} · erros: {{ detalhe.errors or 0 }}</p>
-  {% elif detalhe.status == 'executando' %}
+  {% elif detalhe.status == 'running' %}
   <p class="tag">{{ detalhe.processed or 0 }} processados</p>
   {% endif %}
 
   {% if detalhe.error_message %}
   <p class="flash-erro">{{ detalhe.error_message }}</p>
   {% endif %}
+</div>
+
+<div class="painel">
+  <h3>Ações</h3>
+  {# Um estado, um caminho de frente. Executando: só cancelar — dar play de novo esbarraria
+     no lock e refazer no meio não faz sentido. Nunca rodou: nada a "atualizar" nem a
+     "refazer". Parou no meio — falhou ou foi cancelada — retomar de onde parou (o
+     "atualizar" faria o mesmo trabalho, com um nome que esconde o que aconteceu). #}
+  {% if detalhe.status == 'running' %}
+  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/cancel" class="linha">
+    <button class="perigo" type="submit">Cancelar</button>
+  </form>
+  {% elif detalhe.status in ('failed', 'cancelled') %}
+  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
+    <input type="hidden" name="action" value="resume">
+    <button class="principal" type="submit">Retomar de onde parou</button>
+  </form>
+  {% else %}
+  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
+    <input type="hidden" name="action" value="update">
+    <button class="principal" type="submit">{{ "Executar" if nunca_rodou else "Atualizar" }}</button>
+  </form>
+  {% endif %}
+  {% if not nunca_rodou and detalhe.status != 'running' %}
+  <details style="display:inline-block;margin-left:.5rem;">
+    <summary style="cursor:pointer;color:var(--erro);">Refazer (queima investimento)</summary>
+    {# O que refazer esta etapa deixa desatualizado. Vinha do `cli grafo`, que saiu na Fase 13;
+       o lugar dessa informação é aqui, na frente de quem está decidindo refazer. #}
+    {% if dependentes %}
+    <p class="dim">Refazer também desatualiza:
+      {% for d in dependentes %}<a href="/runs/{{ run.id }}/steps/{{ d }}">{{ d }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+    </p>
+    {% else %}
+    <p class="dim">Nenhuma etapa depende desta — refazer não invalida mais nada.</p>
+    {% endif %}
+    <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run"
+          onsubmit="return confirm('Refazer do zero descarta o resultado atual desta etapa. Confirmar?');">
+      <input type="hidden" name="action" value="redo">
+      <input type="hidden" name="confirm" value="true">
+      <button class="perigo" type="submit">Confirmar refazer</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
 </div>

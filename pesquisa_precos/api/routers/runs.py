@@ -71,7 +71,7 @@ def estimativa_etapa(run_id: int, key: str):
 @router.post("/runs/{run_id}/steps/{key}/run", status_code=202)
 def executar_etapa(run_id: int, key: str, body: ExecutarEtapaBody):
     return service.executar_etapa(
-        run_id, key, action=body.acao, params_override=body.params_override,
+        run_id, key, action=body.action, params_override=body.params_override,
         confirm=body.confirmar)
 
 

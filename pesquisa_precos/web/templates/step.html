@@ -3,7 +3,7 @@
 {% block conteudo %}
 <p><a href="/runs/{{ run.id }}">&larr; Run #{{ run.id }} · {{ run.label }}</a></p>
 
-{% if detalhe.status == 'aguardando_aprovacao' %}
+{% if detalhe.status == 'awaiting_approval' %}
 <div class="painel" style="border-color:var(--gate);">
   <h2>⏸ Aprovação necessária — Etapa {{ key }}: {{ definicao.titulo }}</h2>
   {% if estimativa %}
@@ -32,47 +32,8 @@
 </div>
 {% endif %}
 
-<div class="painel" id="cabecalho-etapa" hx-get="/runs/{{ run.id }}/steps/{{ key }}/fragment"
-     hx-trigger="every 3s" hx-swap="outerHTML">
-  {% include "_step_progress.html" %}
-</div>
+{% include "_step_progress.html" %}
 
-<div class="painel">
-  <h3>Ações</h3>
-  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
-    <input type="hidden" name="action" value="atualizar">
-    <button class="principal" type="submit">Atualizar</button>
-  </form>
-  {% if detalhe.status == 'falhou' %}
-  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
-    <input type="hidden" name="action" value="retomar">
-    <button type="submit">Retomar</button>
-  </form>
-  {% endif %}
-  {% if detalhe.status == 'executando' %}
-  <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/cancel" class="linha">
-    <button class="perigo" type="submit">Cancelar</button>
-  </form>
-  {% endif %}
-  <details style="display:inline-block;margin-left:.5rem;">
-    <summary style="cursor:pointer;color:var(--erro);">Refazer (queima investimento)</summary>
-    {# O que refazer esta etapa deixa desatualizado. Vinha do `cli grafo`, que saiu na Fase 13;
-       o lugar dessa informação é aqui, na frente de quem está decidindo refazer. #}
-    {% if dependentes %}
-    <p class="dim">Refazer também desatualiza:
-      {% for d in dependentes %}<a href="/runs/{{ run.id }}/steps/{{ d }}">{{ d }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
-    </p>
-    {% else %}
-    <p class="dim">Nenhuma etapa depende desta — refazer não invalida mais nada.</p>
-    {% endif %}
-    <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run"
-          onsubmit="return confirm('Refazer do zero descarta o resultado atual desta etapa. Confirmar?');">
-      <input type="hidden" name="action" value="refazer">
-      <input type="hidden" name="confirm" value="true">
-      <button class="perigo" type="submit">Confirmar refazer</button>
-    </form>
-  </details>
-</div>
 
 <div class="painel">
   <h3>Parâmetros efetivos</h3>
@@ -96,7 +57,7 @@
     </tbody>
   </table>
   <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" style="margin-top:.5rem;">
-    <input type="hidden" name="action" value="retomar">
+    <input type="hidden" name="action" value="resume">
     <button type="submit">Reprocessar pendentes (retomar)</button>
   </form>
   {% else %}
