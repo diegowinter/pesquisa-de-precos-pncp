@@ -1,23 +1,14 @@
 """
-Etapa 3 — Classificação de categoria por item do PNCP (LLM, multi-label, O(textos)).
+Etapa 3 — Classifica a categoria de cada item do PNCP no LLM (multi-label).
 
-DEDUP: a descrição do PNCP é canônica e se repete MUITO (o mesmo texto reaparece milhares de
-vezes). Classificamos cada texto ÚNICO (descrição, unidade) uma vez e espalhamos o rótulo para
-todos os item_keys iguais — a saída continua por item_key (referência à ata/contrato intacta),
-mas as chamadas de LLM caem de O(itens) para O(textos distintos). Item sem categoria de conteúdo
-morre aqui (a "portaria de nomeação" nunca mais custa nada nas etapas seguintes).
+A descrição do PNCP se repete muito: o mesmo texto reaparece milhares de vezes. Classificamos
+cada par (descrição, unidade) distinto uma vez e espalhamos o rótulo para todos os `item_key`
+iguais, o que derruba as chamadas de LLM de O(itens) para O(textos distintos). A saída
+continua por `item_key`, com a referência à ata ou contrato intacta. Item sem categoria de
+conteúdo morre aqui.
 
-Entrada: data/2_itens_coletados.csv (via collect_pncp.carregar_itens_coletados). Para o aceite
-sobre dados legados, use --entrada-legado com um CSV explodido da v1 (mapeia
-item.descricao_item / numero_controle_pncp+item.numero_item).
-
-Saída: data/3_itens_classificados.csv (item_key, categorias, confianca). Erros: erros/3_erros.csv.
-Chave de resumo: item_key.
-
-NÃO fazer: classificar por item em vez de por texto único — é o dedup de ~5x que segura o
-custo desta etapa, a mais cara do ciclo.
-
-Uso: python -m pesquisa_precos.steps.e3_classify [--provider local|openrouter] [--limite N]
+Não classificar por item em vez de por texto distinto: o dedup de ~5x é o que segura o custo
+desta etapa, a mais cara do ciclo.
 """
 
 import sys

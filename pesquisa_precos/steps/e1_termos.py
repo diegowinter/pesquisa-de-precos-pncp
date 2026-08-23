@@ -1,39 +1,22 @@
 """
-Etapa 1 — Termos de busca GENÉRICOS por item + categoria, a partir do catálogo filtrado (0a).
+Etapa 1 — Termos de busca genéricos por item, mais a categoria de cada um, a partir do
+catálogo filtrado pela etapa 0a.
 
-Em vez de agrupar itens em "conceitos" e gerar sinônimos a partir de um conceito genérico
-(que puxava termos de objetos diferentes), os termos saem DIRETO de cada item (`nome_pdm` +
-`descricao`), o mais genéricos possível, e são agregados UM TERMO POR LINHA juntando os
-códigos de catálogo que o pediram.
+Os termos saem direto de cada item (`nome_pdm` + descrição), o mais genéricos possível, e são
+agregados um termo por linha, juntando os códigos de catálogo que o pediram. A alternativa —
+agrupar itens num "conceito" e pedir sinônimos dele — puxava termos de objetos diferentes.
 
 Fluxo:
-  1. Por item (LLM, paralelo, cliente por thread): termos genéricos (gerar_termos_item) +
-     categoria (classificar_categoria). Checkpoint resumível: checkpoints/1_termos_item.csv.
-  2. Categoria nunca vazia: LLM → maioria dentro do mesmo codigo_pdm → maioria do mesmo
-     conjunto de termos → mapa nome_grupo → "outros".
-  3. Expande variações de grafia (core/classificacao/variacoes) + duplica forma sem acento.
-  4. Agrega um-termo-por-linha: termo → união dos codigos_catalogo (categoria = maioria).
+  1. por item, no LLM (paralelo, um cliente por thread): termos genéricos e categoria;
+  2. categoria nunca fica vazia: LLM, depois maioria dentro do mesmo `codigo_pdm`, depois
+     maioria do mesmo conjunto de termos, depois o mapa de `nome_grupo`, e por fim "outros";
+  3. expande variações de grafia e duplica a forma sem acento;
+  4. agrega um termo por linha: termo -> união dos códigos de catálogo.
 
-A etapa não escreve NADA em disco (ADR-018/ADR-020):
-  entrada          catalogo_item (active)
-  termo_geracao    checkpoint por item — a saída BRUTA do LLM (o que era 1_termos_item.csv)
-  termo/termo_codigo  o agregado um-termo-por-linha (o que era 1_conceitos_termos.csv)
-  catalogo_item.categoria  a categoria final pós-cascata (era 1_categoria_por_codigo.csv)
-O miolo é o mesmo nos dois caminhos: só muda de onde vem o catálogo e para onde vai o
-resultado.
+Entrada: `catalogo_item`. Saídas: `termo_geracao` (a resposta bruta do LLM, que também é o
+checkpoint por item), `termo`/`termo_codigo` (o agregado) e `catalogo_item.categoria`.
 
-Entrada: `catalogo_item` (etapa 0a).
-Saídas:
-  data/1_conceitos_termos.csv    (conceito=termo, categoria, termos=termo, codigos_catalogo, source)
-  data/1_categoria_por_codigo.csv (tipo, codigo, categoria)  ← fonte canônica por-item p/ a etapa 6a
-Chave de resumo: (tipo, codigo) — `termo_geracao` no banco, checkpoints/1_termos_item.csv no CSV.
-Erros: item_error no banco; erros/1_erros.csv no CSV.
-
-NÃO fazer: deixar categoria vazia (a cascata de fallback existe por isso) nem descartar as
-linhas `source=manual` da saída — elas são curadoria humana e são preservadas na regeração.
-
-Uso: python -m pesquisa_precos.steps.e1_termos [--provider local|openrouter] [--forte]
-                                                [--limite N] [--concurrency N] [--regerar]
+Não descartar as linhas com origem manual: são curadoria humana e sobrevivem à regeração.
 """
 
 import sys

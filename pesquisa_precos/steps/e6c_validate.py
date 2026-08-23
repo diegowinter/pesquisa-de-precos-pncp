@@ -1,25 +1,15 @@
 """
-Etapa 6c — LLM só na faixa ambígua do reranker + acúmulo de rótulos.
+Etapa 6c — O LLM decide só a faixa ambígua do reranker, e toda decisão vira rótulo.
 
-Só os pares `ambiguo` da 6b chegam aqui (tipicamente a minoria: 57k de 250k no acervo atual).
-Cada um vai ao LLM via comparar_par. Além disso, TODA decisão final — aceites/rejeições do 6b
-por threshold extremo E os vereditos do 6c — é appendada em data/6_rotulos_acumulados.csv, que
-cresce entre execuções e serve para recalibrar thresholds / futuramente fine-tunar o reranker.
+Só os pares que a 6b marcou como ambíguos chegam aqui — tipicamente a minoria. Cada um vai ao
+LLM. Toda decisão final, tanto os aceites e rejeições que a 6b fechou por threshold quanto os
+vereditos daqui, é acrescentada à tabela `label`, que cresce entre execuções e serve para
+recalibrar os thresholds.
 
-⚠ RESTRIÇÃO DE CUSTO Nº 1 (ADR-004). Até a Fase 0 esta etapa usava o model CARO por padrão e
-só usava o barato com `--fraco` — comportamento seguro dependia de alguém lembrar de digitar
-uma flag. Aqui isso está invertido: **o model barato (PASS1) é o padrão** e o caro exige
-`--forte` explícito. `--fraco` continua aceito, sem efeito, para não quebrar o comando que já
-está no histórico do terminal do operador.
+Restrição de custo (ADR-004): o modelo barato é o padrão, e o caro exige marcar `forte`. O
+teto de custo do run é a segunda rede.
 
-Entrada: data/6b_pares_rerankeados.csv (filtro ambiguo) + textos.
-Saídas: data/6c_pares_validados.csv (par_key, mesmo_item, justificativa),
-        data/6_rotulos_acumulados.csv (append, sem duplicar par_key já registrado).
-Chave de resumo: par_key. Erros: erros/6c_erros.csv.
-
-NÃO fazer: truncar 6_rotulos_acumulados.csv — é o active de calibração do projeto.
-
-Uso: python -m pesquisa_precos.steps.e6c_validate [--provider openrouter] [--limite N]
+Não truncar `label`: é a base de calibração do projeto.
 """
 
 import sys

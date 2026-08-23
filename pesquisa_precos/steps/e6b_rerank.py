@@ -1,18 +1,12 @@
 """
-Etapa 6b — Reranker (cross-encoder) decide a maioria dos pares, custo zero de token.
+Etapa 6b — O cross-encoder decide a maioria dos pares, sem gastar token.
 
-Para cada par sobrevivente da 6a: score do cross-encoder bge-reranker sobre (texto_catalogo,
-descricao_final do item). Decisão por threshold:
-  score >= RERANK_T_ACEITA → aceito;  score <= RERANK_T_REJEITA → rejeitado;  entre → ambiguo.
+Para cada par sobrevivente da 6a, o reranker pontua (texto do catálogo, descrição final do
+item). A decisão sai por threshold: acima de `rerank_t_aceita` é aceito, abaixo de
+`rerank_t_rejeita` é rejeitado, e o meio fica ambíguo para a etapa 6c resolver no LLM.
 
-Entrada: data/6a_pares_candidatos.csv (sobreviveu=true) + textos das saídas anteriores.
-Saída: data/6b_pares_rerankeados.csv (par_key, score_rerank, decisao). Chave de resumo: par_key.
-GPU: o reranker roda sozinho.
-
-NÃO fazer: trocar o model do reranker sem recalibrar os thresholds — a base para isso é
-data/6_rotulos_acumulados.csv (ver tools/calibrate_thresholds.py).
-
-Uso: python -m pesquisa_precos.steps.e6b_rerank [--limite N] [--remoto]
+Trocar o modelo do reranker exige recalibrar os thresholds; a base para isso é a tabela
+`label`, e a conta está em `tools/calibrate_thresholds.py`.
 """
 
 import sys

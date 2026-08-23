@@ -1,24 +1,18 @@
 """
-Etapa 6a — Geração de pares (catálogo × item, mesma categoria) + rejeitor híbrido BM25+embedding.
+Etapa 6a — Gera os pares candidatos (catálogo x item, dentro da mesma categoria) e descarta os
+implausíveis.
 
-Produto (codigo_catalogo × item_pncp) RESTRITO à mesma categoria; item multi-label pareia em
-todas as suas categorias; SEM dedup de pares (regra de negócio). Para cada par mede-se um
-score léxico (BM25 normalizado por categoria) e um score semântico (cosseno bge-m3). O par
-sobrevive se max(bm25_norm, cosseno) >= piso — basta um sinal dizer "pode ser".
+O produto é restrito à mesma categoria, e um item multi-label pareia em todas as suas. Não há
+dedup de pares: é regra de negócio. Cada par recebe um score léxico (BM25 normalizado por
+categoria) e um semântico (cosseno), e sobrevive se `max(bm25, cosseno) >= piso` — basta um
+dos dois sinais dizer "pode ser".
 
-Entradas: data/4_itens_sobreviventes.csv, data/5_itens_enriquecidos.csv (opcional),
-          data/0a_catalogo_filtrado.csv (+ categoria do código via etapa 1).
-Saída: data/6a_pares_candidatos.csv (par_key, codigo, item_key, categoria, score_bm25,
-       score_cosseno, sobreviveu). Chave de resumo: nenhuma — recomputa o corpus inteiro.
-GPU: o embedder roda sozinho. Embeddings são cacheados por hash de texto em
-data/checkpoints/6a_emb_cache.parquet — numa atualização só os textos NOVOS (itens/códigos
-novos) vão à GPU; o BM25 e o corte são recomputados frescos (baratos, na CPU).
+O trabalho pesado roda no serviço de `matching` (ADR-021); esta etapa lê o catálogo e os itens
+do banco, manda, e grava os pares que voltam.
 
-⚠ NÃO fazer: aplicar o corte top-K + piso DEPOIS de materializar o produto cartesiano num
-DataFrame. Um `aplicar_corte` pós-hoc com groupby().rank() já causou MemoryError real com
-~33M linhas; o corte é feito em streaming, por código, direto nas matrizes numpy. O arquivo
-data/6a_pares_candidatos_PRECORTE.csv (3,7 GB) é o fóssil desse bug.
-
+O corte top-K + piso é aplicado durante a geração dos pares, nunca depois de materializar o
+produto cartesiano: um corte pós-hoc com `groupby().rank()` sobre o DataFrame inteiro já
+estourou a memória com ~33 milhões de linhas.
 """
 
 import sys

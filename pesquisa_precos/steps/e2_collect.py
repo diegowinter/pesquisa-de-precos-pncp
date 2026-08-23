@@ -1,39 +1,23 @@
 """
-Etapa 2 — Coleta larga no PNCP (busca por termo → filtro homologado → download → explode).
+Etapa 2 — Coleta larga no PNCP: busca por termo, filtro de homologados, explode em itens.
 
-A lógica de negócio vive em `core/coleta/collect_pncp.py` (funções puras). Aqui fica a
-orquestração resumível e o dedup de documento muitos-para-muitos.
+A lógica de busca vive em `core/collection/collect_pncp.py`; aqui fica a orquestração
+resumível e o dedup de documento.
 
-Para cada termo de cada conceito (data/1_conceitos_termos.csv) e cada tipo de documento
-(contrato, ata):
+Para cada termo e cada tipo de documento (contrato, ata):
   - busca paginada no PNCP;
-  - dedup por numeroControlePNCP: documento já visto NÃO é reprocessado — apenas o conceito
-    atual é acrescentado a conceitos_origem (via data/checkpoints/2_conceitos_extra.csv);
-  - documento novo: baixa PDFs, consulta itens homologados e explode 1 linha por item.
+  - dedup por numeroControlePNCP — documento já visto não é reprocessado, só ganha o conceito
+    atual em `conceitos_origem`;
+  - documento novo: consulta os itens homologados e grava 1 linha por item.
 
-Entradas: data/1_conceitos_termos.csv.
-Saída: data/2_itens_coletados.csv (append-only). Consolidação (merge dos conceitos extras)
-é feita por collect_pncp.carregar_itens_coletados() — todas as etapas seguintes leem por ela.
-Chave de resumo: (termo, tipo_doc) em data/checkpoints/2_progresso.csv (granularidade de
-termo/fonte; o dedup por documento cobre a sobreposição entre termos). Erros: erros/2_erros.csv.
+A etapa não baixa PDF (ADR-011): guarda a capa (metadados + itens da API) e os identificadores
+que a etapa 5 usa para listar os arquivos depois do corte da etapa 4.
 
-Fase 8 (ADR-011): esta etapa NÃO baixa mais PDF — só a "capa" (metadados + itens homologados
-da API). O download passa para a etapa 5, depois do corte (etapa 4), preservando os
-identificadores (`numero_sequencial`/`numero_sequencial_ata`) e a `url_pncp` (ADR-012) que a
-etapa 5 precisa para refazer a listagem de arquivos sem reconsultar a busca.
+Em `atualizar`, revisita todos os pares (termo, fonte) mas para de paginar ao cruzar o
+watermark — a maior `data_atualizacao_pncp` já vista naquela busca. A busca do PNCP vem
+ordenada por esse campo (a data de publicação não vem), então parar cedo é seguro.
 
-Rodada de atualização (--atualizar): revisita TODOS os (termo, fonte), mas para de paginar ao
-cruzar o watermark — a maior data_atualizacao_pncp já vista naquela busca
-(data/checkpoints/2_watermark.csv). A busca do PNCP vem ordenada por data_atualizacao_pncp desc
-(validado; a data de publicação NÃO vem ordenada), então coletar só o novo é seguro. O watermark
-é alimentado em qualquer rodada; a primeira atualização sobre um acervo semeado do v2 (sem marca)
-faz uma varredura completa e semeia o watermark — as seguintes ficam baratas.
-
-NÃO fazer: reprocessar documento já visto (o dedup é o que segura o custo das etapas de baixo)
-nem semear o watermark de novo — isso já foi feito uma vez, conservadoramente (ver CLAUDE.md).
-
-Uso: python -m pesquisa_precos.steps.e2_collect [--conceitos c1,c2] [--ignorar-cache]
-                                                 [--atualizar] [--limite-termos N]
+Não reprocessar documento já visto: o dedup é o que segura o custo das etapas seguintes.
 """
 
 import sys

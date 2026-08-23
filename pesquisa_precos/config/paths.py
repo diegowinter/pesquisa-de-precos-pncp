@@ -1,21 +1,12 @@
 """
-Caminhos dos CSVs herdados — **exclusivo do importador** (`migracao/`) e de `tools/`.
+Caminhos dos CSVs herdados, lidos só por `migracao/` e por `tools/`. Nenhum módulo de
+`pesquisa_precos/steps/` pode importar isto — o banco é o único meio de persistência da
+pipeline, e `tests/test_estrutura.py` guarda a regra. Quando a migração do acervo terminar,
+este módulo sai junto com ela.
 
-Até a Fase 13 este módulo era a fonte única dos caminhos de TODA a pipeline: cada etapa lia e
-escrevia em `data/`. Com o caminho `--fonte csv` removido (ADR-020), nenhum módulo de
-`pesquisa_precos/steps/` importa isto, e nenhum deve voltar a importar — o banco é o único
-meio de persistência. `tests/test_estrutura.py` guarda exatamente essa regra.
-
-O que sobrou aqui é o mapa do acervo que ainda NÃO foi migrado: 1,6 milhão de itens que vivem
-só nos CSVs, e que `migracao/` (21 passos) lê para popular o Postgres. Quando a migração
-estiver feita e validada, este módulo sai junto com ela.
-
-A raiz é derivada da posição DESTE arquivo (`<raiz>/pesquisa_precos/config/paths.py`), então
-ela não muda quando um módulo é movido. `PESQUISA_PRECOS_DATA` permite apontar a pasta de
-dados para outro lugar (útil em teste); sem ela, vale `<raiz>/data`.
-
-Convenção dos nomes: o prefixo é a etapa que PRODUZIU o arquivo (`E2_ITENS` saiu da etapa 2) e
-`CK_*` são checkpoints (estado de resumo, não saída).
+Nos nomes, o prefixo é a etapa que produziu o arquivo (`E2_ITENS` saiu da etapa 2); `CK_*`
+são checkpoints. `PESQUISA_PRECOS_DATA` aponta a pasta de dados para outro lugar (útil em
+teste); sem ela, vale `<raiz>/data`.
 """
 
 import os
