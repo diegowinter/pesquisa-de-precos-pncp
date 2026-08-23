@@ -150,7 +150,7 @@ def mapa_pasta_para_controle(sessao: Session) -> dict[str, str]:
     """Não existe no banco — a `pasta_arquivos` deliberadamente NÃO foi migrada (ADR-012).
 
     Fica aqui como marcador: quem precisar do mapa `doc_key(caminho) → numero_controle_pncp`
-    (só o m10, que lê `5_pdf_texto.csv`) deve construí-lo do CSV de origem, não do banco.
+    (só o m10, que linhaê `5_pdf_texto.csv`) deve construí-lo do CSV de origem, não do banco.
     """
     raise NotImplementedError(
         "pasta_arquivos não é migrada (ADR-012). O mapa caminho→controle vive no m10, "

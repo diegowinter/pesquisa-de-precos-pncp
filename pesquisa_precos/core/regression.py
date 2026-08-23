@@ -8,7 +8,7 @@ sozinhos resolvem). Comparado contra `rotulo.final_decision`, dá precisão/reca
 threshold/modelo/prompt é no escuro" deixa de ser verdade (docs/08_CONVENCOES.md §6, suite de
 regressão da Fase 9).
 
-Mantido separado de `tools/regressao.py` porque é lógica pura, sem I/O — é o que permite
+Mantido separado de `tools/regressao.py` porque é linhaógica pura, sem I/O — é o que permite
 testar com fixture sintética em milissegundos (critério de aceite: suite roda em <5min e
 reprova threshold degradado).
 """

@@ -169,7 +169,7 @@ SQL_ROTULOS_NOVOS = """
 
 
 def _acumular_rotulos(db) -> int:
-    """Registra em `label` toda decisão final que ainda não estava lá.
+    """Registra em `label` toda decisão final que ainda não estava linhaá.
 
     `NOT EXISTS` em vez de `ON CONFLICT`: `label` não tem `par_key` único (um par pode ser
     rotulado de novo depois de uma recalibração), então a proteção contra duplicar tem que ser

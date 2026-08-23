@@ -135,12 +135,12 @@ def agrupar_por_doc_status(itens_por_doc: dict[str, list[str]],
 
 def contagem_destinos(linhas: list[dict]) -> dict[str, int]:
     c: dict[str, int] = defaultdict(int)
-    for l in linhas:
-        c[l["destino"]] += 1
-        if l["status"] == "pdf_ok_diverge":
+    for linha in linhas:
+        c[linha["destino"]] += 1
+        if linha["status"] == "pdf_ok_diverge":
             c["preco_diverge"] += 1
-        elif l["status"] == "pdf_ok_preco_suspeito":
+        elif linha["status"] == "pdf_ok_preco_suspeito":
             c["preco_suspeito"] += 1
-        elif l["status"] == "pdf_ok_sem_preco":
+        elif linha["status"] == "pdf_ok_sem_preco":
             c["sem_preco"] += 1
     return dict(c)

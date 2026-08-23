@@ -104,7 +104,7 @@ def custo_run(run_id: int):
 async def _eventos_log(run_id: int, step: str | None) -> AsyncIterator[str]:
     ultimo_id = 0
     while True:
-        recentes = sorted(service.logs(run_id, step=step, limite=50), key=lambda l: l["id"])
+        recentes = sorted(service.logs(run_id, step=step, limite=50), key=lambda linha: linha["id"])
         for linha in recentes:
             if linha["id"] > ultimo_id:
                 ultimo_id = linha["id"]

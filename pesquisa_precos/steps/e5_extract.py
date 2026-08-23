@@ -116,9 +116,9 @@ class DestinoBanco:
         from pesquisa_precos.db import copy
         from pesquisa_precos.db.repos import extraction as repo
 
-        lote = [(l["numeroControlePNCP"], l["arquivo"], int(l["pagina"] or 0), l["fonte"],
-                 copy.texto_para_pg(l["texto"] or ""))
-                for l in linhas]
+        lote = [(linha["numeroControlePNCP"], linha["arquivo"], int(linha["pagina"] or 0), linha["fonte"],
+                 copy.texto_para_pg(linha["texto"] or ""))
+                for linha in linhas]
         with db.raw_connection() as conn:
             repo.gravar_paginas(conn, lote)
             conn.commit()
@@ -129,12 +129,12 @@ class DestinoBanco:
         from pesquisa_precos.db.repos import extraction as repo
 
         lote = [(
-            l["item_key"], l.get("descricao_final") or "", l.get("fonte_descricao") or "api",
-            _num(l.get("preco_api")), _num(l.get("preco_pdf")), _num(l.get("divergencia_preco")),
-            l.get("fornecedor") or None, _num(l.get("quantidade_pdf")),
-            l.get("status") or "", l.get("destino") or "revisar",
-            l.get("estrategia") or "window", l.get("doc_status") or "ok", self.run_id,
-        ) for l in linhas]
+            linha["item_key"], linha.get("descricao_final") or "", linha.get("fonte_descricao") or "api",
+            _num(linha.get("preco_api")), _num(linha.get("preco_pdf")), _num(linha.get("divergencia_preco")),
+            linha.get("fornecedor") or None, _num(linha.get("quantidade_pdf")),
+            linha.get("status") or "", linha.get("destino") or "revisar",
+            linha.get("estrategia") or "window", linha.get("doc_status") or "ok", self.run_id,
+        ) for linha in linhas]
         with db.raw_connection() as conn:
             repo.gravar_enriquecidos(conn, lote)
             conn.commit()
@@ -147,13 +147,13 @@ class DestinoBanco:
         from pesquisa_precos.db.repos import extraction as repo
 
         lote = [(
-            l["numeroControlePNCP"], l["estrategia"],
-            json.dumps({"n_itens_tabela": l.get("n_itens_tabela", 0),
-                        "chamadas_llm": l.get("chamadas_llm", 0),
-                        "doc_status": l.get("doc_status", "")}, ensure_ascii=False),
-            l.get("n_paginas", 0), l.get("n_paginas_ocr", 0),
+            linha["numeroControlePNCP"], linha["estrategia"],
+            json.dumps({"n_itens_tabela": linha.get("n_itens_tabela", 0),
+                        "chamadas_llm": linha.get("chamadas_llm", 0),
+                        "doc_status": linha.get("doc_status", "")}, ensure_ascii=False),
+            linha.get("n_paginas", 0), linha.get("n_paginas_ocr", 0),
             None, None, None, None, None, None, self.run_id,
-        ) for l in linhas]
+        ) for linha in linhas]
         with db.raw_connection() as conn:
             repo.gravar_extracoes(conn, lote)
             conn.commit()
@@ -397,9 +397,9 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
 
         linhas = [_linha_enriquecido(it, extraidos.get(it["item_key"], {"encontrado": False}),
                                      estrategia) for it in itens_doc]
-        for l in linhas:
-            l["doc_status"] = doc_status
-            l["destino"] = estr_base.destino_de(l["status"], doc_status)
+        for linha in linhas:
+            linha["doc_status"] = doc_status
+            linha["destino"] = estr_base.destino_de(linha["status"], doc_status)
         return linhas, doc_extracao
 
 
@@ -426,10 +426,10 @@ def _marcar_documento_extraido(linhas_doc: list[dict]) -> None:
         return
     from pesquisa_precos.db.repos import documento as repo_doc
 
-    estados = [(l["numeroControlePNCP"],
-                l["doc_status"] if l.get("doc_status") in ("ilegivel", "suspeito")
+    estados = [(linha["numeroControlePNCP"],
+                linha["doc_status"] if linha.get("doc_status") in ("ilegivel", "suspeito")
                 else "extraido")
-               for l in linhas_doc]
+               for linha in linhas_doc]
     with db.session() as s:
         repo_doc.atualizar_estado(s, estados)
         s.commit()
@@ -457,7 +457,7 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
 def run(params: Params, ctx: RunContext) -> StepResult:
     global _escritor_paginas
     # OCR não é configurado aqui: quem o chama é o serviço de `pdf`, na máquina dele
-    # (ADR-021). Se o OCR estiver mal configurado lá, `/health` do serviço acusa
+    # (ADR-021). Se o OCR estiver mal configurado linhaá, `/health` do serviço acusa
     # `ocr_configurado: false` e a página escaneada volta com o texto nativo.
     grupos, pend, feitos = _documentos_pendentes_banco(params)
     if not pend:

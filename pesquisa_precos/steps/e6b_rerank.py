@@ -80,8 +80,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         ctx.log("info", "[6b] Nada a rerankear (todo par sobrevivente já tem score).")
         return StepResult()
 
-    par_keys = [l[0] for l in linhas]
-    pares_txt = [(l[1] or "", l[2] or "") for l in linhas]
+    par_keys = [linha[0] for linha in linhas]
+    pares_txt = [(linha[1] or "", linha[2] or "") for linha in linhas]
     ctx.log("info", f"[6b] Rerankeando {len(pares_txt)} pares do banco"
                     "...")
     rer = ctx.providers.novo_rerank(batch=params.batch)

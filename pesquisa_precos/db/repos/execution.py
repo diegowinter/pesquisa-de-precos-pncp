@@ -196,7 +196,7 @@ def prompt_versoes(sessao: Session, name: str) -> list[dict[str, Any]]:
         text("SELECT id, prompt_name, version, template, active, created_by, created_at, notes "
              "FROM prompt_version WHERE prompt_name = :n ORDER BY version DESC"),
         {"n": name}).mappings().all()
-    return [dict(l) for l in linhas]
+    return [dict(linha) for linha in linhas]
 
 
 def prompt_versao_por_numero(sessao: Session, name: str, version: int) -> dict[str, Any] | None:
@@ -261,7 +261,7 @@ def upsert_provedor(sessao: Session, name: str, capabilities: Sequence[str], bas
                     active: bool = True) -> None:
     """Cadastro/edição de provider. NÃO toca na chave de API — para isso existe
     `gravar_api_key`, que cifra (ADR-022). Separados de propósito: salvar o formulário sem
-    preencher o campo de chave não pode apagar a chave que já está lá."""
+    preencher o campo de chave não pode apagar a chave que já está linhaá."""
     sessao.execute(
         text("INSERT INTO provider (name, capabilities, base_url, api_key_ref, default_model, "
              "                      allows_fallback, batch_size, rpm_limit, "
@@ -291,11 +291,11 @@ def gravar_api_key(sessao: Session, provider: str, api_key: str) -> None:
     from pesquisa_precos.db import secret as seg
 
     sessao.execute(
-        text("UPDATE provider SET api_key_encrypted = :b, api_key_last4 = :l, "
+        text("UPDATE provider SET api_key_encrypted = :b, api_key_last4 = :linha, "
              "  api_key_key_id = :k, api_key_updated_at = now(), updated_at = now() "
              "WHERE name = :n"),
         {"n": provider, "b": seg.cifrar(api_key, context=provider),
-         "l": seg.ultimos4(api_key), "k": seg.key_id_atual()})
+         "linha": seg.ultimos4(api_key), "k": seg.key_id_atual()})
 
 
 def limpar_api_key(sessao: Session, provider: str) -> None:
@@ -369,7 +369,7 @@ def status_run_etapa(sessao: Session, run_etapa_id: int) -> str | None:
 
 def gravar_params(sessao: Session, run_etapa_id: int, *,
                   effective_params: dict[str, Any], params_override: dict[str, Any]) -> None:
-    """Camadas de docs/03_ETAPAS.md §3, já resolvidas. Gravado ANTES de rodar — `retomar` lê
+    """Camadas de docs/03_ETAPAS.md §3, já resolvidas. Gravado ANTES de rodar — `retomar` linhaê
     `effective_params` daqui e nunca recalcula (ADR-008): um run retomado não pode mudar de
     comportamento porque alguém mexeu na config no meio."""
     import json
@@ -600,20 +600,20 @@ def atualizar_status_provedor(sessao: Session, provider: str, healthy: bool,
     leitura, não histórico (docs/02_SCHEMA.md §10: PK é só `provider`)."""
     sessao.execute(
         text("INSERT INTO provider_status (provider, healthy, latency_ms, message) "
-             "VALUES (:p, :s, :l, :m) "
+             "VALUES (:p, :s, :linha, :m) "
              "ON CONFLICT (provider) DO UPDATE SET "
              "  healthy = EXCLUDED.healthy, latency_ms = EXCLUDED.latency_ms, "
              "  message = EXCLUDED.message, checked_at = now()"),
-        {"p": provider, "s": healthy, "l": latency_ms, "m": message[:500] if message else None})
+        {"p": provider, "s": healthy, "linha": latency_ms, "m": message[:500] if message else None})
 
 
 def status_provedores(sessao: Session) -> list[dict[str, Any]]:
-    """Última sondagem de cada provedor — o que a tela/CLI de saúde lê para não ter que
+    """Última sondagem de cada provedor — o que a tela/CLI de saúde linhaê para não ter que
     sondar de novo a cada refresh."""
     linhas = sessao.execute(
         text("SELECT provider, healthy, latency_ms, message, checked_at "
              "FROM provider_status ORDER BY provider")).mappings().all()
-    return [dict(l) for l in linhas]
+    return [dict(linha) for linha in linhas]
 
 
 def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
@@ -704,8 +704,8 @@ def custo_resumo(sessao: Session, *, de: str | None = None, ate: str | None = No
     total = sessao.execute(
         text(f"SELECT COALESCE(SUM(run_step.cost_usd), 0) FROM run_step WHERE {condicoes}"),
         parametros).scalar_one()
-    return {"total_usd": total, "por_run": [dict(l) for l in por_run],
-            "por_etapa": [dict(l) for l in por_etapa], "por_mes": [dict(l) for l in por_mes]}
+    return {"total_usd": total, "por_run": [dict(linha) for linha in por_run],
+            "por_etapa": [dict(linha) for linha in por_etapa], "por_mes": [dict(linha) for linha in por_mes]}
 
 
 def listar_exports(sessao: Session, *, run_id: int | None = None) -> list[dict[str, Any]]:
@@ -717,7 +717,7 @@ def listar_exports(sessao: Session, *, run_id: int | None = None) -> list[dict[s
         linhas = sessao.execute(
             text("SELECT id, run_id, tipo, arquivo, n_linhas, n_codigos, created_at FROM export "
                  "WHERE run_id = :r ORDER BY id DESC"), {"r": run_id}).mappings().all()
-    return [dict(l) for l in linhas]
+    return [dict(linha) for linha in linhas]
 
 
 def conteudo_export(sessao: Session, export_id: int) -> tuple[bytes | None, str | None]:

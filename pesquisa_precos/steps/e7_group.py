@@ -84,7 +84,7 @@ def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
         "numero_controle_pncp": "numeroControlePNCP",
         "numero_item": "numeroItem",
     })
-    # O resto da etapa trabalha com texto (o caminho CSV lê tudo como str). Preço é a
+    # O resto da etapa trabalha com texto (o caminho CSV linhaê tudo como str). Preço é a
     # exceção: continua Decimal até virar `preco_num`, para não passar por float duas vezes.
     for coluna in df.columns:
         if coluna not in ("preco_unitario", "preco_estimado", "quantidade"):

@@ -54,7 +54,7 @@ ignore = [
 
     # Dívida da pipeline em scripts, herdada. Reativar por módulo quando houver motivo.
     "E501",   # linhas de 100-115 colunas
-    "E741",   # `l` como variável de laço
+    # E741 fica ligado: `l` virou `linha` em todo o repositório.
     "E702",   # duas instruções na mesma linha, em blocos que montam tabela do rich
     "B905",   # zip() sem strict=
 ]

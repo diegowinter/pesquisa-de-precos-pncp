@@ -1,6 +1,6 @@
 """
 Diff entre runs (Fase 9, docs/04_FASES.md item 2) — "o que mudou do export de ontem para o de
-hoje": item novo, item sumiu, preço mudou. Generaliza a lógica de `--novos`/`export_snapshot`
+hoje": item novo, item sumiu, preço mudou. Generaliza a linhaógica de `--novos`/`export_snapshot`
 da etapa 8 (compara chaves entre dois conjuntos) para comparar dois `grupo_item` de runs
 DIFERENTES, em vez de um run contra o snapshot do último `--novos`.
 
@@ -45,8 +45,8 @@ def diff_runs(run_a_id: int, run_b_id: int, *, limiar_variacao: float = 0.0) -> 
     if not linhas_b:
         raise RunSemRankingError(f"run #{run_b_id} não tem linhas em grupo_item (rode a step 7)")
 
-    por_chave_a = {_chave(l): l for l in linhas_a}
-    por_chave_b = {_chave(l): l for l in linhas_b}
+    por_chave_a = {_chave(linha): linha for linha in linhas_a}
+    por_chave_b = {_chave(linha): linha for linha in linhas_b}
     chaves_a, chaves_b = set(por_chave_a), set(por_chave_b)
 
     itens_novos = sorted(chaves_b - chaves_a)

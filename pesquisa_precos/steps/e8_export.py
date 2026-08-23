@@ -20,7 +20,7 @@ Schema (definido com o cliente):
 Entrada: `grupo_item` do run indicado (default: o último que produziu ranking), com catálogo,
 item, documento e enriquecido no mesmo SELECT.
 Saída: uma linha em `export`, com o XLSX em `export.conteudo` (ADR-018) — a interface serve o
-download de lá. A etapa NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
+download de linhaá. A etapa NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
 Chave de resumo: nenhuma — recomputa o corpus inteiro.
 
 NÃO fazer: deixar o export completo tocar o snapshot do `--novos` (isso "consumiria" o delta
@@ -181,8 +181,8 @@ def carregar_do_banco(params: Params, ctx: RunContext) -> tuple[pd.DataFrame, di
         "numero_item": "numeroItem",
     })
     df["quantidade"] = df["quantidade"].map(_quantidade_texto)
-    # `montar_linhas` trata tudo como texto (o caminho CSV lê com dtype=str). Preço é
-    # convertido lá dentro por `formatar_valor_br`, então string aqui é seguro.
+    # `montar_linhas` trata tudo como texto (o caminho CSV linhaê com dtype=str). Preço é
+    # convertido linhaá dentro por `formatar_valor_br`, então string aqui é seguro.
     for coluna in df.columns:
         if coluna != "quantidade":
             df[coluna] = df[coluna].map(lambda v: "" if v is None else str(v))
@@ -337,7 +337,7 @@ def registrar_export(params: Params, run_id: int | None, tipo: str, nome_arquivo
 
     from pesquisa_precos.db import session as db
     from pesquisa_precos.db.repos import grupo as repo_grupo
-    codigos = {l["Codigo CATMAT/CATSER"] for l in linhas}
+    codigos = {linha["Codigo CATMAT/CATSER"] for linha in linhas}
     # ADR-018 §2: o XLSX vai para `export.conteudo`. `arquivo` fica NULL — não existe arquivo
     # em disco para o caminho apontar.
     conteudo = montar_xlsx(linhas)
@@ -355,7 +355,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     if params.novos:
         prev = carregar_snapshot(params)
-        novos = [l for l in linhas_csv if _chave(l) not in prev]
+        novos = [linha for linha in linhas_csv if _chave(linha) not in prev]
         base = "primeira execução (sem snapshot) — tudo é novo" if not prev \
             else f"baseline anterior: {len(prev)} linhas"
         ctx.log("info", f"[8] NOVOS: {len(novos)} de {len(linhas_csv)} linhas ({base}) "
@@ -363,7 +363,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         export_id = registrar_export(params, run_id, "novos", NOME_NOVOS, novos)
         # O snapshot avança com as chaves do export COMPLETO, não das novas: ele é o retrato
         # do que já foi entregue, e só as novas deixaria o delta se repetir para sempre.
-        salvar_snapshot({_chave(l) for l in linhas_csv}, params, catmap, export_id)
+        salvar_snapshot({_chave(linha) for linha in linhas_csv}, params, catmap, export_id)
         ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves).")
         return StepResult(
             processed=len(novos), erros=0,

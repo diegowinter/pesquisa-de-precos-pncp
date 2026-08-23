@@ -2,7 +2,7 @@
 Repositório da curadoria de catálogo (`catalogo_raw`, `pdm_permitido`) — Fase 10, ADR-017.
 
 O que este módulo substitui: as constantes `PDMS_MATERIAIS`/`CODIGOS_SERVICOS` de
-`core/catalogo/local.py`. O MÉTODO (como filtrar) continua lá; os DADOS (o que filtrar) passam
+`core/catalogo/local.py`. O MÉTODO (como filtrar) continua linhaá; os DADOS (o que filtrar) passam
 a vir daqui, editáveis pela interface sem deploy.
 
 A peça central é `derivar_catalogo_item()`: `catalogo_item` deixa de ser carregado de um CSV já

@@ -434,10 +434,10 @@ def montar_prompt_casar_item_tabela(item_api: dict, linhas: list[dict]) -> str:
     numero = item_api.get("numeroItem", "")
     descricao_api = item_api.get("descricao_api", "")
     linhas_fmt = json.dumps(
-        [{"idx": i, **{k: l.get(k, "") for k in
+        [{"idx": i, **{k: linha.get(k, "") for k in
                         ("numero_item", "descricao", "unidade", "quantidade",
                          "preco_unitario", "preco_total", "fornecedor")}}
-         for i, l in enumerate(linhas)],
+         for i, linha in enumerate(linhas)],
         ensure_ascii=False,
     )
     return (

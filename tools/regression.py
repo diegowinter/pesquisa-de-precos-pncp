@@ -6,7 +6,7 @@ uma amostra de `label` (ou uma fixture sintética, se o banco estiver vazio/indi
 é o caso: "ZERO linhas", ver CLAUDE.md) e reporta precisão/recall. É o que permite trocar de
 modelo/threshold/prompt sem ser no escuro (docs/08_CONVENCOES.md §6).
 
-A lógica de decisão vive em `pesquisa_precos.core.regression` (pura, sem I/O) — este script só
+A linhaógica de decisão vive em `pesquisa_precos.core.regression` (pura, sem I/O) — este script só
 resolve DE ONDE vem a amostra e IMPRIME o relatório. `--reprovar-abaixo-de` faz o processo
 sair com código 1 quando precisão OU recall ficam abaixo do limiar — é o que torna a suite
 utilizável em CI/pre-play, não só como relatório manual.
@@ -40,10 +40,10 @@ FIXTURE_PADRAO = RAIZ / "tests" / "fixtures" / "rotulos_sinteticos.csv"
 def carregar_da_fixture(caminho: Path = FIXTURE_PADRAO) -> list[Label]:
     with open(caminho, encoding="utf-8") as f:
         return [
-            Label(par_key=l["par_key"],
-                  score_rerank=float(l["score_rerank"]) if l["score_rerank"] else None,
-                  final_decision=l["final_decision"])
-            for l in csv.DictReader(f)
+            Label(par_key=linha["par_key"],
+                  score_rerank=float(linha["score_rerank"]) if linha["score_rerank"] else None,
+                  final_decision=linha["final_decision"])
+            for linha in csv.DictReader(f)
         ]
 
 
@@ -59,8 +59,8 @@ def carregar_do_banco(limite: int) -> list[Label] | None:
         linhas = repo_par.amostra_rotulos(s, limite)
     if not linhas:
         return None
-    return [Label(par_key=l["par_key"], score_rerank=l["score_rerank"],
-                   final_decision=l["final_decision"]) for l in linhas]
+    return [Label(par_key=linha["par_key"], score_rerank=linha["score_rerank"],
+                   final_decision=linha["final_decision"]) for linha in linhas]
 
 
 def carregar_amostra(fonte: str, limite: int) -> tuple[list[Label], str]:

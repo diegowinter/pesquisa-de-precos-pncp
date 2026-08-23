@@ -73,13 +73,13 @@ def recalibrar_threshold(t_aceita: float, t_rejeita: float, *,
                          limite_amostra: int = 500) -> dict[str, Any]:
     """Fase 9, item 6: precisão/recall de um par de thresholds CANDIDATOS, usando `label`,
     ANTES de gravar uma `config_version` nova (a interface só grava depois de o operador olhar
-    este número — nada aqui persiste config). Mesma lógica de `core.regression`, usada também
+    este número — nada aqui persiste config). Mesma linhaógica de `core.regression`, usada também
     pela suite de regressão em `tools/regressao.py`: uma verdade só sobre o que os
     thresholds decidem."""
     with db.session() as sessao:
         linhas = repo_par.amostra_rotulos(sessao, limite_amostra)
-    rotulos = [Label(par_key=l["par_key"], score_rerank=l["score_rerank"],
-                      final_decision=l["final_decision"]) for l in linhas]
+    rotulos = [Label(par_key=linha["par_key"], score_rerank=linha["score_rerank"],
+                      final_decision=linha["final_decision"]) for linha in linhas]
     resultado = avaliar(rotulos, t_aceita=t_aceita, t_rejeita=t_rejeita)
     return {
         "t_aceita": t_aceita, "t_rejeita": t_rejeita, "n_amostra": resultado.n_amostra,
