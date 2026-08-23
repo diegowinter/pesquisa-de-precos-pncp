@@ -32,7 +32,7 @@ def gravar_documentos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]])
 
     `DO UPDATE` só nos campos que a API pode revisar. `estado` fica FORA: ele é estado de
     processamento nosso (extraído/suspeito/ilegível), e uma recoleta não pode rebaixar um
-    documento já processado de volta para 'descoberto' — isso mandaria a etapa 5 reprocessar
+    documento já processado de volta para 'descoberto' — isso mandaria a step 5 reprocessar
     e repagar o LLM.
     """
     return copy.copiar(
@@ -50,7 +50,7 @@ def gravar_itens(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> i
     Se a API mudar a descrição de um item já coletado, o `texto_hash` mudaria junto e a
     classificação paga viraria órfã. Preferimos manter o que foi coletado — a atualização de
     um documento vem como `data_atualizacao_pncp` nova, e o tratamento disso é decisão de
-    etapa, não de repositório.
+    step, não de repositório.
     """
     return copy.copiar(conn, "item", COLUNAS_ITEM, linhas, conflito=("item_key",))
 
@@ -63,9 +63,9 @@ def ligar_termos(conn: psycopg.Connection,
 
 
 def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
-    """Resultado da etapa 4. Recebe as chaves em lote e usa `unnest` — uma consulta, não N.
+    """Resultado da step 4. Recebe as chaves em lote e usa `unnest` — uma consulta, não N.
 
-    Só marca; NÃO desmarca o que ficou de fora. A etapa 4 recomputa o corpus inteiro, então
+    Só marca; NÃO desmarca o que ficou de fora. A step 4 recomputa o corpus inteiro, então
     quem quiser um recorte limpo chama `limpar_sobreviventes()` antes, explicitamente.
     """
     if not item_keys:
@@ -78,14 +78,14 @@ def marcar_sobreviventes(sessao: Session, item_keys: Sequence[str]) -> int:
 
 
 def marcar_sobreviventes_por_categoria(sessao: Session) -> dict[str, int]:
-    """A etapa 4 inteira, em SQL: sobrevive o item com ao menos UMA categoria de conteúdo.
+    """A step 4 inteira, em SQL: sobrevive o item com ao menos UMA categoria de conteúdo.
 
     O caminho CSV carrega dois arquivos (182 MB de saída), faz merge, explode o multi-label e
     reagrega — tudo para produzir um booleano por item. Aqui é um UPDATE nos dois sentidos,
     porque "sobrevivente" é ATRIBUTO do item, não um conjunto à parte (ADR-018): não existe
     tabela de sobreviventes para ficar fora de sincronia com `item`.
 
-    O `UPDATE` desmarca quem deixou de ter categoria — a etapa 4 sempre recomputa o corpus
+    O `UPDATE` desmarca quem deixou de ter categoria — a step 4 sempre recomputa o corpus
     inteiro (o corte depende de tudo que existe), então marcar sem desmarcar deixaria item
     reprovado numa reclassificação marcado para sempre.
 
@@ -125,7 +125,7 @@ def recontar_sobreviventes_por_documento(sessao: Session) -> int:
     return sessao.execute(text("""
         UPDATE documento d
            SET n_itens_sobreviventes = COALESCE(c.n, 0),
-               atualizado_em = now()
+               updated_at = now()
           FROM (SELECT numero_controle_pncp, count(*) FILTER (WHERE sobrevivente) AS n
                   FROM item GROUP BY numero_controle_pncp) c
          WHERE c.numero_controle_pncp = d.numero_controle_pncp
@@ -139,7 +139,7 @@ def atualizar_estado(sessao: Session, estados: Sequence[tuple[str, str]]) -> int
         return 0
     return sessao.execute(
         text("UPDATE documento d SET estado = CAST(e.estado AS estado_documento), "
-             "                       atualizado_em = now() "
+             "                       updated_at = now() "
              "  FROM unnest(CAST(:ncs AS text[]), CAST(:sts AS text[])) AS e(nc, estado) "
              " WHERE d.numero_controle_pncp = e.nc"),
         {"ncs": [nc for nc, _ in estados], "sts": [st for _, st in estados]},
@@ -150,14 +150,14 @@ def mapa_pasta_para_controle(sessao: Session) -> dict[str, str]:
     """Não existe no banco — a `pasta_arquivos` deliberadamente NÃO foi migrada (ADR-012).
 
     Fica aqui como marcador: quem precisar do mapa `doc_key(caminho) → numero_controle_pncp`
-    (só o m10, que lê `5_pdf_texto.csv`) deve construí-lo do CSV de origem, não do banco.
+    (só o m10, que lê `5_pdf_texto.csv`) deve construí-lo do CSV de source, não do banco.
     """
     raise NotImplementedError(
         "pasta_arquivos não é migrada (ADR-012). O mapa caminho→controle vive no m10, "
         "construído a partir de 2_itens_coletados.csv.")
 
 
-# ── Coleta da etapa 2 no banco (Fase 10) ────────────────────────────────────────────
+# ── Coleta da step 2 no banco (Fase 10) ────────────────────────────────────────────
 
 def buscas_concluidas(sessao: Session) -> set[tuple[int, str]]:
     """(termo_id, tipo_doc) já varridos — o `ler_chaves_concluidas(2_progresso.csv)`."""
@@ -175,7 +175,7 @@ def marcar_busca(sessao: Session, termo_id: int, tipo_doc: str,
         ON CONFLICT (termo_id, tipo_doc) DO UPDATE
            SET n_documentos = coleta_progresso.n_documentos + EXCLUDED.n_documentos,
                n_itens = coleta_progresso.n_itens + EXCLUDED.n_itens,
-               concluido_em = now()
+               finished_at = now()
     """), {"id": termo_id, "td": tipo_doc, "nd": n_documentos, "ni": n_itens})
 
 
@@ -196,7 +196,7 @@ def controles_conhecidos(sessao: Session) -> set[str]:
 
 
 def pendentes(sessao: Session) -> dict[str, dict]:
-    """Documentos sem resultado homologado, no formato que a etapa consome."""
+    """Documentos sem resultado homologado, no formato que a step consome."""
     return {
         nc: {"tipo_doc": td, "termo_id": tid, "motivo": motivo, "data": data, "base": base}
         for nc, td, tid, motivo, data, base in sessao.execute(text(

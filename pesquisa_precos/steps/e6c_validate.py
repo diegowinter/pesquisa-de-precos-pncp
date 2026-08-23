@@ -6,9 +6,9 @@ Cada um vai ao LLM via comparar_par. Além disso, TODA decisão final — aceite
 por threshold extremo E os vereditos do 6c — é appendada em data/6_rotulos_acumulados.csv, que
 cresce entre execuções e serve para recalibrar thresholds / futuramente fine-tunar o reranker.
 
-⚠ RESTRIÇÃO DE CUSTO Nº 1 (ADR-004). Até a Fase 0 esta etapa usava o modelo CARO por padrão e
+⚠ RESTRIÇÃO DE CUSTO Nº 1 (ADR-004). Até a Fase 0 esta etapa usava o model CARO por padrão e
 só usava o barato com `--fraco` — comportamento seguro dependia de alguém lembrar de digitar
-uma flag. Aqui isso está invertido: **o modelo barato (PASS1) é o padrão** e o caro exige
+uma flag. Aqui isso está invertido: **o model barato (PASS1) é o padrão** e o caro exige
 `--forte` explícito. `--fraco` continua aceito, sem efeito, para não quebrar o comando que já
 está no histórico do terminal do operador.
 
@@ -17,9 +17,9 @@ Saídas: data/6c_pares_validados.csv (par_key, mesmo_item, justificativa),
         data/6_rotulos_acumulados.csv (append, sem duplicar par_key já registrado).
 Chave de resumo: par_key. Erros: erros/6c_erros.csv.
 
-NÃO fazer: truncar 6_rotulos_acumulados.csv — é o ativo de calibração do projeto.
+NÃO fazer: truncar 6_rotulos_acumulados.csv — é o active de calibração do projeto.
 
-Uso: python -m pesquisa_precos.steps.e6c_validate [--provedor openrouter] [--limite N]
+Uso: python -m pesquisa_precos.steps.e6c_validate [--provider openrouter] [--limite N]
 """
 
 import sys
@@ -43,20 +43,20 @@ CODE_VERSION = "2.0.0"
 
 
 class Params(BaseModel):
-    provedor: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
+    provider: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
     limite: int | None = Field(None, description="Teto de pares ambíguos a validar (debug)")
     concurrency: int = Field(4, ge=1, le=32, description="Chamadas simultâneas ao LLM")
     forte: bool = Field(
-        False, description="Usa o modelo CARO (PASS2). Padrão é o barato — ver ADR-004.")
+        False, description="Usa o model CARO (PASS2). Padrão é o barato — ver ADR-004.")
 
 
 # ── Validação no banco (Fase 10) ────────────────────────────────────────────────────
 #
 # O veredito volta para a MESMA linha de `par` (ADR-013) e `recomputar_decisao_final()` fecha
-# a decisão. `rotulo` continua sendo append-only: é o ativo de calibração do projeto e nunca
+# a decisão. `rotulo` continua sendo append-only: é o active de calibração do projeto e nunca
 # pode ser truncado.
 #
-# RESTRIÇÃO DE CUSTO Nº 1 (ADR-004) vale igual aqui: o modelo barato é o padrão, `--forte`
+# RESTRIÇÃO DE CUSTO Nº 1 (ADR-004) vale igual aqui: o model barato é o padrão, `--forte`
 # exige gesto explícito.
 
 def _exigir_banco():
@@ -69,7 +69,7 @@ def _exigir_banco():
 
 SQL_AMBIGUOS = """
     SELECT p.par_key,
-           trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.descricao, '')),
+           trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.description, '')),
            coalesce(NULLIF(e.descricao_final, ''), i.descricao_api),
            p.score_rerank
       FROM par p
@@ -97,16 +97,16 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
     vereditos: dict[str, int] = {"sim": 0, "nao": 0, "indeterminado": 0}
 
     if pend:
-        modelo = ctx.provedores.resolucao("chat").info.modelo
+        model = ctx.providers.resolucao("chat").info.model
         ctx.log("info" if not forte else "aviso",
-                f"[6c] modelo de validação: {modelo} "
+                f"[6c] model de validação: {model} "
                 f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
         try:
             with db.session() as sessao:
                 prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
         except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
             prompts_ativos = {}
-        curador = ctx.provedores.novo_chat(
+        curador = ctx.providers.novo_chat(
             curador_kwargs={"max_retries": 6, "prompts_ativos": prompts_ativos}).curador
         lote: list[tuple] = []
 
@@ -125,7 +125,7 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
             veredito = "sim" if res.get("mesmo_item") else "nao"
             vereditos[veredito] += 1
             n_ok[0] += 1
-            lote.append((linha[0], veredito, (res.get("justificativa") or "")[:500], modelo))
+            lote.append((linha[0], veredito, (res.get("justificativa") or "")[:500], model))
             if len(lote) >= 200:
                 descarregar()
 
@@ -146,7 +146,7 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
         contagens = repo_par.contar(s)
 
     # `rotulo` acumula TODA decisão final (aceites/rejeições extremas do 6b + vereditos do 6c).
-    # É o ativo de calibração do projeto — append-only, nunca truncado.
+    # É o active de calibração do projeto — append-only, nunca truncado.
     n_rotulos = _acumular_rotulos(db)
 
     cor = "yellow" if n_erros[0] else "green"
@@ -154,34 +154,34 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
                     f"{n_erros[0]} erros · decisão final recomputada em {n_decisoes} pares · "
                     f"+{n_rotulos} rótulos")
     return StepResult(
-        processados=n_ok[0], erros=n_erros[0],
-        metricas={**vereditos, "decisoes_finais": n_decisoes, "rotulos_novos": n_rotulos,
+        processed=n_ok[0], erros=n_erros[0],
+        metrics={**vereditos, "decisoes_finais": n_decisoes, "rotulos_novos": n_rotulos,
                   "pares_antes": contagens_antes.get("par", 0), **contagens},
     )
 
 
 SQL_ROTULOS_NOVOS = """
-    INSERT INTO rotulo (par_key, texto_catalogo, texto_item, score_rerank, decisao_final,
-                        origem, modelo)
+    INSERT INTO label (par_key, texto_catalogo, texto_item, score_rerank, final_decision,
+                        source, model)
     SELECT p.par_key,
-           left(trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.descricao, '')), 500),
+           left(trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.description, '')), 500),
            left(coalesce(NULLIF(e.descricao_final, ''), i.descricao_api), 500),
-           p.score_rerank, p.decisao_final::text,
+           p.score_rerank, p.final_decision::text,
            CASE WHEN p.veredito IS NOT NULL THEN 'llm' ELSE 'rerank' END,
            p.modelo_6c
       FROM par p
       JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
       JOIN item i ON i.item_key = p.item_key
       LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
-     WHERE p.decisao_final IN ('confirmado', 'rejeitado')
-       AND NOT EXISTS (SELECT 1 FROM rotulo r WHERE r.par_key = p.par_key)
+     WHERE p.final_decision IN ('confirmado', 'rejeitado')
+       AND NOT EXISTS (SELECT 1 FROM label r WHERE r.par_key = p.par_key)
 """
 
 
 def _acumular_rotulos(db) -> int:
-    """Registra em `rotulo` toda decisão final que ainda não estava lá.
+    """Registra em `label` toda decisão final que ainda não estava lá.
 
-    `NOT EXISTS` em vez de `ON CONFLICT`: `rotulo` não tem `par_key` único (um par pode ser
+    `NOT EXISTS` em vez de `ON CONFLICT`: `label` não tem `par_key` único (um par pode ser
     rotulado de novo depois de uma recalibração), então a proteção contra duplicar tem que ser
     explícita na consulta.
     """
@@ -203,15 +203,15 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
         ).scalar_one()
         ambiguos = s.execute(sa_text(
             "SELECT count(*) FROM par WHERE decisao = 'ambiguo'")).scalar_one()
-    resolucao = ctx.provedores.resolucao_opcional("chat")
-    preco = resolucao.info.custo_usd_chamada if resolucao else None
-    modelo = resolucao.info.modelo if resolucao else "— sem provedor de `chat` configurado —"
+    resolucao = ctx.providers.resolucao_opcional("chat")
+    preco = resolucao.info.cost_usd_per_call if resolucao else None
+    model = resolucao.info.model if resolucao else "— sem provider de `chat` configurado —"
     return Estimate(
         unidades=n, chamadas_llm=n,
-        custo_usd=None if preco is None else n * preco,
+        cost_usd=None if preco is None else n * preco,
         duracao_s=n / max(params.concurrency, 1) * 2,
         detalhes={"ambiguos": ambiguos, "já_validados": ambiguos - n,
-                  "modelo": f"{modelo} ({'CARO' if params.forte else 'barato'})"},
+                  "model": f"{model} ({'CARO' if params.forte else 'barato'})"},
     )
 
 

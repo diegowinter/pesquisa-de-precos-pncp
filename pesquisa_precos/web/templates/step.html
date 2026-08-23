@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block titulo %}Run #{{ run.id }} · Etapa {{ key }}{% endblock %}
 {% block conteudo %}
-<p><a href="/runs/{{ run.id }}">&larr; Run #{{ run.id }} · {{ run.rotulo }}</a></p>
+<p><a href="/runs/{{ run.id }}">&larr; Run #{{ run.id }} · {{ run.label }}</a></p>
 
 {% if detalhe.status == 'aguardando_aprovacao' %}
 <div class="painel" style="border-color:var(--gate);">
@@ -10,8 +10,8 @@
   <table>
     <tr><th>Unidades</th><td>{{ estimativa.unidades }}</td></tr>
     <tr><th>Chamadas LLM</th><td>{{ estimativa.chamadas_llm }}</td></tr>
-    <tr><th>Custo estimado</th><td>{% if estimativa.custo_usd is not none %}US$ {{ "%.2f"|format(estimativa.custo_usd) }}{% else %}desconhecido{% endif %}
-      {% if run.teto_custo_usd %}· teto do run: US$ {{ "%.2f"|format(run.teto_custo_usd) }}{% endif %}</td></tr>
+    <tr><th>Custo estimado</th><td>{% if estimativa.cost_usd is not none %}US$ {{ "%.2f"|format(estimativa.cost_usd) }}{% else %}desconhecido{% endif %}
+      {% if run.cost_cap_usd %}· teto do run: US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</td></tr>
     <tr><th>Duração estimada</th><td>{% if estimativa.duracao_s %}~{{ (estimativa.duracao_s / 60) | round(1) }} min{% else %}desconhecida{% endif %}</td></tr>
   </table>
   {% else %}
@@ -26,7 +26,7 @@
     </p>
   </form>
   <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/skip" class="linha">
-    <input type="hidden" name="motivo" value="pulada pelo operador via gate">
+    <input type="hidden" name="reason" value="pulada pelo operador via gate">
     <button type="submit">Pular etapa</button>
   </form>
 </div>
@@ -40,12 +40,12 @@
 <div class="painel">
   <h3>Ações</h3>
   <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
-    <input type="hidden" name="acao" value="atualizar">
+    <input type="hidden" name="action" value="atualizar">
     <button class="principal" type="submit">Atualizar</button>
   </form>
   {% if detalhe.status == 'falhou' %}
   <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" class="linha">
-    <input type="hidden" name="acao" value="retomar">
+    <input type="hidden" name="action" value="retomar">
     <button type="submit">Retomar</button>
   </form>
   {% endif %}
@@ -67,8 +67,8 @@
     {% endif %}
     <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run"
           onsubmit="return confirm('Refazer do zero descarta o resultado atual desta etapa. Confirmar?');">
-      <input type="hidden" name="acao" value="refazer">
-      <input type="hidden" name="confirmar" value="true">
+      <input type="hidden" name="action" value="refazer">
+      <input type="hidden" name="confirm" value="true">
       <button class="perigo" type="submit">Confirmar refazer</button>
     </form>
   </details>
@@ -76,12 +76,12 @@
 
 <div class="painel">
   <h3>Parâmetros efetivos</h3>
-  <pre class="log">{{ detalhe.params_efetivos | tojson(indent=2) if detalhe.params_efetivos else '{}' }}</pre>
+  <pre class="log">{{ detalhe.effective_params | tojson(indent=2) if detalhe.effective_params else '{}' }}</pre>
 </div>
 
 <div class="painel">
   <h3>Métricas</h3>
-  <pre class="log">{{ detalhe.metricas | tojson(indent=2) if detalhe.metricas else '{}' }}</pre>
+  <pre class="log">{{ detalhe.metrics | tojson(indent=2) if detalhe.metrics else '{}' }}</pre>
 </div>
 
 <div class="painel">
@@ -91,12 +91,12 @@
     <thead><tr><th>chave</th><th>tipo</th><th>mensagem</th><th>tentativas</th></tr></thead>
     <tbody>
       {% for e in erros %}
-      <tr><td>{{ e.chave }}</td><td>{{ e.tipo_erro }}</td><td>{{ e.mensagem }}</td><td>{{ e.tentativas }}</td></tr>
+      <tr><td>{{ e.key }}</td><td>{{ e.error_type }}</td><td>{{ e.message }}</td><td>{{ e.attempts }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
   <form method="post" action="/runs/{{ run.id }}/steps/{{ key }}/run" style="margin-top:.5rem;">
-    <input type="hidden" name="acao" value="retomar">
+    <input type="hidden" name="action" value="retomar">
     <button type="submit">Reprocessar pendentes (retomar)</button>
   </form>
   {% else %}
@@ -108,7 +108,7 @@
   <h3>Log <span class="tag" id="log-status">conectando…</span></h3>
   <div class="log" id="log">
     {% for l in logs %}
-    <div class="linha nivel-{{ l.nivel }}">[{{ l.criado_em }}] {{ l.nivel }} — {{ l.mensagem }}</div>
+    <div class="linha nivel-{{ l.level }}">[{{ l.created_at }}] {{ l.level }} — {{ l.message }}</div>
     {% endfor %}
   </div>
 </div>
@@ -122,8 +122,8 @@
   fonte.onmessage = function (evento) {
     var l = JSON.parse(evento.data);
     var linha = document.createElement("div");
-    linha.className = "linha nivel-" + l.nivel;
-    linha.textContent = "[" + l.criado_em + "] " + l.nivel + " — " + l.mensagem;
+    linha.className = "linha nivel-" + l.level;
+    linha.textContent = "[" + l.created_at + "] " + l.level + " — " + l.message;
     caixa.appendChild(linha);
     caixa.scrollTop = caixa.scrollHeight;
   };

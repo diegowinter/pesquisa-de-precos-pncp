@@ -8,7 +8,7 @@ existir faixa curada em `faixa_preco` (categoria, preco_min, preco_max), aplica 
 código, conta confirmados não-flagados; < min_itens descarta o código. Nos que fecham, ordena
 por preço unitário crescente e aplica top_n quando > 0.
 
-Entrada: `par` com `decisao_final='confirmado'` (derivada da 6b/6c). Saída: `grupo_item`,
+Entrada: `par` com `final_decision='confirmado'` (derivada da 6b/6c). Saída: `grupo_item`,
 carimbado com o `run_id`.
 Chave de resumo: nenhuma — recomputa o corpus inteiro (comparar preço exige todos os itens).
 
@@ -32,10 +32,10 @@ from pydantic import BaseModel, Field
 from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 
 KEY = "7"
-# 2.0.0 (Fase 13): o caminho CSV saiu — o banco é a única origem e o único destino
+# 2.0.0 (Fase 13): o caminho CSV saiu — o banco é a única source e o único destino
 # (ADR-020). A regra de agrupamento em si nunca mudou.
 # 2.1.0 — Fase 14 (ADR-022): `min_itens`/`top_n` deixaram de cair para `ctx.config` (o `.env`)
-# e passam a sair só de `Params`/`config_versao`. Mesma razão do bump da 6b.
+# e passam a sair só de `Params`/`config_version`. Mesma razão do bump da 6b.
 CODE_VERSION = "2.1.0"
 
 META_ITEM = ["tipo_doc", "numeroControlePNCP", "numeroItem", "unidade", "quantidade",
@@ -62,7 +62,7 @@ class Params(BaseModel):
 def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
     """Pares confirmados + metadados do item, direto do banco. Devolve (df, run_id).
 
-    Um SELECT só, no repositório — a etapa não escreve SQL (regra da Fase 2). As colunas
+    Um SELECT só, no repositório — a step não escreve SQL (regra da Fase 2). As colunas
     saem com os MESMOS nomes que o caminho CSV usa (`numeroControlePNCP`, `numeroItem`…),
     para que todo o resto da função `executar` seja literalmente o mesmo código. Renomear
     aqui é mais barato que manter duas versões da regra de menor preço.
@@ -114,7 +114,7 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
         return Estimate(detalhes={**comum, "aviso": f"banco indisponível: {detalhe}"})
     with db.session() as s:
         n = repo_par.contar(s)["par_confirmado"]
-    return Estimate(unidades=n, chamadas_llm=0, custo_usd=0.0, detalhes=comum)
+    return Estimate(unidades=n, chamadas_llm=0, cost_usd=0.0, detalhes=comum)
 
 
 def carregar_confirmados(params: Params, ctx: RunContext) -> tuple[pd.DataFrame, int | None]:

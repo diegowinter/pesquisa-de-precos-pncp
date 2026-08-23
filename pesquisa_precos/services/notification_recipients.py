@@ -39,23 +39,23 @@ def obter_destinatario(destinatario_id: int) -> dict[str, Any] | None:
         return repo.obter(sessao, destinatario_id)
 
 
-def criar_destinatario(nome: str | None, email: str | None) -> int:
+def criar_destinatario(name: str | None, email: str | None) -> int:
     _validar_canal(email)
     with db.session() as sessao:
-        return repo.criar(sessao, nome, email)  # type: ignore[arg-type]
+        return repo.criar(sessao, name, email)  # type: ignore[arg-type]
 
 
-def editar_destinatario(destinatario_id: int, nome: str | None, email: str | None) -> None:
+def editar_destinatario(destinatario_id: int, name: str | None, email: str | None) -> None:
     _validar_canal(email)
     with db.session() as sessao:
-        linhas = repo.editar(sessao, destinatario_id, nome, email)  # type: ignore[arg-type]
+        linhas = repo.editar(sessao, destinatario_id, name, email)  # type: ignore[arg-type]
     if linhas == 0:
         raise DestinatarioInexistente(f"destinatário {destinatario_id} não existe")
 
 
-def definir_ativo(destinatario_id: int, ativo: bool) -> None:
+def definir_ativo(destinatario_id: int, active: bool) -> None:
     with db.session() as sessao:
-        linhas = repo.definir_ativo(sessao, destinatario_id, ativo)
+        linhas = repo.definir_ativo(sessao, destinatario_id, active)
     if linhas == 0:
         raise DestinatarioInexistente(f"destinatário {destinatario_id} não existe")
 

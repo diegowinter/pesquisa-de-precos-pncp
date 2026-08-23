@@ -1,12 +1,12 @@
 """
-Guarda da Fase 10 bloco B, etapa 1: geração de termos com `--fonte banco`.
+Guarda da Fase 10 bloco B, step 1: geração de termos com `--fonte banco`.
 
 O que estes testes protegem:
   1. `termo_geracao` guardar o termo CRU — se guardasse o expandido, a cascata de categoria
-     de `resolver_categorias()` mudaria de resultado em silêncio (é o motivo de a tabela
+     de `resolver_categorias()` mudaria de resultado em silêncio (é o reason de a tabela
      existir em vez de reconstruir o checkpoint de `termo`/`termo_codigo`);
   2. o resume pular item já gerado — é o que impede repagar a chamada de LLM;
-  3. `origem='manual'` sobreviver a uma regeração, e termos de LLM saírem de cena
+  3. `source='manual'` sobreviver a uma regeração, e termos de LLM saírem de cena
      DESATIVADOS, nunca apagados (apagar levaria junto o watermark da coleta).
 
 Precisa de Postgres com o schema aplicado; PULADO sem ele (padrão de test_config_prompts.py).
@@ -44,7 +44,7 @@ def catalogo_de_teste():
     limpar()
     with db.session() as s:
         s.execute(text("""
-            INSERT INTO catalogo_item (tipo, codigo, codigo_pdm, nome_pdm, descricao, ativo)
+            INSERT INTO catalogo_item (tipo, codigo, codigo_pdm, nome_pdm, description, active)
             VALUES ('material', :c, :p, 'COLETE', 'COLETE BALISTICO NIVEL III', true)
         """), {"c": COD_TESTE, "p": PDM_TESTE})
         s.commit()
@@ -55,7 +55,7 @@ def catalogo_de_teste():
 def test_geracao_guarda_o_termo_cru_e_volta_no_formato_do_checkpoint(catalogo_de_teste):
     with db.session() as s:
         repo.gravar_geracao(s, "material", COD_TESTE, ["colete", "colete balistico"],
-                            "protecao", modelo="PASS1", provedor="local")
+                            "protecao", model="PASS1", provider="local")
         s.commit()
         checkpoint = repo.geracoes(s)
 
@@ -94,8 +94,8 @@ def test_categoria_final_vai_para_catalogo_item(catalogo_de_teste):
 
 
 def test_gravar_categoria_igual_nao_conta_como_alteracao(catalogo_de_teste):
-    """`IS DISTINCT FROM` no UPDATE: rodar a etapa 1 duas vezes sem mudança não deve
-    reportar milhares de códigos 'alterados' nem carimbar `atualizado_em` à toa."""
+    """`IS DISTINCT FROM` no UPDATE: rodar a step 1 duas vezes sem mudança não deve
+    reportar milhares de códigos 'alterados' nem carimbar `updated_at` à toa."""
     with db.session() as s:
         repo.gravar_categorias(s, {COD_TESTE: "protecao"})
         s.commit()
@@ -114,10 +114,10 @@ def test_termo_manual_sobrevive_a_regeracao(catalogo_de_teste):
         repo.desativar_llm_ausentes(s, ["outro termo qualquer"])
         s.commit()
         estados = dict(s.execute(text(
-            "SELECT id, ativo FROM termo WHERE id = ANY(:ids)"),
+            "SELECT id, active FROM termo WHERE id = ANY(:ids)"),
             {"ids": [id_manual, id_llm]}).all())
 
-    assert estados[id_manual] is True, "curadoria humana não pode ser desativada pela etapa"
+    assert estados[id_manual] is True, "curadoria humana não pode ser desativada pela step"
     assert estados[id_llm] is False
 
 
@@ -129,13 +129,13 @@ def test_termo_de_llm_regerado_continua_ativo(catalogo_de_teste):
         s.commit()
         repo.desativar_llm_ausentes(s, [normalizar_termo(TERMO_LLM)])
         s.commit()
-        ativo = s.execute(text("SELECT ativo FROM termo WHERE id = :i"),
+        active = s.execute(text("SELECT active FROM termo WHERE id = :i"),
                           {"i": id_llm}).scalar_one()
-    assert ativo is True
+    assert active is True
 
 
 def test_termo_desativado_nao_e_apagado(catalogo_de_teste):
-    """Apagar o termo levaria junto `coleta_watermark` (ON DELETE CASCADE) — e perder o
+    """Apagar o termo levaria junto `collection_watermark` (ON DELETE CASCADE) — e perder o
     watermark significa re-varrer o PNCP inteiro na próxima atualização."""
     with db.session() as s:
         id_llm = repo.upsert(s, TERMO_LLM, "protecao", "llm")

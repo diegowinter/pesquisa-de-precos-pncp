@@ -8,7 +8,7 @@ a vir daqui, editáveis pela interface sem deploy.
 A peça central é `derivar_catalogo_item()`: `catalogo_item` deixa de ser carregado de um CSV já
 filtrado e passa a ser **derivado** de `catalogo_raw ∩ pdm_permitido` por SQL. Isso é o que
 torna a recuradoria barata — mudar a allow-list na tela e reprojetar o catálogo é um comando,
-não uma reexecução da etapa 0a (que rebaixaria o catálogo inteiro da API).
+não uma reexecução da step 0a (que rebaixaria o catálogo inteiro da API).
 
 Assimetria que atravessa o módulo inteiro: o `codigo` de `pdm_permitido` casa com
 `catalogo_raw.codigo_pdm` para material e com `catalogo_raw.codigo` para serviço. É herança da
@@ -25,22 +25,22 @@ from sqlalchemy.orm import Session
 
 from pesquisa_precos.db import copy
 
-COLUNAS_RAW = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "descricao",
+COLUNAS_RAW = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "description",
                "codigo_grupo", "nome_grupo", "nome_classe")
 
 
-# ── Catálogo completo (etapa 0a) ────────────────────────────────────────────────────
+# ── Catálogo completo (step 0a) ────────────────────────────────────────────────────
 
 def gravar_raw(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Upsert em massa do catálogo completo. `linhas` na ordem de `COLUNAS_RAW`.
 
-    `DO UPDATE` pelo mesmo motivo de `catalogo.gravar_itens`: descrição e classe mudam no
+    `DO UPDATE` pelo mesmo reason de `catalogo.gravar_itens`: descrição e classe mudam no
     CATMAT, e manter a versão antiga faria o export divergir da fonte oficial em silêncio.
     """
     return copy.copiar(
         conn, "catalogo_raw", COLUNAS_RAW, linhas,
         conflito=("tipo", "codigo"),
-        atualizar=("codigo_pdm", "nome_pdm", "descricao",
+        atualizar=("codigo_pdm", "nome_pdm", "description",
                    "codigo_grupo", "nome_grupo", "nome_classe"),
     )
 
@@ -56,16 +56,16 @@ def contar_raw(sessao: Session, tipo: str | None = None) -> int:
 # ── Allow-list (o que a interface edita) ────────────────────────────────────────────
 
 SQL_LISTAR = """
-    SELECT p.tipo::text, p.codigo, p.nome, p.observacao, p.ativo,
-           p.criado_por, p.criado_em,
+    SELECT p.tipo::text, p.codigo, p.name, p.observacao, p.active,
+           p.created_by, p.created_at,
            (SELECT count(*) FROM catalogo_raw r
              WHERE r.tipo = p.tipo
                AND (CASE WHEN p.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END)
                    = p.codigo) AS n_itens
       FROM pdm_permitido p
      WHERE (CAST(:tipo AS text) IS NULL OR p.tipo::text = CAST(:tipo AS text))
-       AND (CAST(:todos AS boolean) OR p.ativo)
-     ORDER BY p.tipo, p.ativo DESC, n_itens DESC, p.codigo
+       AND (CAST(:todos AS boolean) OR p.active)
+     ORDER BY p.tipo, p.active DESC, n_itens DESC, p.codigo
 """
 
 
@@ -81,53 +81,53 @@ def listar_permitidos(sessao: Session, tipo: str | None = None,
     que casa 0 itens é curadoria morta, e hoje não há como perceber isso sem rodar a 0a."""
     linhas = sessao.execute(text(SQL_LISTAR), {"tipo": tipo, "todos": incluir_inativos}).all()
     return [
-        {"tipo": t, "codigo": c, "nome": n, "observacao": o, "ativo": a,
-         "criado_por": por, "criado_em": em, "n_itens": qtd}
+        {"tipo": t, "codigo": c, "name": n, "observacao": o, "active": a,
+         "created_by": por, "created_at": em, "n_itens": qtd}
         for t, c, n, o, a, por, em, qtd in linhas
     ]
 
 
 SQL_PERMITIR = """
-    INSERT INTO pdm_permitido (tipo, codigo, nome, observacao, ativo, criado_por)
-    VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :nome, :obs, true, :por)
+    INSERT INTO pdm_permitido (tipo, codigo, name, observacao, active, created_by)
+    VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :name, :obs, true, :por)
     ON CONFLICT (tipo, codigo) DO UPDATE
-       SET ativo = true,
-           nome = COALESCE(EXCLUDED.nome, pdm_permitido.nome),
+       SET active = true,
+           name = COALESCE(EXCLUDED.name, pdm_permitido.name),
            observacao = COALESCE(EXCLUDED.observacao, pdm_permitido.observacao),
-           atualizado_em = now()
+           updated_at = now()
 """
 
 
-def permitir(sessao: Session, tipo: str, codigo: str, *, nome: str | None = None,
-             observacao: str | None = None, criado_por: str | None = None) -> None:
+def permitir(sessao: Session, tipo: str, codigo: str, *, name: str | None = None,
+             observacao: str | None = None, created_by: str | None = None) -> None:
     """Inclui (ou reativa) um código na allow-list. Idempotente."""
-    sessao.execute(text(SQL_PERMITIR), {"tipo": tipo, "codigo": str(codigo), "nome": nome,
-                                        "obs": observacao, "por": criado_por})
+    sessao.execute(text(SQL_PERMITIR), {"tipo": tipo, "codigo": str(codigo), "name": name,
+                                        "obs": observacao, "por": created_by})
 
 
 SQL_REVOGAR = """
     UPDATE pdm_permitido
-       SET ativo = false,
-           observacao = COALESCE(:motivo, observacao),
-           atualizado_em = now()
-     WHERE tipo = CAST(:tipo AS tipo_catalogo) AND codigo = :codigo AND ativo
+       SET active = false,
+           observacao = COALESCE(:reason, observacao),
+           updated_at = now()
+     WHERE tipo = CAST(:tipo AS tipo_catalogo) AND codigo = :codigo AND active
 """
 
 
-def revogar(sessao: Session, tipo: str, codigo: str, *, motivo: str | None = None) -> int:
+def revogar(sessao: Session, tipo: str, codigo: str, *, reason: str | None = None) -> int:
     """Tira um código do escopo. DESATIVA, nunca apaga — mesmo princípio de
-    `catalogo.marcar_inativos`: o código já foi origem de linhas de export entregues, e o
-    motivo da exclusão é justamente o que se perde primeiro."""
+    `catalogo.marcar_inativos`: o código já foi source de linhas de export entregues, e o
+    reason da exclusão é justamente o que se perde primeiro."""
     return sessao.execute(
         text(SQL_REVOGAR),
-        {"tipo": tipo, "codigo": str(codigo), "motivo": motivo}).rowcount
+        {"tipo": tipo, "codigo": str(codigo), "reason": reason}).rowcount
 
 
 def codigos_ativos(sessao: Session, tipo: str) -> set[str]:
     """A allow-list crua, para quem ainda filtra em Python (o caminho `--fonte csv`)."""
     return set(sessao.scalars(
         text("SELECT codigo FROM pdm_permitido "
-             "WHERE tipo = CAST(:t AS tipo_catalogo) AND ativo"),
+             "WHERE tipo = CAST(:t AS tipo_catalogo) AND active"),
         {"t": tipo}).all())
 
 
@@ -141,52 +141,52 @@ def grupos_ativos(sessao: Session, tipo: str) -> list[str]:
     """`codigoGrupo` a paginar no download recortado. Ordenado para o log ficar estável."""
     return list(sessao.scalars(
         text("SELECT codigo FROM grupo_permitido "
-             "WHERE tipo = CAST(:t AS tipo_catalogo) AND ativo "
+             "WHERE tipo = CAST(:t AS tipo_catalogo) AND active "
              "ORDER BY length(codigo), codigo"),
         {"t": tipo}).all())
 
 
 SQL_LISTAR_GRUPOS = """
-    SELECT g.tipo::text, g.codigo, g.nome, g.observacao, g.ativo, g.criado_por, g.criado_em,
+    SELECT g.tipo::text, g.codigo, g.name, g.observacao, g.active, g.created_by, g.created_at,
            (SELECT count(*) FROM catalogo_raw r
              WHERE r.tipo = g.tipo AND r.codigo_grupo = g.codigo) AS n_itens
       FROM grupo_permitido g
      WHERE (CAST(:tipo AS text) IS NULL OR g.tipo::text = CAST(:tipo AS text))
-       AND (CAST(:todos AS boolean) OR g.ativo)
-     ORDER BY g.tipo, g.ativo DESC, length(g.codigo), g.codigo
+       AND (CAST(:todos AS boolean) OR g.active)
+     ORDER BY g.tipo, g.active DESC, length(g.codigo), g.codigo
 """
 
 
 def listar_grupos(sessao: Session, tipo: str | None = None,
                   incluir_inativos: bool = False) -> list[dict]:
     """Os grupos como a tela de curadoria os mostra, com quantos itens do catálogo completo
-    cada um traz. Os `CAST` existem pelo mesmo motivo de `listar_permitidos`: parâmetro NULL
+    cada um traz. Os `CAST` existem pelo mesmo reason de `listar_permitidos`: parâmetro NULL
     sem tipo faz o Postgres levantar `AmbiguousParameter`."""
     linhas = sessao.execute(text(SQL_LISTAR_GRUPOS),
                             {"tipo": tipo, "todos": incluir_inativos}).all()
     return [
-        {"tipo": t, "codigo": c, "nome": n, "observacao": o, "ativo": a,
-         "criado_por": por, "criado_em": em, "n_itens": qtd}
+        {"tipo": t, "codigo": c, "name": n, "observacao": o, "active": a,
+         "created_by": por, "created_at": em, "n_itens": qtd}
         for t, c, n, o, a, por, em, qtd in linhas
     ]
 
 
-def permitir_grupo(sessao: Session, tipo: str, codigo: str, *, nome: str | None = None,
-                   observacao: str | None = None, criado_por: str | None = None) -> None:
+def permitir_grupo(sessao: Session, tipo: str, codigo: str, *, name: str | None = None,
+                   observacao: str | None = None, created_by: str | None = None) -> None:
     sessao.execute(text("""
-        INSERT INTO grupo_permitido (tipo, codigo, nome, observacao, ativo, criado_por)
-        VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :nome, :obs, true, :por)
+        INSERT INTO grupo_permitido (tipo, codigo, name, observacao, active, created_by)
+        VALUES (CAST(:tipo AS tipo_catalogo), :codigo, :name, :obs, true, :por)
         ON CONFLICT (tipo, codigo) DO UPDATE
-           SET ativo = true,
-               nome = COALESCE(EXCLUDED.nome, grupo_permitido.nome),
+           SET active = true,
+               name = COALESCE(EXCLUDED.name, grupo_permitido.name),
                observacao = COALESCE(EXCLUDED.observacao, grupo_permitido.observacao),
-               atualizado_em = now()
-    """), {"tipo": tipo, "codigo": str(codigo), "nome": nome,
-           "obs": observacao, "por": criado_por})
+               updated_at = now()
+    """), {"tipo": tipo, "codigo": str(codigo), "name": name,
+           "obs": observacao, "por": created_by})
 
 
 def revogar_grupo(sessao: Session, tipo: str, codigo: str, *,
-                  motivo: str | None = None) -> int:
+                  reason: str | None = None) -> int:
     """Desativa, nunca apaga — mesmo princípio do resto da curadoria.
 
     Revogar um grupo NÃO tira do escopo os itens já baixados: `catalogo_item` continua vindo
@@ -194,58 +194,58 @@ def revogar_grupo(sessao: Session, tipo: str, codigo: str, *,
     """
     return sessao.execute(text("""
         UPDATE grupo_permitido
-           SET ativo = false, observacao = COALESCE(:motivo, observacao), atualizado_em = now()
-         WHERE tipo = CAST(:tipo AS tipo_catalogo) AND codigo = :codigo AND ativo
-    """), {"tipo": tipo, "codigo": str(codigo), "motivo": motivo}).rowcount
+           SET active = false, observacao = COALESCE(:reason, observacao), updated_at = now()
+         WHERE tipo = CAST(:tipo AS tipo_catalogo) AND codigo = :codigo AND active
+    """), {"tipo": tipo, "codigo": str(codigo), "reason": reason}).rowcount
 
 
 # ── Derivação: catalogo_raw ∩ pdm_permitido → catalogo_item ─────────────────────────
 
 DERIVACAO = """
-INSERT INTO catalogo_item (tipo, codigo, codigo_pdm, nome_pdm, descricao,
-                           codigo_grupo, nome_grupo, nome_classe, ativo)
-SELECT r.tipo, r.codigo, r.codigo_pdm, r.nome_pdm, r.descricao,
+INSERT INTO catalogo_item (tipo, codigo, codigo_pdm, nome_pdm, description,
+                           codigo_grupo, nome_grupo, nome_classe, active)
+SELECT r.tipo, r.codigo, r.codigo_pdm, r.nome_pdm, r.description,
        r.codigo_grupo, r.nome_grupo, r.nome_classe, true
   FROM catalogo_raw r
   JOIN pdm_permitido p
     ON p.tipo = r.tipo
-   AND p.ativo
+   AND p.active
    AND p.codigo = CASE WHEN r.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END
 ON CONFLICT (tipo, codigo) DO UPDATE
    SET codigo_pdm = EXCLUDED.codigo_pdm,
        nome_pdm = EXCLUDED.nome_pdm,
-       descricao = EXCLUDED.descricao,
+       description = EXCLUDED.description,
        codigo_grupo = EXCLUDED.codigo_grupo,
        nome_grupo = EXCLUDED.nome_grupo,
        nome_classe = EXCLUDED.nome_classe,
-       ativo = true,
-       atualizado_em = now()
+       active = true,
+       updated_at = now()
 """
 
 # Item que saiu do escopo (o PDM foi revogado) some do `catalogo_item`? NÃO: vira inativo.
-# `catalogo_item.categoria` vem da etapa 1 e é cara (LLM); apagar a linha jogaria fora esse
-# trabalho, e o código continua sendo a origem de linhas de export já entregues.
+# `catalogo_item.categoria` vem da step 1 e é cara (LLM); apagar a linha jogaria fora esse
+# trabalho, e o código continua sendo a source de linhas de export já entregues.
 DESATIVACAO = """
 UPDATE catalogo_item c
-   SET ativo = false, atualizado_em = now()
- WHERE c.ativo
+   SET active = false, updated_at = now()
+ WHERE c.active
    AND NOT EXISTS (
         SELECT 1 FROM catalogo_raw r
           JOIN pdm_permitido p
             ON p.tipo = r.tipo
-           AND p.ativo
+           AND p.active
            AND p.codigo = CASE WHEN r.tipo = 'material' THEN r.codigo_pdm ELSE r.codigo END
          WHERE r.tipo = c.tipo AND r.codigo = c.codigo)
 """
 
 
 def derivar_catalogo_item(sessao: Session) -> dict[str, int]:
-    """Recomputa `catalogo_item` a partir do catálogo completo e da allow-list ativa.
+    """Recomputa `catalogo_item` a partir do catálogo completo e da allow-list active.
 
-    Chamada pela etapa 0a e por qualquer edição de curadoria na interface — é o que faz
-    "mudei a allow-list" ter efeito sem reexecutar a etapa (que rebaixaria a API inteira).
+    Chamada pela step 0a e por qualquer edição de curadoria na interface — é o que faz
+    "mudei a allow-list" ter efeito sem reexecutar a step (que rebaixaria a API inteira).
 
-    NÃO toca em `categoria`: ela vem da etapa 1, custa LLM e não é derivável daqui. O
+    NÃO toca em `categoria`: ela vem da step 1, custa LLM e não é derivável daqui. O
     `ON CONFLICT DO UPDATE` lista as colunas uma a uma exatamente por isso — um
     `SET (...) = (EXCLUDED...)` genérico apagaria a categoria de todo código a cada
     rederivação.
@@ -253,7 +253,7 @@ def derivar_catalogo_item(sessao: Session) -> dict[str, int]:
     inseridos = sessao.execute(text(DERIVACAO)).rowcount
     desativados = sessao.execute(text(DESATIVACAO)).rowcount
     total = sessao.execute(
-        text("SELECT count(*) FROM catalogo_item WHERE ativo")).scalar_one()
+        text("SELECT count(*) FROM catalogo_item WHERE active")).scalar_one()
     return {"derivados": inseridos, "desativados": desativados, "ativos": total}
 
 
@@ -300,24 +300,24 @@ SQL_SNAPSHOT_ANTERIOR = """
 
 SQL_GRAVAR_SNAPSHOT = """
     INSERT INTO catalogo_snapshot (capturado_em, tipo, codigo, hash_linha)
-    SELECT :agora, tipo, codigo, md5(coalesce(descricao, '') || coalesce(nome_pdm, ''))
-      FROM catalogo_item WHERE ativo
+    SELECT :agora, tipo, codigo, md5(coalesce(description, '') || coalesce(nome_pdm, ''))
+      FROM catalogo_item WHERE active
 """
 
 
 def delta_catalogo(sessao: Session) -> dict[str, int]:
-    """Compara `catalogo_item` ativo com o último snapshot e captura um novo. Substitui
+    """Compara `catalogo_item` active com o último snapshot e captura um novo. Substitui
     `gerar_delta_catalogo()` — mesma semântica, sem CSV.
 
     Primeira execução (sem snapshot anterior): estabelece a linha de base e devolve delta
     ZERO. Isso é deliberado e igual ao caminho em disco — marcar um catálogo inteiro já
-    coletado como "novo" é a armadilha que o comentário original da etapa já registrava.
+    coletado como "novo" é a armadilha que o comentário original da step já registrava.
     """
     from datetime import UTC, datetime
 
     anterior = {(t, c) for t, c in sessao.execute(text(SQL_SNAPSHOT_ANTERIOR)).all()}
     atual = {(t, c) for t, c in sessao.execute(text(
-        "SELECT tipo::text, codigo FROM catalogo_item WHERE ativo")).all()}
+        "SELECT tipo::text, codigo FROM catalogo_item WHERE active")).all()}
 
     primeira = not anterior
     novos = set() if primeira else atual - anterior

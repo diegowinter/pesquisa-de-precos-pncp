@@ -2,13 +2,13 @@
 Modelos SQLAlchemy 2.x — espelho do DDL normativo de docs/02_SCHEMA.md.
 
 Estes modelos NÃO são a fonte da verdade do schema: quem cria as tabelas é a migration
-`0001_schema_inicial`, escrita com o DDL literal do documento (que é normativo até o nome do
+`0001_schema_inicial`, escrita com o DDL literal do documento (que é normativo até o name do
 índice). Os modelos existem para os repositórios terem tipos, e por isso precisam bater com o
 banco — `tests/test_schema_banco.py` compara os dois por reflexão e falha se divergirem.
 
-Referências circulares (02_SCHEMA.md §13): `termo.config_versao_id`, `documento.descoberto_no_run_id`,
+Referências circulares (02_SCHEMA.md §13): `termo.config_version_id`, `documento.descoberto_no_run_id`,
 `texto_classificacao.run_id` etc. apontam para tabelas criadas depois. No SQLAlchemy isso é
-inofensivo (a FK é resolvida por nome, tarde); na migration é resolvido pela ordem de criação
+inofensivo (a FK é resolvida por name, tarde); na migration é resolved pela ordem de criação
 + ALTER TABLE no fim.
 
 Convenção: colunas de dinheiro são `Numeric(18,4)` e chegam ao Python como `Decimal` — nunca
@@ -47,9 +47,9 @@ class Base(DeclarativeBase):
     pass
 
 
-def _enum(nome: str) -> ENUM:
+def _enum(name: str) -> ENUM:
     """Referência a um tipo ENUM que a migration já criou (`create_type=False`)."""
-    return ENUM(enums.NOMES[nome], name=nome, create_type=False,
+    return ENUM(enums.NOMES[name], name=name, create_type=False,
                 values_callable=lambda e: [v.value for v in e])
 
 
@@ -60,108 +60,108 @@ def _agora() -> Mapped[datetime]:
 # ── Configuração, prompts e provedores (02_SCHEMA.md §10) ───────────────────────────
 
 class ConfigVersao(Base):
-    __tablename__ = "config_versao"
+    __tablename__ = "config_version"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    rotulo: Mapped[str | None] = mapped_column(Text)
-    criado_por: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
-    notas: Mapped[str | None] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _agora()
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class ConfigValor(Base):
-    __tablename__ = "config_valor"
-    config_versao_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("config_versao.id", ondelete="CASCADE"), primary_key=True)
-    chave: Mapped[str] = mapped_column(Text, primary_key=True)
-    valor: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    __tablename__ = "config_value"
+    config_version_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("config_version.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONB, nullable=False)
 
 
 class Prompt(Base):
     __tablename__ = "prompt"
-    nome: Mapped[str] = mapped_column(Text, primary_key=True)
-    descricao: Mapped[str | None] = mapped_column(Text)
-    capacidade: Mapped[str] = mapped_column(
-        _enum("capacidade"), nullable=False, server_default="chat")
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    capability: Mapped[str] = mapped_column(
+        _enum("capability"), nullable=False, server_default="chat")
 
 
 class PromptVersao(Base):
-    __tablename__ = "prompt_versao"
+    __tablename__ = "prompt_version"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    prompt_nome: Mapped[str] = mapped_column(
-        Text, ForeignKey("prompt.nome", ondelete="CASCADE"), nullable=False)
-    versao: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_name: Mapped[str] = mapped_column(
+        Text, ForeignKey("prompt.name", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
     template: Mapped[str] = mapped_column(Text, nullable=False)
-    ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    criado_por: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
-    notas: Mapped[str | None] = mapped_column(Text)
-    __table_args__ = (UniqueConstraint("prompt_nome", "versao"),)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _agora()
+    notes: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (UniqueConstraint("prompt_name", "version"),)
 
 
 class NotificacaoDestinatario(Base):
-    """Fase 9 (CRUD via interface web) — quem recebe notificação de etapa concluída/falhou/gate
+    """Fase 9 (CRUD via interface web) — quem recebe notificação de step concluída/falhou/gate
     aguardando. Credencial do canal (API key do Resend) fica só no `.env` (ADR-006); esta
     tabela guarda apenas QUEM recebe."""
 
-    __tablename__ = "notificacao_destinatario"
+    __tablename__ = "notification_recipient"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    nome: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str] = mapped_column(Text, nullable=False)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    criado_em: Mapped[datetime] = _agora()
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = _agora()
 
 
 class Provedor(Base):
-    __tablename__ = "provedor"
-    nome: Mapped[str] = mapped_column(Text, primary_key=True)
-    capacidades: Mapped[list[str]] = mapped_column(ARRAY(_enum("capacidade")), nullable=False)
+    __tablename__ = "provider"
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    capabilities: Mapped[list[str]] = mapped_column(ARRAY(_enum("capability")), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
-    # A chave de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
-    # criptograma é amarrado ao `nome` do provedor pelo AAD, então copiá-lo de uma linha para
-    # outra falha ao decifrar em vez de trocar de chave em silêncio. `last4` é o que a tela
-    # exibe; a chave em claro nunca sobe para API ou HTML.
-    api_key_cifrada: Mapped[bytes | None] = mapped_column(LargeBinary)
+    # A key de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
+    # criptograma é amarrado ao `name` do provider pelo AAD, então copiá-lo de uma linha para
+    # outra falha ao decifrar em vez de trocar de key em silêncio. `last4` é o que a tela
+    # exibe; a key em claro nunca sobe para API ou HTML.
+    api_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     api_key_last4: Mapped[str | None] = mapped_column(Text)
     api_key_key_id: Mapped[str | None] = mapped_column(Text)
-    api_key_atualizada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Herança pré-ADR-022: NOME da variável de ambiente, nunca a chave. Ainda lido pelo
+    api_key_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Herança pré-ADR-022: NOME da variável de ambiente, nunca a key. Ainda lido pelo
     # resolver enquanto o bloco 4 da Fase 14 (seed + migração de conteúdo) não roda.
     api_key_ref: Mapped[str | None] = mapped_column(Text)
-    modelo_padrao: Mapped[str | None] = mapped_column(Text)
+    default_model: Mapped[str | None] = mapped_column(Text)
     batch_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default="32")
-    rpm_limite: Mapped[int | None] = mapped_column(Integer)
-    custo_in_por_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
-    custo_out_por_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    rpm_limit: Mapped[int | None] = mapped_column(Integer)
+    cost_in_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    cost_out_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     # Preço médio de UMA chamada, em USD (Fase 14). Só alimenta o `estimar()` das etapas;
-    # o custo consumado real vem de `llm_chamada`. NULL = "não informado" → estimativa sem
-    # custo, em vez de um número inventado. 0.0 é diferente: é o provedor local, que é grátis.
-    custo_usd_chamada: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    prioridade: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
-    permite_fallback: Mapped[bool] = mapped_column(
+    # o custo consumado real vem de `llm_call`. NULL = "não informado" → estimativa sem
+    # custo, em vez de um número inventado. 0.0 é diferente: é o provider local, que é grátis.
+    cost_usd_per_call: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
+    allows_fallback: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false")
-    atualizado_em: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 class CapacidadeProvedor(Base):
-    __tablename__ = "capacidade_provedor"
-    capacidade: Mapped[str] = mapped_column(_enum("capacidade"), primary_key=True)
-    provedor: Mapped[str] = mapped_column(
-        Text, ForeignKey("provedor.nome"), nullable=False)
-    modelo: Mapped[str | None] = mapped_column(Text)
+    __tablename__ = "provider_capability"
+    capability: Mapped[str] = mapped_column(_enum("capability"), primary_key=True)
+    provider: Mapped[str] = mapped_column(
+        Text, ForeignKey("provider.name"), nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
     # Proibido em 'embed' — ADR-006. A regra é aplicada em código, não por constraint:
-    # o banco não sabe que trocar de provedor de embedding corrompe o espaço vetorial.
-    fallback: Mapped[str | None] = mapped_column(Text, ForeignKey("provedor.nome"))
+    # o banco não sabe que trocar de provider de embedding corrompe o espaço vetorial.
+    fallback: Mapped[str | None] = mapped_column(Text, ForeignKey("provider.name"))
 
 
 class ProvedorStatus(Base):
-    __tablename__ = "provedor_status"
-    provedor: Mapped[str] = mapped_column(
-        Text, ForeignKey("provedor.nome", ondelete="CASCADE"), primary_key=True)
-    saudavel: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    latencia_ms: Mapped[int | None] = mapped_column(Integer)
-    mensagem: Mapped[str | None] = mapped_column(Text)
-    verificado_em: Mapped[datetime] = _agora()
+    __tablename__ = "provider_status"
+    provider: Mapped[str] = mapped_column(
+        Text, ForeignKey("provider.name", ondelete="CASCADE"), primary_key=True)
+    healthy: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    message: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = _agora()
 
 
 # ── Execução: runs, etapas, log e custo (02_SCHEMA.md §9) ───────────────────────────
@@ -169,58 +169,58 @@ class ProvedorStatus(Base):
 class Run(Base):
     __tablename__ = "run"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    rotulo: Mapped[str | None] = mapped_column(Text)
-    modo: Mapped[str] = mapped_column(
-        _enum("modo_run"), nullable=False, server_default="assistido")
+    label: Mapped[str | None] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(
+        _enum("run_mode"), nullable=False, server_default="assisted")
     status: Mapped[str] = mapped_column(
-        _enum("status_run"), nullable=False, server_default="aberto")
-    config_versao_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("config_versao.id"), nullable=False)
-    teto_custo_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
-    custo_usd: Mapped[Decimal] = mapped_column(
+        _enum("run_status"), nullable=False, server_default="open")
+    config_version_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("config_version.id"), nullable=False)
+    cost_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, server_default="0")
-    limite_documentos: Mapped[int | None] = mapped_column(Integer)
-    criado_por: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
-    concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    document_limit: Mapped[int | None] = mapped_column(Integer)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _agora()
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RunEtapa(Base):
-    __tablename__ = "run_etapa"
+    __tablename__ = "run_step"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("run.id", ondelete="CASCADE"), nullable=False)
-    etapa: Mapped[str] = mapped_column(Text, nullable=False)
+    step: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
-        _enum("status_etapa"), nullable=False, server_default="nao_iniciada")
-    acao: Mapped[str | None] = mapped_column(_enum("acao_execucao"))
+        _enum("step_status"), nullable=False, server_default="not_started")
+    action: Mapped[str | None] = mapped_column(_enum("run_action"))
     fingerprint: Mapped[str | None] = mapped_column(Text)
-    params_efetivos: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
+    effective_params: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
     params_override: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
     total: Mapped[int | None] = mapped_column(Integer)
-    processados: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    erros: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    heartbeat_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pid: Mapped[int | None] = mapped_column(Integer)
-    custo_usd: Mapped[Decimal] = mapped_column(
+    cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, server_default="0")
-    metricas: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
-    mensagem_erro: Mapped[str | None] = mapped_column(Text)
-    aprovado_por: Mapped[str | None] = mapped_column(Text)
-    aprovado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    iniciada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    concluida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    __table_args__ = (UniqueConstraint("run_id", "etapa"),)
+    metrics: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(Text)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("run_id", "step"),)
 
 
 class ExecucaoLock(Base):
-    __tablename__ = "execucao_lock"
+    __tablename__ = "run_lock"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, server_default="1")
     run_etapa_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("run_etapa.id"))
+        BigInteger, ForeignKey("run_step.id"))
     pid: Mapped[int | None] = mapped_column(Integer)
-    adquirido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    expira_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (CheckConstraint("id = 1", name="execucao_lock_id_check"),)
 
 
@@ -229,46 +229,46 @@ class RunLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("run.id", ondelete="CASCADE"), nullable=False)
-    etapa: Mapped[str | None] = mapped_column(Text)
-    nivel: Mapped[str] = mapped_column(Text, nullable=False)
-    mensagem: Mapped[str] = mapped_column(Text, nullable=False)
-    contexto: Mapped[Any | None] = mapped_column(JSONB)
-    criado_em: Mapped[datetime] = _agora()
+    step: Mapped[str | None] = mapped_column(Text)
+    level: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[Any | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = _agora()
 
 
 class ErroItem(Base):
-    __tablename__ = "erro_item"
+    __tablename__ = "item_error"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("run.id", ondelete="CASCADE"), nullable=False)
-    etapa: Mapped[str] = mapped_column(Text, nullable=False)
-    chave: Mapped[str] = mapped_column(Text, nullable=False)
-    tipo_erro: Mapped[str | None] = mapped_column(Text)
-    mensagem: Mapped[str | None] = mapped_column(Text)
-    tentativas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
-    resolvido: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    criado_em: Mapped[datetime] = _agora()
+    step: Mapped[str] = mapped_column(Text, nullable=False)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    error_type: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_at: Mapped[datetime] = _agora()
 
 
 class LlmChamada(Base):
-    __tablename__ = "llm_chamada"
+    __tablename__ = "llm_call"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     run_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("run.id", ondelete="CASCADE"))
-    etapa: Mapped[str | None] = mapped_column(Text)
-    capacidade: Mapped[str] = mapped_column(_enum("capacidade"), nullable=False)
-    provedor: Mapped[str] = mapped_column(Text, nullable=False)
-    modelo: Mapped[str] = mapped_column(Text, nullable=False)
-    prompt_versao_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("prompt_versao.id"))
-    chave: Mapped[str | None] = mapped_column(Text)
+    step: Mapped[str | None] = mapped_column(Text)
+    capability: Mapped[str] = mapped_column(_enum("capability"), nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("prompt_version.id"))
+    key: Mapped[str | None] = mapped_column(Text)
     tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    custo_usd: Mapped[Decimal] = mapped_column(
+    cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, server_default="0")
-    duracao_ms: Mapped[int | None] = mapped_column(Integer)
-    sucesso: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    criado_em: Mapped[datetime] = _agora()
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = _agora()
 
 
 # ── Catálogo e termos (02_SCHEMA.md §3) ─────────────────────────────────────────────
@@ -289,7 +289,7 @@ class CatalogoRaw(Base):
     codigo: Mapped[str] = mapped_column(Text, primary_key=True)
     codigo_pdm: Mapped[str | None] = mapped_column(Text)
     nome_pdm: Mapped[str | None] = mapped_column(Text)
-    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
     codigo_grupo: Mapped[str | None] = mapped_column(Text)
     nome_grupo: Mapped[str | None] = mapped_column(Text)
     nome_classe: Mapped[str | None] = mapped_column(Text)
@@ -303,19 +303,19 @@ class PdmPermitido(Base):
     material → `codigoPdm`; servico → `codigoServico`. É por isso que a PK é composta e o
     join da derivação é diferente por tipo.
 
-    `ativo = false` não é o mesmo que ausente: guarda a exclusão DELIBERADA com o motivo
+    `active = false` não é o mesmo que ausente: guarda a exclusão DELIBERADA com o motivo
     (`observacao`), para que a decisão não pareça esquecimento na próxima leitura.
     """
 
     __tablename__ = "pdm_permitido"
     tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
     codigo: Mapped[str] = mapped_column(Text, primary_key=True)
-    nome: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
     observacao: Mapped[str | None] = mapped_column(Text)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    criado_por: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
-    atualizado_em: Mapped[datetime] = _agora()
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 class GrupoPermitido(Base):
@@ -323,18 +323,18 @@ class GrupoPermitido(Base):
 
     Separada de `pdm_permitido` de propósito: esta define o RECORTE DO DOWNLOAD (quais
     `codigoGrupo` a 0a pagina com `--so-grupos-seguranca`), não o ESCOPO da pesquisa. Sem a
-    flag, a etapa baixa o catálogo inteiro e esta tabela nem é consultada.
+    flag, a step baixa o catálogo inteiro e esta tabela nem é consultada.
     """
 
     __tablename__ = "grupo_permitido"
     tipo: Mapped[str] = mapped_column(_enum("tipo_catalogo"), primary_key=True)
     codigo: Mapped[str] = mapped_column(Text, primary_key=True)
-    nome: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
     observacao: Mapped[str | None] = mapped_column(Text)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    criado_por: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
-    atualizado_em: Mapped[datetime] = _agora()
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 class CatalogoItem(Base):
@@ -344,20 +344,20 @@ class CatalogoItem(Base):
     codigo: Mapped[str] = mapped_column(Text, primary_key=True)
     codigo_pdm: Mapped[str | None] = mapped_column(Text)
     nome_pdm: Mapped[str | None] = mapped_column(Text)
-    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
     codigo_grupo: Mapped[str | None] = mapped_column(Text)
     nome_grupo: Mapped[str | None] = mapped_column(Text)
     nome_classe: Mapped[str | None] = mapped_column(Text)
     categoria: Mapped[str | None] = mapped_column(Text)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    criado_em: Mapped[datetime] = _agora()
-    atualizado_em: Mapped[datetime] = _agora()
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 class CatalogoDownload(Base):
     """Checkpoint de página do download da 0a — o que era `checkpoints/0a_parts_<tipo>/`.
 
-    `prefixo` é `full` ou `g<codigoGrupo>`: o modo `--so-grupos-seguranca` pagina cada grupo
+    `prefixo` é `full` ou `g<codigoGrupo>`: o mode `--so-grupos-seguranca` pagina cada grupo
     separadamente, e sem o prefixo as páginas de dois grupos colidiriam na PK.
     """
 
@@ -382,27 +382,27 @@ class Termo(Base):
     __tablename__ = "termo"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     termo: Mapped[str] = mapped_column(Text, nullable=False)
-    termo_norm: Mapped[str] = mapped_column(Text, nullable=False)  # chave de dedup
+    termo_norm: Mapped[str] = mapped_column(Text, nullable=False)  # key de dedup
     categoria: Mapped[str | None] = mapped_column(Text)
-    origem: Mapped[str | None] = mapped_column(Text)
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    source: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     excluido_por: Mapped[str | None] = mapped_column(Text)
     excluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    config_versao_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("config_versao.id"))
-    criado_em: Mapped[datetime] = _agora()
+    config_version_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("config_version.id"))
+    created_at: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("termo_norm"),)
 
 
 class TermoGeracao(Base):
-    """Saída BRUTA do LLM por item do catálogo (etapa 1) — o que era `1_termos_item.csv`.
+    """Saída BRUTA do LLM por item do catálogo (step 1) — o que era `1_termos_item.csv`.
 
     Não é derivável de `termo`/`termo_codigo`: aquelas guardam o termo já expandido (variações
     de grafia + cópia sem acento) e já agregado por termo. `resolver_categorias()` usa o
-    conjunto CRU como chave de desempate — com o expandido, a categoria de alguns códigos
+    conjunto CRU como key de desempate — com o expandido, a categoria de alguns códigos
     mudaria em silêncio.
 
-    `categoria_llm` é a SUGESTÃO do modelo; a categoria final (pós-cascata) vive em
+    `categoria_llm` é a SUGESTÃO do model; a categoria final (pós-cascata) vive em
     `catalogo_item.categoria`. Guardar as duas permite recomputar a cascata sem rechamar o LLM.
     """
 
@@ -411,12 +411,12 @@ class TermoGeracao(Base):
     codigo: Mapped[str] = mapped_column(Text, primary_key=True)
     termos: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
     categoria_llm: Mapped[str | None] = mapped_column(Text)
-    modelo: Mapped[str | None] = mapped_column(Text)
-    provedor: Mapped[str | None] = mapped_column(Text)
-    prompt_versao_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("prompt_versao.id"))
+    model: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    prompt_version_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("prompt_version.id"))
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
     __table_args__ = (
         ForeignKeyConstraint(["tipo", "codigo"],
                              ["catalogo_item.tipo", "catalogo_item.codigo"],
@@ -452,7 +452,7 @@ class Documento(Base):
     # Campo REAL de ordenação da API do PNCP — é o watermark da coleta incremental.
     data_atualizacao_pncp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     url_pncp: Mapped[str | None] = mapped_column(Text)
-    # Identificadores internos do PNCP (Fase 8, ADR-011/012): é com eles que a etapa 5 refaz
+    # Identificadores internos do PNCP (Fase 8, ADR-011/012): é com eles que a step 5 refaz
     # `listar_arquivos()` para baixar o PDF depois do corte, sem reconsultar a busca.
     numero_sequencial: Mapped[str | None] = mapped_column(Text)
     numero_sequencial_ata: Mapped[str | None] = mapped_column(Text)
@@ -464,8 +464,8 @@ class Documento(Base):
     n_itens_sobreviventes: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0")
     descoberto_no_run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
-    atualizado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 class DocumentoTermo(Base):
@@ -493,7 +493,7 @@ class Item(Base):
     # Calculado NA INGESTÃO (core.text.texto_hash), nunca na hora de classificar.
     texto_hash: Mapped[str] = mapped_column(Text, nullable=False)
     sobrevivente: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("numero_controle_pncp", "numero_item"),)
 
 
@@ -501,7 +501,7 @@ class ColetaProgresso(Base):
     """(termo, tipo_doc) já varridos — o que era `checkpoints/2_progresso.csv`.
 
     NÃO é derivável do resultado, ao contrário dos checkpoints das outras etapas: uma busca
-    legítima pode não trazer documento nenhum, e derivar de `documento` faria a etapa revarrer
+    legítima pode não trazer documento nenhum, e derivar de `documento` faria a step revarrer
     esses termos para sempre. Chaveado por `termo_id` porque o texto do termo pode ser
     reescrito pela curadoria; o id, não.
     """
@@ -512,7 +512,7 @@ class ColetaProgresso(Base):
     tipo_doc: Mapped[str] = mapped_column(_enum("tipo_documento"), primary_key=True)
     n_documentos: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     n_itens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    concluido_em: Mapped[datetime] = _agora()
+    finished_at: Mapped[datetime] = _agora()
 
 
 class ColetaPendente(Base):
@@ -536,35 +536,35 @@ class ColetaPendente(Base):
 
 
 class ColetaWatermark(Base):
-    __tablename__ = "coleta_watermark"
+    __tablename__ = "collection_watermark"
     termo_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("termo.id", ondelete="CASCADE"), primary_key=True)
     tipo_doc: Mapped[str] = mapped_column(_enum("tipo_documento"), primary_key=True)
     watermark: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    atualizado_em: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
 
 
 # ── Classificação (02_SCHEMA.md §5) ─────────────────────────────────────────────────
 
 class TextoClassificacao(Base):
-    """Cache de classificação POR TEXTO — o ativo caro (uma chamada de LLM por linha).
+    """Cache de classificação POR TEXTO — o active caro (uma chamada de LLM por linha).
 
     Sobrevive entre runs: o dedup deixa de ser intra-execução e vira permanente (ADR-007).
     """
 
     __tablename__ = "texto_classificacao"
     texto_hash: Mapped[str] = mapped_column(Text, primary_key=True)
-    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
     unidade: Mapped[str | None] = mapped_column(Text)
     categorias: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default="{}")
     confianca: Mapped[float | None] = mapped_column(REAL)
-    prompt_versao_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("prompt_versao.id"))
-    modelo: Mapped[str] = mapped_column(Text, nullable=False)
-    provedor: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("prompt_version.id"))
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
 
 
 class ItemCategoria(Base):
@@ -583,19 +583,19 @@ class DocumentoExtracao(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     numero_controle_pncp: Mapped[str] = mapped_column(
         Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"), nullable=False)
-    estrategia: Mapped[str] = mapped_column(_enum("estrategia_extracao"), nullable=False)
+    estrategia: Mapped[str] = mapped_column(_enum("extraction_strategy"), nullable=False)
     itens_json: Mapped[Any | None] = mapped_column(JSONB)
     n_paginas: Mapped[int | None] = mapped_column(Integer)
     n_paginas_ocr: Mapped[int | None] = mapped_column(Integer)
     tokens_in: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     tokens_out: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
-    custo_usd: Mapped[Decimal] = mapped_column(
+    cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, server_default="0")
-    duracao_ms: Mapped[int | None] = mapped_column(Integer)
-    modelo: Mapped[str | None] = mapped_column(Text)
-    provedor: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("numero_controle_pncp", "estrategia"),)
 
 
@@ -631,10 +631,10 @@ class ItemEnriquecido(Base):
     quantidade_pdf: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     status: Mapped[str] = mapped_column(_enum("status_enriquecimento"), nullable=False)
     destino: Mapped[str] = mapped_column(_enum("destino_item"), nullable=False)
-    estrategia: Mapped[str] = mapped_column(_enum("estrategia_extracao"), nullable=False)
+    estrategia: Mapped[str] = mapped_column(_enum("extraction_strategy"), nullable=False)
     doc_status: Mapped[str] = mapped_column(_enum("estado_documento"), nullable=False)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
 
 
 # ── Pareamento (02_SCHEMA.md §7) ────────────────────────────────────────────────────
@@ -661,10 +661,10 @@ class Par(Base):
     justificativa: Mapped[str | None] = mapped_column(Text)
     modelo_6c: Mapped[str | None] = mapped_column(Text)
     # Derivada: confirmado = (decisao='aceito') OU (veredito='sim'). Recomputada ao fim da 6c.
-    decisao_final: Mapped[str] = mapped_column(
+    final_decision: Mapped[str] = mapped_column(
         _enum("decisao_final_par"), nullable=False, server_default="pendente")
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    atualizado_em: Mapped[datetime] = _agora()
+    updated_at: Mapped[datetime] = _agora()
     __table_args__ = (
         ForeignKeyConstraint(["tipo", "codigo"],
                              ["catalogo_item.tipo", "catalogo_item.codigo"]),
@@ -674,31 +674,31 @@ class Par(Base):
 class Rotulo(Base):
     """Append-only, base de calibração de threshold e futuro fine-tune. NUNCA truncar."""
 
-    __tablename__ = "rotulo"
+    __tablename__ = "label"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     par_key: Mapped[str] = mapped_column(Text, nullable=False)
     texto_catalogo: Mapped[str] = mapped_column(Text, nullable=False)
     texto_item: Mapped[str] = mapped_column(Text, nullable=False)
     score_rerank: Mapped[float | None] = mapped_column(REAL)
-    decisao_final: Mapped[str] = mapped_column(Text, nullable=False)
-    origem: Mapped[str] = mapped_column(Text, nullable=False)
-    modelo: Mapped[str | None] = mapped_column(Text)
+    final_decision: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
-    criado_em: Mapped[datetime] = _agora()
-    __table_args__ = (UniqueConstraint("par_key", "origem"),)
+    created_at: Mapped[datetime] = _agora()
+    __table_args__ = (UniqueConstraint("par_key", "source"),)
 
 
 class EmbeddingCache(Base):
-    """A chave INCLUI provedor+modelo+dimensão (ADR-006 §1) — sem isso, trocar de provedor
-    mistura espaços vetoriais em silêncio. `vetor` é float16 little-endian em bytea."""
+    """A key INCLUI provider+model+dimensão (ADR-006 §1) — sem isso, trocar de provider
+    mistura espaços vetoriais em silêncio. `vector` é float16 little-endian em bytea."""
 
     __tablename__ = "embedding_cache"
     texto_hash: Mapped[str] = mapped_column(Text, primary_key=True)
-    provedor: Mapped[str] = mapped_column(Text, primary_key=True)
-    modelo: Mapped[str] = mapped_column(Text, primary_key=True)
-    dimensao: Mapped[int] = mapped_column(Integer, primary_key=True)
-    vetor: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    criado_em: Mapped[datetime] = _agora()
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    model: Mapped[str] = mapped_column(Text, primary_key=True)
+    dimension: Mapped[int] = mapped_column(Integer, primary_key=True)
+    vector: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = _agora()
 
 
 # ── Resultado (02_SCHEMA.md §8) ─────────────────────────────────────────────────────
@@ -716,7 +716,7 @@ class GrupoItem(Base):
     flag_preco: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     motivo_flag: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("run.id"), nullable=False)
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
     __table_args__ = (UniqueConstraint("run_id", "tipo", "codigo", "item_key"),)
 
 
@@ -725,8 +725,8 @@ class FaixaPreco(Base):
     categoria: Mapped[str] = mapped_column(Text, primary_key=True)
     preco_min: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     preco_max: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
-    config_versao_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("config_versao.id"))
+    config_version_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("config_version.id"))
 
 
 class Export(Base):
@@ -742,7 +742,7 @@ class Export(Base):
     n_linhas: Mapped[int] = mapped_column(Integer, nullable=False)
     n_codigos: Mapped[int] = mapped_column(Integer, nullable=False)
     hash_arquivo: Mapped[str | None] = mapped_column(Text)
-    criado_em: Mapped[datetime] = _agora()
+    created_at: Mapped[datetime] = _agora()
 
 
 class ExportSnapshot(Base):

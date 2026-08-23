@@ -5,7 +5,7 @@ O arquivo é o maior do acervo: 888.656 linhas, cada uma com uma página inteira
 consequências práticas: lote de `COPY` de 1.000 (não 5.000), e `csv.field_size_limit` elevado —
 sem ele o módulo `csv` aborta em algum campo grande no meio do arquivo.
 
-O problema de chave: `doc_key` no CSV é o **caminho absoluto** da pasta do PDF, não o número de
+O problema de key: `doc_key` no CSV é o **caminho absoluto** da pasta do PDF, não o número de
 controle. O mapa `caminho → numero_controle_pncp` vem de `2_itens_coletados.csv`
 (`pasta_arquivos` → `numeroControlePNCP`), reconstruído aqui em streaming. Documentos cujo
 `doc_key` não mapear são **contados e reportados**, nunca silenciados
@@ -50,7 +50,7 @@ def normalizar_caminho(caminho: str) -> str:
 
 
 def mapa_pasta_para_controle(rel: Relatorio) -> dict[str, str]:
-    """`pasta_arquivos normalizada → numeroControlePNCP`, lido em streaming do CSV da etapa 2.
+    """`pasta_arquivos normalizada → numeroControlePNCP`, lido em streaming do CSV da step 2.
 
     Não vem do banco de propósito: `pasta_arquivos` NÃO é migrada (ADR-012). Este mapa é a
     última vez que o caminho absoluto é usado no projeto.
@@ -69,7 +69,7 @@ def mapa_pasta_para_controle(rel: Relatorio) -> dict[str, str]:
 def migrar(reiniciar: bool = False) -> Relatorio:
     rel = Relatorio("m10 — texto de PDF")
     if not existe(paths.E5_PDF_TEXTO):
-        raise SystemExit(f"{paths.E5_PDF_TEXTO} ausente. Rode a etapa 5a antes.")
+        raise SystemExit(f"{paths.E5_PDF_TEXTO} ausente. Rode a step 5a antes.")
     if not existe(paths.E2_ITENS):
         raise SystemExit(f"{paths.E2_ITENS} ausente — é dele que sai o mapa de doc_key.")
 
@@ -133,17 +133,17 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     with db.session() as s:
         s.execute(sql("""
             UPDATE documento d
-               SET n_paginas = c.n, atualizado_em = now()
+               SET n_paginas = c.n, updated_at = now()
               FROM (SELECT numero_controle_pncp, count(DISTINCT pagina) AS n
                       FROM documento_pagina GROUP BY numero_controle_pncp) c
              WHERE c.numero_controle_pncp = d.numero_controle_pncp
                AND d.n_paginas IS DISTINCT FROM c.n
         """))
         contagens = repo.contar(s)
-        for chave, valor in contagens.items():
-            rel.mais(f"{chave} no banco", valor)
+        for key, value in contagens.items():
+            rel.mais(f"{key} no banco", value)
 
-    # Divergência esperada e MEDIDA, não suposta: `5_pdf_texto.csv` é append-only e a etapa 5a
+    # Divergência esperada e MEDIDA, não suposta: `5_pdf_texto.csv` é append-only e a step 5a
     # rodou mais de uma vez sobre os mesmos documentos, então a mesma (documento, arquivo,
     # página) aparece repetida — com texto idêntico. A PK do destino dedupa. Aferido na
     # amostra do acervo: fator ~2. Isso explica a diferença contra as 888.656 linhas do CSV

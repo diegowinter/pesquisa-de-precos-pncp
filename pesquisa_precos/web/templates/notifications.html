@@ -12,12 +12,12 @@
       {% for d in destinatarios %}
       <tr>
         <td>#{{ d.id }}</td>
-        <td>{{ d.nome or "" }}</td>
+        <td>{{ d.name or "" }}</td>
         <td>{{ d.email or "" }}</td>
-        <td>{{ "ativo" if d.ativo else "inativo" }}</td>
+        <td>{{ "ativo" if d.active else "inativo" }}</td>
         <td class="linha">
           <a href="/notifications/{{ d.id }}/edit">editar</a>
-          {% if d.ativo %}
+          {% if d.active %}
           <form method="post" action="/notifications/{{ d.id }}/deactivate">
             <button type="submit">desativar</button>
           </form>
@@ -38,7 +38,7 @@
   <p class="tag">E-mail é obrigatório.</p>
   <form method="post" action="{{ '/notifications/' ~ editando.id if editando else '/notifications' }}">
     <label for="nome">Nome</label>
-    <input id="nome" name="name" value="{{ editando.nome or '' if editando else '' }}" placeholder="ex.: Diego">
+    <input id="nome" name="name" value="{{ editando.name or '' if editando else '' }}" placeholder="ex.: Diego">
     <label for="email">E-mail</label>
     <input id="email" name="email" type="email" required
            value="{{ editando.email or '' if editando else '' }}" placeholder="ex.: alguem@dominio.com">

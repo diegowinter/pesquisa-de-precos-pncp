@@ -37,11 +37,11 @@ def main() -> None:
     tabela.add_column("passo")
     tabela.add_column("o que faz")
     tabela.add_column("retomada", justify="right")
-    for i, (modulo, descricao) in enumerate(PASSOS, 1):
-        chave = CHECKPOINT_DO_PASSO.get(modulo)
-        linhas = Retomada.carregar(chave).linhas if chave else 0
+    for i, (modulo, description) in enumerate(PASSOS, 1):
+        key = CHECKPOINT_DO_PASSO.get(modulo)
+        linhas = Retomada.carregar(key).linhas if key else 0
         marca = f"{linhas:,} linhas".replace(",", ".") if linhas else "—"
-        tabela.add_row(str(i), modulo, descricao, marca)
+        tabela.add_row(str(i), modulo, description, marca)
     console.print(tabela)
     console.print("\nRode um por vez, com `pg_dump` entre os agregados:")
     console.print("  [dim]python -m migracao.m01_config_inicial[/]")

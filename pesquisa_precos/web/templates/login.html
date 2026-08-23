@@ -4,11 +4,11 @@
 <div class="painel" style="max-width:360px;margin:3rem auto;">
   <h2>Entrar</h2>
   <form method="post" action="/login">
-    <label for="usuario">Seu nome (fica em criado_por/aprovado_por)</label>
-    <input id="usuario" name="usuario" required>
+    <label for="user">Seu nome (fica em criado_por/aprovado_por)</label>
+    <input id="user" name="user" required>
     {% if senha_exigida %}
-    <label for="senha">Senha</label>
-    <input id="senha" name="senha" type="password">
+    <label for="password">Senha</label>
+    <input id="password" name="password" type="password">
     {% endif %}
     <p style="margin-top:1rem;"><button class="principal" type="submit">Entrar</button></p>
   </form>

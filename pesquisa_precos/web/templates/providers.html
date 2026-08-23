@@ -47,13 +47,13 @@
     <tbody>
       {% for r in resultados %}
       <tr>
-        <td><strong>{{ r.capacidade }}</strong></td>
-        <td>{{ r.provedor }}</td>
-        <td class="dim">{{ r.origem }}</td>
-        <td>{% if r.saudavel %}<span class="ok">sim</span>
+        <td><strong>{{ r.capability }}</strong></td>
+        <td>{{ r.provider }}</td>
+        <td class="dim">{{ r.source }}</td>
+        <td>{% if r.healthy %}<span class="ok">sim</span>
             {% else %}<span class="erro">NÃO</span>{% endif %}</td>
-        <td>{{ r.latencia_ms }} ms</td>
-        <td class="dim">{{ r.mensagem or "—" }}</td>
+        <td>{{ r.latency_ms }} ms</td>
+        <td class="dim">{{ r.message or "—" }}</td>
       </tr>
       {% else %}<tr><td colspan="6">nenhuma capacidade configurada</td></tr>{% endfor %}
     </tbody>
@@ -73,22 +73,22 @@
   </p>
   <form method="post" action="/providers/capabilities">
     <label>Capacidade
-      <select name="capacidade" required>
+      <select name="capability" required>
         {% for c in capacidades %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
       </select>
     </label>
     <label>Provedor
-      <select name="provedor" required>
-        {% for p in provedores %}<option value="{{ p.nome }}">{{ p.nome }}</option>{% endfor %}
+      <select name="provider" required>
+        {% for p in provedores %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
       </select>
     </label>
     <label>Modelo (opcional, sobrepõe o padrão do provedor)
-      <input type="text" name="modelo" placeholder="inclusionai/ling-2.6-flash">
+      <input type="text" name="model" placeholder="inclusionai/ling-2.6-flash">
     </label>
     <label>Fallback (opcional)
       <select name="fallback">
         <option value="">— nenhum —</option>
-        {% for p in provedores %}<option value="{{ p.nome }}">{{ p.nome }}</option>{% endfor %}
+        {% for p in provedores %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
       </select>
     </label>
     <p class="dim">
@@ -110,28 +110,28 @@
     <tbody>
       {% for p in provedores %}
       <tr>
-        <td><strong>{{ p.nome }}</strong></td>
-        <td class="dim">{{ p.capacidades | join(", ") }}</td>
+        <td><strong>{{ p.name }}</strong></td>
+        <td class="dim">{{ p.capabilities | join(", ") }}</td>
         <td class="dim"><code>{{ p.base_url }}</code></td>
-        <td class="dim">{{ p.modelo_padrao or "—" }}</td>
+        <td class="dim">{{ p.default_model or "—" }}</td>
         <td>
-          {% if p.tem_api_key %}
+          {% if p.has_api_key %}
             <span class="ok">••••{{ p.api_key_last4 }}</span>
-            <span class="dim">({{ p.api_key_atualizada_em.strftime("%d/%m/%Y") if p.api_key_atualizada_em else "—" }})</span>
+            <span class="dim">({{ p.api_key_updated_at.strftime("%d/%m/%Y") if p.api_key_updated_at else "—" }})</span>
           {% else %}<span class="dim">— sem chave —</span>{% endif %}
         </td>
-        <td>{% if p.ativo %}<span class="ok">sim</span>{% else %}<span class="dim">não</span>{% endif %}</td>
+        <td>{% if p.active %}<span class="ok">sim</span>{% else %}<span class="dim">não</span>{% endif %}</td>
         <td>
-          <a href="/providers?editar={{ p.nome }}">editar</a>
-          <form method="post" action="/providers/{{ p.nome }}/test" class="inline">
+          <a href="/providers?editar={{ p.name }}">editar</a>
+          <form method="post" action="/providers/{{ p.name }}/test" class="inline">
             <button type="submit">testar</button>
           </form>
-          <form method="post" action="/providers/{{ p.nome }}/active" class="inline">
-            <input type="hidden" name="ativo" value="{{ 'off' if p.ativo else 'on' }}">
-            <button type="submit">{{ "desativar" if p.ativo else "ativar" }}</button>
+          <form method="post" action="/providers/{{ p.name }}/active" class="inline">
+            <input type="hidden" name="active" value="{{ 'off' if p.active else 'on' }}">
+            <button type="submit">{{ "desativar" if p.active else "ativar" }}</button>
           </form>
-          {% if p.tem_api_key %}
-          <form method="post" action="/providers/{{ p.nome }}/key/clear" class="inline">
+          {% if p.has_api_key %}
+          <form method="post" action="/providers/{{ p.name }}/key/clear" class="inline">
             <button type="submit">limpar chave</button>
           </form>
           {% endif %}
@@ -147,11 +147,11 @@
 </div>
 
 <div class="painel">
-  <h2>{% if editando %}Editar “{{ editando.nome }}”{% else %}Novo provedor{% endif %}</h2>
+  <h2>{% if editando %}Editar “{{ editando.name }}”{% else %}Novo provedor{% endif %}</h2>
   <form method="post" action="/providers">
     <label>Nome
       <input type="text" name="name" required placeholder="openrouter"
-             value="{{ editando.nome if editando else '' }}"
+             value="{{ editando.name if editando else '' }}"
              {% if editando %}readonly{% endif %}>
     </label>
     <label>base_url
@@ -162,46 +162,46 @@
       <legend>Capacidades</legend>
       {% for c in capacidades %}
       <label>
-        <input type="checkbox" name="capacidades" value="{{ c }}"
-               {% if editando and c in editando.capacidades %}checked{% endif %}> {{ c }}
+        <input type="checkbox" name="capabilities" value="{{ c }}"
+               {% if editando and c in editando.capabilities %}checked{% endif %}> {{ c }}
       </label>
       {% endfor %}
     </fieldset>
     <label>Modelo padrão
-      <input type="text" name="modelo_padrao"
-             value="{{ editando.modelo_padrao or '' if editando else '' }}">
+      <input type="text" name="default_model"
+             value="{{ editando.default_model or '' if editando else '' }}">
     </label>
     <label>batch_size
       <input type="number" name="batch_size" min="1"
              value="{{ editando.batch_size or '' if editando else '' }}">
     </label>
     <label>rpm_limite
-      <input type="number" name="rpm_limite" min="1"
-             value="{{ editando.rpm_limite or '' if editando else '' }}">
+      <input type="number" name="rpm_limit" min="1"
+             value="{{ editando.rpm_limit or '' if editando else '' }}">
     </label>
     <label>Custo entrada (USD / Mtok)
-      <input type="text" name="custo_in_por_mtok"
-             value="{{ editando.custo_in_por_mtok or '' if editando else '' }}">
+      <input type="text" name="cost_in_per_mtok"
+             value="{{ editando.cost_in_per_mtok or '' if editando else '' }}">
     </label>
     <label>Custo saída (USD / Mtok)
-      <input type="text" name="custo_out_por_mtok"
-             value="{{ editando.custo_out_por_mtok or '' if editando else '' }}">
+      <input type="text" name="cost_out_per_mtok"
+             value="{{ editando.cost_out_per_mtok or '' if editando else '' }}">
     </label>
     <label>Preço médio por chamada (USD) — só para a estimativa prévia
-      <input type="text" name="custo_usd_chamada"
-             value="{{ editando.custo_usd_chamada or '' if editando else '' }}">
+      <input type="text" name="cost_usd_per_call"
+             value="{{ editando.cost_usd_per_call or '' if editando else '' }}">
     </label>
     <p class="dim">
       Em branco = não informado: a etapa responde “não estimado” em vez de inventar um número.
       <code>0</code> é diferente — é o provedor local, que não custa nada.
     </p>
     <label>
-      <input type="checkbox" name="ativo"
-             {% if not editando or editando.ativo %}checked{% endif %}> Ativo
+      <input type="checkbox" name="active"
+             {% if not editando or editando.active %}checked{% endif %}> Ativo
     </label>
     <label>Chave de API
       <input type="password" name="api_key" autocomplete="new-password"
-             placeholder="{% if editando and editando.tem_api_key %}deixe em branco para manter a chave atual{% else %}cole a chave aqui{% endif %}">
+             placeholder="{% if editando and editando.has_api_key %}deixe em branco para manter a chave atual{% else %}cole a chave aqui{% endif %}">
     </label>
     <p class="dim">
       A chave é cifrada antes de ir para o banco e <strong>nunca volta para esta tela</strong> —

@@ -36,7 +36,7 @@ def partes_controle(numero_controle_pncp: str) -> dict | None:
     return {
         "cnpj": cnpj,
         "tipo": tipo,
-        "sequencial": int(seq),
+        "sequential": int(seq),
         "ano": int(ano),
         "sequencial_ata": int(seq_ata) if seq_ata else None,
     }
@@ -53,9 +53,9 @@ def url_documento(numero_controle_pncp: str, tipo_doc: str) -> str:
     if not p:
         return ""
     if (tipo_doc or "").lower() == "contrato":
-        return f"{APP_BASE}/contratos/{p['cnpj']}/{p['ano']}/{p['sequencial']}"
+        return f"{APP_BASE}/contratos/{p['cnpj']}/{p['ano']}/{p['sequential']}"
     if p["sequencial_ata"] is None:
         # Ata sem sequencial próprio: o melhor alvo é a compra que a originou.
-        return f"{APP_BASE}/editais/{p['cnpj']}/{p['ano']}/{p['sequencial']}"
+        return f"{APP_BASE}/editais/{p['cnpj']}/{p['ano']}/{p['sequential']}"
     return (f"{APP_BASE}/atas/{p['cnpj']}/{p['ano']}/"
-            f"{p['sequencial']}/{p['sequencial_ata']}")
+            f"{p['sequential']}/{p['sequencial_ata']}")

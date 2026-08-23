@@ -1,5 +1,5 @@
 """
-CRUD de `notificacao_destinatario` (Fase 9, pedido do usuário em 2026-08-17) e canal de e-mail
+CRUD de `notification_recipient` (Fase 9, pedido do usuário em 2026-08-17) e canal de e-mail
 via Resend. Repositório/serviço seguem o mesmo padrão de `tests/test_config_prompts.py`: pulados
 sem Postgres disponível. O envio via Resend é mockado — nunca bate na rede de verdade, mesmo
 padrão de `tests/test_notifications.py`.
@@ -27,13 +27,13 @@ def _destinatarios_de_teste_limpos():
         with db.session() as sessao:
             from sqlalchemy import text
             sessao.execute(text(
-                "DELETE FROM notificacao_destinatario WHERE nome LIKE 'teste-fase9-%'"))
+                "DELETE FROM notification_recipient WHERE name LIKE 'teste-fase9-%'"))
     yield
     if db.is_available()[0]:
         with db.session() as sessao:
             from sqlalchemy import text
             sessao.execute(text(
-                "DELETE FROM notificacao_destinatario WHERE nome LIKE 'teste-fase9-%'"))
+                "DELETE FROM notification_recipient WHERE name LIKE 'teste-fase9-%'"))
 
 
 # ── validação de canal (pura, sem banco) ─────────────────────────────────────────────
@@ -55,9 +55,9 @@ def test_criar_com_email_e_valido():
 def test_criar_listar_e_obter_destinatario():
     destinatario_id = service.criar_destinatario("teste-fase9-crud", "a@b.com")
     destinatario = service.obter_destinatario(destinatario_id)
-    assert destinatario["nome"] == "teste-fase9-crud"
+    assert destinatario["name"] == "teste-fase9-crud"
     assert destinatario["email"] == "a@b.com"
-    assert destinatario["ativo"] is True
+    assert destinatario["active"] is True
     assert any(d["id"] == destinatario_id for d in service.listar_destinatarios())
 
 
@@ -66,7 +66,7 @@ def test_editar_destinatario_atualiza_campos():
     destinatario_id = service.criar_destinatario("teste-fase9-editar", "a@b.com")
     service.editar_destinatario(destinatario_id, "teste-fase9-editar-2", "c@d.com")
     destinatario = service.obter_destinatario(destinatario_id)
-    assert destinatario["nome"] == "teste-fase9-editar-2"
+    assert destinatario["name"] == "teste-fase9-editar-2"
     assert destinatario["email"] == "c@d.com"
 
 
@@ -88,11 +88,11 @@ def test_editar_id_inexistente_levanta():
 def test_desativar_e_ativar_destinatario():
     destinatario_id = service.criar_destinatario("teste-fase9-toggle", "a@b.com")
     service.desativar_destinatario(destinatario_id)
-    assert service.obter_destinatario(destinatario_id)["ativo"] is False
+    assert service.obter_destinatario(destinatario_id)["active"] is False
     assert not any(d["id"] == destinatario_id
                    for d in service.listar_destinatarios(apenas_ativos=True))
     service.ativar_destinatario(destinatario_id)
-    assert service.obter_destinatario(destinatario_id)["ativo"] is True
+    assert service.obter_destinatario(destinatario_id)["active"] is True
 
 
 @pytestmark_db
@@ -154,19 +154,19 @@ class TestNotificarEventoComDestinatarios:
         monkeypatch.setenv("RESEND_FROM_EMAIL", "pesquisa-precos@dominio.com")
         with patch("pesquisa_precos.services.notifications._destinatarios_ativos",
                    return_value=[]):
-            assert notifications.notificar_evento(1, "3", "concluida") is False
+            assert notifications.notificar_evento(1, "3", "finished") is False
 
     def test_com_destinatarios_envia_para_cada_um(self, monkeypatch):
         from pesquisa_precos.services import notifications
         monkeypatch.setenv("RESEND_API_KEY", "re_123")
         monkeypatch.setenv("RESEND_FROM_EMAIL", "pesquisa-precos@dominio.com")
         destinatarios = [
-            {"id": 1, "nome": "A", "email": "a@b.com", "ativo": True},
-            {"id": 2, "nome": "B", "email": "b@b.com", "ativo": True},
+            {"id": 1, "name": "A", "email": "a@b.com", "active": True},
+            {"id": 2, "name": "B", "email": "b@b.com", "active": True},
         ]
         with patch("pesquisa_precos.services.notifications._destinatarios_ativos",
                    return_value=destinatarios):
             with patch("pesquisa_precos.services.notifications.requests.post") as mock_post:
                 mock_post.return_value.status_code = 200
-                assert notifications.notificar_evento(1, "3", "falhou", detalhe="timeout") is True
+                assert notifications.notificar_evento(1, "3", "failed", detalhe="timeout") is True
                 assert mock_post.call_count == 2

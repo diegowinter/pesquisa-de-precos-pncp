@@ -1,8 +1,8 @@
 """
-Normalização de texto e `texto_hash` — prioridade máxima em docs/08_CONVENCOES.md §6.
+Normalização de texto e `texto_hash` — priority máxima em docs/08_CONVENCOES.md §6.
 
-Esta função é calculada na ingestão (etapa 2 / migração m07) e consultada na classificação
-(etapa 3). Uma diferença mínima entre as duas pontas invalida o dedup permanente e manda 320
+Esta função é calculada na ingestão (step 2 / migração m07) e consultada na classificação
+(step 3). Uma diferença mínima entre as duas pontas invalida o dedup permanente e manda 320
 mil textos já pagos de volta ao LLM. É o teste que protege o dinheiro.
 """
 
@@ -34,7 +34,7 @@ class TestTextoHash:
         assert texto_hash("Bota segurança", "Par") == texto_hash("Bota segurança", "Par")
 
     def test_sensivel_a_unidade(self):
-        """(descrição, unidade) é a chave: a mesma descrição em unidade diferente é outro
+        """(descrição, unidade) é a key: a mesma descrição em unidade diferente é outro
         texto para o classificador, então não pode colidir."""
         assert texto_hash("Cabo de rede", "Metro") != texto_hash("Cabo de rede", "Unidade")
 
@@ -47,7 +47,7 @@ class TestTextoHash:
     def test_pipe_na_descricao_e_ambiguidade_conhecida(self):
         """AMBIGUIDADE ACEITA, registrada de propósito.
 
-        A fórmula é `sha1(norm(descricao) || '|' || norm(unidade))`, normativa em
+        A fórmula é `sha1(norm(description) || '|' || norm(unidade))`, normativa em
         docs/02_SCHEMA.md §4. Um '|' dentro da descrição desloca a fronteira: ("a|b", "c") e
         ("a", "b|c") produzem o mesmo hash. Na prática isso não acontece — a unidade do PNCP
         é um vocabulário curto ('Unidade', 'Par', 'Metro') e nunca contém '|'.

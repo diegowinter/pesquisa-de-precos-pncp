@@ -1,7 +1,7 @@
 """
 m03 — Run sintético "acervo migrado v2/v3".
 
-Todo resultado carrega o `run_id` de origem (ADR-015), e `grupo_item.run_id` é `NOT NULL`. O
+Todo resultado carrega o `run_id` de source (ADR-015), e `grupo_item.run_id` é `NOT NULL`. O
 acervo herdado, porém, não veio de nenhum run: veio de dezenas de execuções manuais de script
 ao longo de meses, sem registro. Inventar um run por execução seria fabricar histórico que não
 existe; deixar `run_id` nulo quebraria a rastreabilidade que o schema promete.
@@ -32,12 +32,12 @@ def migrar() -> Relatorio:
         cv = repo.config_versao_por_rotulo(s, ROTULO_CONFIG)
         if cv is None:
             raise SystemExit(
-                f"config_versao {ROTULO_CONFIG!r} não existe. Rode `python -m "
+                f"config_version {ROTULO_CONFIG!r} não existe. Rode `python -m "
                 f"migracao.m01_config_inicial` antes — o run precisa apontar para uma config.")
 
         run_id = repo.criar_run(
             s, repo.ROTULO_ACERVO_MIGRADO, cv,
-            modo="sequencial", status="concluido", criado_por="migracao")
+            mode="sequential", status="finished", created_by="migracao")
         rel.mais("run criado")
         rel.aviso(f"run #{run_id} — âncora de run_id de todo o acervo herdado.")
     return rel

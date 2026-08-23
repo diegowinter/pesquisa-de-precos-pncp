@@ -47,11 +47,11 @@ class Params(BaseModel):
         description="Score efetivo mínimo (max bm25/cosseno) p/ o par sobreviver")
 
 
-# ── Pareamento no banco + capacidade `pareamento` (Fases 10 e 11) ───────────────────
+# ── Pareamento no banco + capability `pareamento` (Fases 10 e 11) ───────────────────
 #
 # Duas mudanças na mesma passada, porque tocam o mesmo corpo:
 #   Fase 10 — catálogo e itens vêm do banco; os pares vão para a tabela `par`;
-#   Fase 11 — BM25 + cosseno + corte saem do processo e viram a capacidade `pareamento`.
+#   Fase 11 — BM25 + cosseno + corte saem do processo e viram a capability `pareamento`.
 #
 # O corte em streaming NÃO ficou para trás na mudança: ele agora vive em
 # `core/pareamento/motor.py`, que roda tanto no serviço quanto em processo. O aviso do
@@ -77,8 +77,8 @@ def carregar_do_banco() -> tuple[list[dict], list[dict]]:
     with db.session() as s:
         cat = [{"codigo": c, "texto": f"{n or ''} {d or ''}".strip(), "categoria": cat_}
                for c, n, d, cat_ in s.execute(sa_text(
-                   "SELECT codigo, nome_pdm, descricao, categoria FROM catalogo_item "
-                   " WHERE ativo AND coalesce(categoria, '') <> ''")).all()]
+                   "SELECT codigo, nome_pdm, description, categoria FROM catalogo_item "
+                   " WHERE active AND coalesce(categoria, '') <> ''")).all()]
         itens = [{"item_key": k, "descricao_final": d, "categoria": cat_}
                  for k, d, cat_ in s.execute(sa_text("""
                      SELECT i.item_key,
@@ -106,11 +106,11 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     ctx.log("info", f"[6a] {len(catalogo)} códigos × {len(itens)} itens-categoria "
                     f"(produto restrito à mesma categoria)")
 
-    provedor = ctx.provedores.pareamento
-    onde = "serviço externo" if getattr(provedor.info, "base_url", "") else "em processo"
+    provider = ctx.providers.matching
+    onde = "serviço externo" if getattr(provider.info, "base_url", "") else "em processo"
     ctx.log("info", f"[6a] pareamento: {onde}")
 
-    pares = provedor.parear(catalogo, itens, piso=params.piso, top_k=params.top_k)
+    pares = provider.parear(catalogo, itens, piso=params.piso, top_k=params.top_k)
     ctx.log("info", f"[6a] {len(pares)} pares sobreviventes (piso={params.piso}, "
                     f"top_k={params.top_k})")
 
@@ -135,8 +135,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"({contagens})")
 
     return StepResult(
-        processados=len(pares), erros=0,
-        metricas={"sobreviventes": len(pares), "codigos": len(catalogo),
+        processed=len(pares), erros=0,
+        metrics={"sobreviventes": len(pares), "codigos": len(catalogo),
                   "itens_categoria": len(itens), **contagens},
         preview=pares[:50],
     )
@@ -162,7 +162,7 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
     comuns = set(n_cod) & set(n_itn)
     pares = sum(n_cod[c] * n_itn[c] for c in comuns)
     return Estimate(
-        unidades=pares, chamadas_llm=0, custo_usd=0.0,
+        unidades=pares, chamadas_llm=0, cost_usd=0.0,
         detalhes={"categorias": len(comuns),
                   "codigos": sum(n_cod[c] for c in comuns),
                   "itens_explodidos": sum(n_itn[c] for c in comuns),

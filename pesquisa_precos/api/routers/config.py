@@ -26,14 +26,14 @@ def listar_config_versoes():
 def obter_config_versao(config_version_id: int):
     version = service_config.obter_config_versao(config_version_id)
     if version is None:
-        raise HTTPException(404, f"config_versao {config_version_id} não existe")
+        raise HTTPException(404, f"config_version {config_version_id} não existe")
     return version
 
 
 @router.post("/config/versions", status_code=201)
 def criar_config_versao(body: CriarConfigVersaoBody):
     config_version_id = service_config.criar_config_versao(
-        body.rotulo, body.valores, criado_por=body.criado_por, notas=body.notas)
+        body.rotulo, body.valores, created_by=body.criado_por, notes=body.notas)
     return service_config.obter_config_versao(config_version_id)
 
 
@@ -47,15 +47,15 @@ def diff_config_versoes(config_version_id: int, other_id: int):
 
 @router.get("/config/schema")
 def schema_parametros():
-    """Campos do `Params` Pydantic por etapa — fonte do formulário de configuração
+    """Campos do `Params` Pydantic por step — fonte do formulário de configuração
     (docs/06_API_E_WEB.md §4.5)."""
     return service_config.schema_parametros()
 
 
 @router.get("/config/recalibrate")
 def recalibrar_threshold(t_aceita: float, t_rejeita: float, limite_amostra: int = 500):
-    """Fase 9, item 6: precisão/recall de thresholds CANDIDATOS contra `rotulo`, antes de
-    o operador gravar uma `config_versao` nova com eles."""
+    """Fase 9, item 6: precisão/recall de thresholds CANDIDATOS contra `label`, antes de
+    o operador gravar uma `config_version` nova com eles."""
     return service_config.recalibrar_threshold(t_aceita, t_rejeita, limite_amostra=limite_amostra)
 
 
@@ -74,9 +74,9 @@ def versoes_prompt(name: str):
 
 @router.post("/prompts/{name}/versions", status_code=201)
 def criar_versao_prompt(name: str, body: CriarPromptVersaoBody):
-    versao_id = service_prompts.criar_versao(name, body.template, criado_por=body.criado_por,
-                                             notas=body.notas)
-    return {"id": versao_id, "prompt_nome": name}
+    versao_id = service_prompts.criar_versao(name, body.template, created_by=body.criado_por,
+                                             notes=body.notas)
+    return {"id": versao_id, "prompt_name": name}
 
 
 @router.post("/prompts/{name}/versions/{version}/activate")
@@ -85,7 +85,7 @@ def ativar_versao_prompt(name: str, version: int):
         service_prompts.ativar_versao(name, version)
     except PromptInexistente as exc:
         raise HTTPException(404, str(exc)) from exc
-    return {"prompt_nome": name, "versao_ativa": version}
+    return {"prompt_name": name, "versao_ativa": version}
 
 
 @router.get("/prompts/{name}/diff/{version_a}/{version_b}")

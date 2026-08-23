@@ -5,22 +5,22 @@ Schema (definido com o cliente):
   Código CATMAT/CATSER | Material/Serviço | Nome | Descrição Base | Descrição Específica | + params PNCP
   - Código        = codigo do catálogo (CATMAT p/ material, CATSER p/ serviço).
   - Tipo          = "Material" ou "Serviço" (coluna `tipo` do catálogo).
-  - Nome          = nome do CATMAT ANTES da 1ª vírgula (o núcleo, sem as características).
+  - Nome          = name do CATMAT ANTES da 1ª vírgula (o núcleo, sem as características).
   - Descrição Base= descrição CATMAT completa (núcleo + características).
   - Desc. Específica = descrição ENRIQUECIDA do item PNCP (descricao_final: PDF quando houver,
                     senão a da API).
   - Params PNCP preservados p/ rastreio: órgão, CNPJ, UF, nº controle, sequencial compra,
-    sequencial ata, ano, item, unidade, quantidade, valor homologado, valor estimado,
+    sequencial ata, ano, item, unidade, quantidade, value homologado, value estimado,
     fornecedor, data do resultado.
   - Origem = "Ata" ou "Contrato" (do tipo_doc).
   - Fim de Vigencia = Ata → data final da ata; Contrato → assinatura + 1 ano (calculada).
-  - Poda incremental: códigos desativados no catálogo (`catalogo_item.ativo = false`, que a
+  - Poda incremental: códigos desativados no catálogo (`catalogo_item.active = false`, que a
     0a mantém) são descartados da exportação final.
 
 Entrada: `grupo_item` do run indicado (default: o último que produziu ranking), com catálogo,
 item, documento e enriquecido no mesmo SELECT.
 Saída: uma linha em `export`, com o XLSX em `export.conteudo` (ADR-018) — a interface serve o
-download de lá. A etapa NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
+download de lá. A step NÃO escreve arquivo. O baseline do `--novos` é `export_snapshot`.
 Chave de resumo: nenhuma — recomputa o corpus inteiro.
 
 NÃO fazer: deixar o export completo tocar o snapshot do `--novos` (isso "consumiria" o delta
@@ -173,7 +173,7 @@ def carregar_do_banco(params: Params, ctx: RunContext) -> tuple[pd.DataFrame, di
     catmap = {
         r["codigo"]: {"tipo": r["tipo"], "nome_pdm": r["nome_pdm"] or "",
                       "descricao": r["descricao_catalogo"] or "",
-                      "nome_classe": r["nome_classe"] or "", "ativo": r["ativo"]}
+                      "nome_classe": r["nome_classe"] or "", "active": r["active"]}
         for r in linhas
     }
     df = pd.DataFrame(linhas).rename(columns={
@@ -250,13 +250,13 @@ def montar_linhas(df: pd.DataFrame, catmap: dict) -> list:
         cat = catmap.get(row.get("codigo", ""), {})
         tipo = "Serviço" if str(cat.get("tipo", "")).lower().startswith("serv") else "Material"
         descricao_base = cat.get("descricao", "") or row.get("nome_catalogo", "")
-        nome = nome_antes_virgula(descricao_base, cat.get("nome_pdm", ""))
+        name = nome_antes_virgula(descricao_base, cat.get("nome_pdm", ""))
         seq_compra, seq_ata, ano_ctrl = parse_controle(row.get("numeroControlePNCP", ""))
         linha = [
             row.get("codigo", ""),
             tipo,
             cat.get("nome_classe", ""),
-            nome,
+            name,
             descricao_base,
             row.get("descricao_final", ""),
             row.get("orgao", ""),
@@ -289,9 +289,9 @@ def podar_removidos(df: pd.DataFrame, catmap: dict, params: Params,
                     ctx: RunContext) -> tuple[pd.DataFrame, int]:
     """Tira do export os códigos removidos do catálogo. Devolve (df podado, nº de códigos).
 
-    A marca é `catalogo_item.ativo = false`, que a 0a mantém a partir do delta do catálogo.
+    A marca é `catalogo_item.active = false`, que a 0a mantém a partir do delta do catálogo.
     """
-    removidos = {c for c, dados in catmap.items() if not _verdadeiro(dados.get("ativo"))}
+    removidos = {c for c, dados in catmap.items() if not _verdadeiro(dados.get("active"))}
     if not removidos:
         return df, 0
     n0 = len(df)
@@ -302,7 +302,7 @@ def podar_removidos(df: pd.DataFrame, catmap: dict, params: Params,
 
 
 def _verdadeiro(valor) -> bool:
-    """`ativo` chega como bool (banco) ou como a string 'True'/'False' (após o cast a texto)."""
+    """`active` chega como bool (banco) ou como a string 'True'/'False' (após o cast a texto)."""
     if isinstance(valor, str):
         return valor.strip().lower() in ("true", "t", "1")
     return bool(valor)
@@ -321,14 +321,14 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
         prev = carregar_snapshot(params)
         detalhes["snapshot_anterior"] = (
             f"{len(prev)} chaves" if prev else "ausente — a 1ª execução marca TUDO como novo")
-    return Estimate(unidades=len(podado), chamadas_llm=0, custo_usd=0.0, detalhes=detalhes)
+    return Estimate(unidades=len(podado), chamadas_llm=0, cost_usd=0.0, detalhes=detalhes)
 
 
 def registrar_export(params: Params, run_id: int | None, tipo: str, nome_arquivo: str,
                      linhas: list) -> int | None:
     """Uma linha em `export` por export gerado — é o registro E o arquivo.
 
-    É o que permite responder "qual arquivo saiu de qual run" sem depender do nome, que é
+    É o que permite responder "qual arquivo saiu de qual run" sem depender do name, que é
     sempre o mesmo.
     """
     if run_id is None:
@@ -366,8 +366,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         salvar_snapshot({_chave(l) for l in linhas_csv}, params, catmap, export_id)
         ctx.log("info", f"[8] Snapshot avançado ({len(linhas_csv)} chaves).")
         return StepResult(
-            processados=len(novos), erros=0,
-            metricas={"linhas_novas": len(novos), "linhas_no_export": len(linhas_csv),
+            processed=len(novos), erros=0,
+            metrics={"linhas_novas": len(novos), "linhas_no_export": len(linhas_csv),
                       "baseline_anterior": len(prev), "run_id": run_id},
             preview=novos[:50],
         )
@@ -376,8 +376,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     ctx.log("info", f"[8] Exportadas {len(linhas_csv)} linhas → {NOME_COMPLETO} "
                     f"(baixe pela tela de exports)")
     return StepResult(
-        processados=len(linhas_csv), erros=0,
-        metricas={"linhas_no_export": len(linhas_csv),
+        processed=len(linhas_csv), erros=0,
+        metrics={"linhas_no_export": len(linhas_csv),
                   "codigos_podados": n_codigos_removidos, "run_id": run_id},
         preview=linhas_csv[:50],
     )

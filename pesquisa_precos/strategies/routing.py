@@ -21,5 +21,5 @@ def escolher_estrategia(n_itens: int, tamanho_texto_chars: int, janela_max: int,
     """
     divisor = janela_max - tamanho_tabela
     if divisor <= 0 or n_itens <= 0:
-        return "janela"
-    return "completa" if n_itens > (tamanho_texto_chars / divisor) else "janela"
+        return "window"
+    return "full" if n_itens > (tamanho_texto_chars / divisor) else "window"

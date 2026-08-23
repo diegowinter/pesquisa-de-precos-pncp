@@ -8,7 +8,7 @@ de Postgres com o schema aplicado e é PULADO sem ele (mesmo padrão de test_con
 O que estes testes protegem, em ordem de importância:
   1. a derivação `catalogo_raw ∩ pdm_permitido` casar material por `codigo_pdm` e serviço por
      `codigo` — a assimetria é herdada da API e é o erro mais fácil de introduzir;
-  2. rederivar NÃO apagar `catalogo_item.categoria`, que custa LLM na etapa 1;
+  2. rederivar NÃO apagar `catalogo_item.categoria`, que custa LLM na step 1;
   3. revogar um PDM desativar o item em vez de apagá-lo;
   4. o delta tratar a primeira execução como baseline (delta zero), nunca como "tudo novo".
 """
@@ -83,7 +83,7 @@ def banco_limpo():
 
 def _semear_raw(sessao):
     sessao.execute(text("""
-        INSERT INTO catalogo_raw (tipo, codigo, codigo_pdm, nome_pdm, descricao)
+        INSERT INTO catalogo_raw (tipo, codigo, codigo_pdm, nome_pdm, description)
         VALUES ('material', :cm, :pdm, 'PDM DE TESTE', 'ITEM DE TESTE'),
                ('servico', :cs, NULL, NULL, 'SERVICO DE TESTE')
         ON CONFLICT (tipo, codigo) DO NOTHING
@@ -94,12 +94,12 @@ def _semear_raw(sessao):
 def test_derivacao_casa_material_por_pdm_e_service_por_codigo(banco_limpo):
     with db.session() as s:
         _semear_raw(s)
-        repo.permitir(s, "material", PDM_TESTE, criado_por="teste")
-        repo.permitir(s, "servico", COD_SERVICO, criado_por="teste")
+        repo.permitir(s, "material", PDM_TESTE, created_by="teste")
+        repo.permitir(s, "servico", COD_SERVICO, created_by="teste")
         repo.derivar_catalogo_item(s)
         s.commit()
         derivados = set(s.scalars(text(
-            "SELECT codigo FROM catalogo_item WHERE codigo = ANY(:v) AND ativo"),
+            "SELECT codigo FROM catalogo_item WHERE codigo = ANY(:v) AND active"),
             {"v": [COD_MATERIAL, COD_SERVICO]}).all())
     assert derivados == {COD_MATERIAL, COD_SERVICO}
 
@@ -142,10 +142,10 @@ def test_revogar_desativa_o_item_em_vez_de_apagar(banco_limpo):
         repo.derivar_catalogo_item(s)
         s.commit()
 
-        repo.revogar(s, "material", PDM_TESTE, motivo="teste")
+        repo.revogar(s, "material", PDM_TESTE, reason="teste")
         repo.derivar_catalogo_item(s)
         s.commit()
-        linha = s.execute(text("SELECT ativo FROM catalogo_item WHERE codigo = :c"),
+        linha = s.execute(text("SELECT active FROM catalogo_item WHERE codigo = :c"),
                           {"c": COD_MATERIAL}).all()
     assert linha == [(False,)], "o item deve continuar existindo, apenas inativo"
 
@@ -191,11 +191,11 @@ def test_permitir_e_idempotente_e_reativa(banco_limpo):
         repo.revogar(s, "material", PDM_TESTE)
         repo.permitir(s, "material", PDM_TESTE)   # de volta ao escopo
         s.commit()
-        ativo, obs = s.execute(text(
-            "SELECT ativo, observacao FROM pdm_permitido WHERE codigo = :c"),
+        active, obs = s.execute(text(
+            "SELECT active, observacao FROM pdm_permitido WHERE codigo = :c"),
             {"c": PDM_TESTE}).one()
-    assert ativo is True
-    assert obs == "motivo original", "reativar não pode apagar o motivo registrado"
+    assert active is True
+    assert obs == "motivo original", "reativar não pode apagar o reason registrado"
 
 
 # ── Checkpoint de página ─────────────────────────────────────────────────────────────
@@ -258,11 +258,11 @@ def test_seed_reproduz_os_grupos_que_estavam_no_codigo():
 @pytestmark_db
 def test_revogar_grupo_tira_do_download_sem_apagar(grupos_limpos):
     with db.session() as s:
-        repo.permitir_grupo(s, "material", GRUPO_TESTE, criado_por="teste")
+        repo.permitir_grupo(s, "material", GRUPO_TESTE, created_by="teste")
         s.commit()
         assert GRUPO_TESTE in repo.grupos_ativos(s, "material")
 
-        repo.revogar_grupo(s, "material", GRUPO_TESTE, motivo="teste")
+        repo.revogar_grupo(s, "material", GRUPO_TESTE, reason="teste")
         s.commit()
         assert GRUPO_TESTE not in repo.grupos_ativos(s, "material")
         ainda_existe = s.execute(text(
@@ -285,9 +285,9 @@ def test_grupo_revogado_nao_mexe_no_escopo_da_pesquisa(banco_limpo, grupos_limpo
         repo.revogar_grupo(s, "material", GRUPO_TESTE)
         repo.derivar_catalogo_item(s)
         s.commit()
-        ativo = s.execute(text("SELECT ativo FROM catalogo_item WHERE codigo = :c"),
+        active = s.execute(text("SELECT active FROM catalogo_item WHERE codigo = :c"),
                           {"c": COD_MATERIAL}).scalar_one()
-    assert ativo is True
+    assert active is True
 
 
 @pytestmark_db
@@ -317,7 +317,7 @@ def _banco_tem_catalogo_real() -> bool:
 @pytest.mark.skipif(_banco_tem_catalogo_real(),
                     reason="banco tem catálogo real — o snapshot do delta alteraria o baseline")
 def test_delta_trata_a_primeira_execucao_como_baseline(banco_limpo):
-    """A armadilha registrada na etapa: sem snapshot anterior, marcar tudo como 'novo' faria
+    """A armadilha registrada na step: sem snapshot anterior, marcar tudo como 'novo' faria
     a primeira execução reportar o catálogo inteiro como novidade. Delta zero é o correto."""
     with db.session() as s:
         _semear_raw(s)

@@ -1,5 +1,5 @@
 """
-Parsers da API do PNCP (Fase 9 — prioridade 1 de docs/08_CONVENCOES.md §6: "o contrato muda
+Parsers da API do PNCP (Fase 9 — priority 1 de docs/08_CONVENCOES.md §6: "o contrato muda
 sem aviso"). Cobre as funções puras de `core.collection.collect_pncp` e `core.collection.fetch_items`
 com fixtures de resposta gravadas (formato real do PNCP, sem bater na rede).
 """
@@ -79,7 +79,7 @@ class TestPrecoHomologadoVsEstimado:
         mock_listar.return_value = [{}]
         mock_sel.return_value = [{}]
         mock_resolve.return_value = "9"
-        item = {"numeroItem": 1, "descricao": "caneta", "unidadeMedida": "UN",
+        item = {"numeroItem": 1, "description": "caneta", "unidadeMedida": "UN",
                "quantidade": 10, "valorUnitarioEstimado": 5.0, "temResultado": True}
         mock_fetch.return_value = [item]
         mock_filtra.return_value = [item]
@@ -104,7 +104,7 @@ class TestPrecoHomologadoVsEstimado:
         mock_listar.return_value = [{}]
         mock_sel.return_value = [{}]
         mock_resolve.return_value = "9"
-        item = {"numeroItem": 1, "descricao": "caneta", "unidadeMedida": "UN",
+        item = {"numeroItem": 1, "description": "caneta", "unidadeMedida": "UN",
                "quantidade": 10, "valorUnitarioEstimado": 5.0, "temResultado": False}
         mock_fetch.return_value = [item]
         mock_filtra.return_value = [item]
@@ -150,7 +150,7 @@ class TestFetchResultadoVencedor:
     def test_prioriza_valido_com_homologado_e_menor_ordem(self, mock_get):
         mock_get.return_value = [
             {"ordemClassificacaoSrp": 2, "valorUnitarioHomologado": 10.0},
-            {"ordemClassificacaoSrp": 1, "valorUnitarioHomologado": None},  # 1º colocado, sem valor
+            {"ordemClassificacaoSrp": 1, "valorUnitarioHomologado": None},  # 1º colocado, sem value
             {"ordemClassificacaoSrp": 3, "valorUnitarioHomologado": 12.0},
         ]
         vencedor = fetch_items.fetch_resultado_vencedor("123", 2026, "9", 1)

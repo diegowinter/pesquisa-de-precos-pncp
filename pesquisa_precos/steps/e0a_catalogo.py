@@ -138,7 +138,7 @@ def _linha_raw(tipo: str, reg: dict) -> tuple | None:
     """Registro da API → tupla na ordem de `curadoria.COLUNAS_RAW`.
 
     O mapeamento é o MESMO de `gerar_catalogo_filtrado()` — material e serviço têm nomes de
-    campo diferentes na origem, e é aqui que eles viram um formato só. Manter os dois lugares
+    campo diferentes na source, e é aqui que eles viram um formato só. Manter os dois lugares
     é a única — o caminho de parquet/CSV saiu na Fase 13.
     """
     if tipo == "material":
@@ -219,7 +219,7 @@ def baixar_tipo_para_banco(tipo: str, so_grupos: bool, forcar: bool,
             grupos = repo.grupos_ativos(s, tipo)
         if not grupos:
             raise SystemExit(
-                f"Nenhum grupo ativo para {tipo} em grupo_permitido — cadastre pela interface "
+                f"Nenhum grupo active para {tipo} em grupo_permitido — cadastre pela interface "
                 f"ou rode sem --so-grupos-seguranca para baixar o catálogo inteiro.")
         ctx.log("debug", f"[dim][0a] {tipo}: {len(grupos)} grupos de segurança "
                          f"({', '.join(grupos)})[/]")
@@ -266,8 +266,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         preview = [
             {"tipo": t, "codigo": c, "descricao": (d or "")[:80]}
             for t, c, d in s.execute(text_sql(
-                "SELECT tipo::text, codigo, descricao FROM catalogo_item "
-                "WHERE ativo ORDER BY tipo, codigo LIMIT 20")).all()
+                "SELECT tipo::text, codigo, description FROM catalogo_item "
+                "WHERE active ORDER BY tipo, codigo LIMIT 20")).all()
         ]
 
     ctx.log("info", f"[bold]Catálogo completo:[/] {total_raw:,} · "
@@ -280,8 +280,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                         f"{delta['codigos_removidos']} removidos")
 
     return StepResult(
-        processados=derivacao["ativos"], erros=0,
-        metricas={"itens_no_catalogo_raw": total_raw, **por_tipo, **derivacao, **delta},
+        processed=derivacao["ativos"], erros=0,
+        metrics={"itens_no_catalogo_raw": total_raw, **por_tipo, **derivacao, **delta},
         preview=preview,
     )
 

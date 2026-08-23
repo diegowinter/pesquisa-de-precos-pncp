@@ -18,19 +18,19 @@ _NOMES_TESTE = ("teste_fase6_prompt", "teste_fase6_ativar", "teste_fase6_e2e")
 
 @pytest.fixture(autouse=True)
 def _prompts_de_teste_limpos():
-    """`prompt.nome` é PK — rodar a suíte duas vezes reaproveitaria a mesma linha e acumularia
+    """`prompt.name` é PK — rodar a suíte duas vezes reaproveitaria a mesma linha e acumularia
     versões (`proxima_versao_prompt` nunca reseta). Limpa antes E depois; `ON DELETE CASCADE`
-    em `prompt_versao` cuida do histórico junto."""
+    em `prompt_version` cuida do histórico junto."""
     if db.is_available()[0]:
         with db.session() as sessao:
             from sqlalchemy import text
-            sessao.execute(text("DELETE FROM prompt WHERE nome = ANY(:nomes)"),
+            sessao.execute(text("DELETE FROM prompt WHERE name = ANY(:nomes)"),
                            {"nomes": list(_NOMES_TESTE)})
     yield
     if db.is_available()[0]:
         with db.session() as sessao:
             from sqlalchemy import text
-            sessao.execute(text("DELETE FROM prompt WHERE nome = ANY(:nomes)"),
+            sessao.execute(text("DELETE FROM prompt WHERE name = ANY(:nomes)"),
                            {"nomes": list(_NOMES_TESTE)})
 
 
@@ -65,7 +65,7 @@ def test_resolver_template_mal_formado_cai_no_fallback():
     assert versao_id is None
 
 
-# ── config_versao/config_valor: imutabilidade e diff (ADR-014) ──────────────────────
+# ── config_version/config_value: imutabilidade e diff (ADR-014) ──────────────────────
 
 @pytestmark_db
 def test_diff_config_reporta_so_o_que_mudou():
@@ -75,7 +75,7 @@ def test_diff_config_reporta_so_o_que_mudou():
         b = repo.criar_config_versao(sessao, "teste-fase6-b")
         repo.gravar_config(sessao, b, {"top_n": 5, "min_itens": 1})
         diff = repo.diff_config(sessao, a, b)
-    assert diff["diferencas"] == [{"chave": "top_n", "de": 0, "para": 5}]
+    assert diff["diferencas"] == [{"key": "top_n", "de": 0, "para": 5}]
 
 
 @pytestmark_db
@@ -91,27 +91,27 @@ def test_config_versao_e_imutavel_editar_cria_nova():
         assert repo.ler_config(sessao, v2) == {"top_n": 5}
 
 
-# ── prompt/prompt_versao: histórico e ativação ───────────────────────────────────────
+# ── prompt/prompt_version: histórico e activeção ───────────────────────────────────────
 
 @pytestmark_db
 def test_criar_versao_prompt_nasce_inativa():
     with db.session() as sessao:
         repo.upsert_prompt(sessao, "teste_fase6_prompt", "prompt de teste", "chat",
-                           "template v1", versao=1, ativa=True)
+                           "template v1", version=1, active=True)
         v2_id = repo.criar_prompt_versao(sessao, "teste_fase6_prompt", "template v2")
         versoes = repo.prompt_versoes(sessao, "teste_fase6_prompt")
     por_id = {v["id"]: v for v in versoes}
-    assert por_id[v2_id]["ativa"] is False
+    assert por_id[v2_id]["active"] is False
 
 
 @pytestmark_db
 def test_ativar_prompt_versao_desativa_a_anterior():
     with db.session() as sessao:
         repo.upsert_prompt(sessao, "teste_fase6_ativar", "prompt de teste", "chat",
-                           "template v1", versao=1, ativa=True)
+                           "template v1", version=1, active=True)
         repo.criar_prompt_versao(sessao, "teste_fase6_ativar", "template v2")
         assert repo.ativar_prompt_versao(sessao, "teste_fase6_ativar", 2)
-        versoes = {v["versao"]: v["ativa"] for v in
+        versoes = {v["version"]: v["active"] for v in
                   repo.prompt_versoes(sessao, "teste_fase6_ativar")}
     assert versoes == {1: False, 2: True}
 
@@ -120,7 +120,7 @@ def test_ativar_prompt_versao_desativa_a_anterior():
 def test_template_prompt_ativo_alimenta_o_resolver_fim_a_fim():
     with db.session() as sessao:
         repo.upsert_prompt(sessao, "teste_fase6_e2e", "prompt de teste", "chat",
-                           "olá {saudado}", versao=1, ativa=True)
+                           "olá {saudado}", version=1, active=True)
         ativos = prompts_resolver.carregar_ativos(sessao, ["teste_fase6_e2e"])
     texto, versao_id = prompts_resolver.resolver(ativos, "teste_fase6_e2e", "FALLBACK",
                                                   saudado="mundo")

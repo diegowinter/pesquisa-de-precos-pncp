@@ -37,8 +37,8 @@ class TestUrlParaArgsPgDump:
 class TestNomeArquivo:
     def test_formato_datado(self):
         from datetime import datetime
-        nome = nome_arquivo(datetime(2026, 8, 17, 14, 30, 5))
-        assert nome == "pesquisa_precos_20260817_143005.dump"
+        name = nome_arquivo(datetime(2026, 8, 17, 14, 30, 5))
+        assert name == "pesquisa_precos_20260817_143005.dump"
 
 
 class TestVerificarIntegridade:
@@ -70,7 +70,7 @@ class TestRodarPgDump:
         with patch("tools.backup.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             arquivo = rodar_pg_dump(
-                "postgresql+psycopg://postgres:senha@localhost:5432/pesquisa_precos",
+                "postgresql+psycopg://postgres:password@localhost:5432/pesquisa_precos",
                 tmp_path, executavel="pg_dump")
         comando = mock_run.call_args[0][0]
         assert comando[0] == "pg_dump"

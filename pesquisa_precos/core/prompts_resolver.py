@@ -45,7 +45,7 @@ def carregar_ativos(sessao: Session, nomes: list[str]) -> PromptsAtivos:
 def resolver(ativos: PromptsAtivos | None, nome: str, fallback_texto: str,
             **valores: Any) -> tuple[str, int | None]:
     """Devolve `(texto_do_prompt, prompt_versao_id)`. `prompt_versao_id` é `None` quando o
-    fallback foi usado — é o valor que `llm_chamada.prompt_versao_id` deve gravar (Fase 7:
+    fallback foi usado — é o valor que `llm_chamada.prompt_version_id` deve gravar (Fase 7:
     quem grava a chamada lê isto do resultado do `Curador`, não recalcula)."""
     if not ativos or nome not in ativos:
         return fallback_texto, None

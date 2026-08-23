@@ -17,29 +17,29 @@ from sqlalchemy.orm import Session
 from pesquisa_precos.db import copy
 from pesquisa_precos.db.models import CatalogoItem
 
-COLUNAS = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "descricao",
-           "codigo_grupo", "nome_grupo", "nome_classe", "categoria", "ativo")
+COLUNAS = ("tipo", "codigo", "codigo_pdm", "nome_pdm", "description",
+           "codigo_grupo", "nome_grupo", "nome_classe", "categoria", "active")
 
 
 def gravar_itens(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Upsert em massa. `linhas` na ordem de `COLUNAS`.
 
-    `DO UPDATE` (e não `DO NOTHING`) porque a etapa 0a rebaixa o catálogo inteiro a cada
+    `DO UPDATE` (e não `DO NOTHING`) porque a step 0a rebaixa o catálogo inteiro a cada
     execução: descrição e classe mudam no CATMAT, e manter a versão antiga faria o export
     divergir da fonte oficial sem nenhum sinal.
     """
     return copy.copiar(
         conn, "catalogo_item", COLUNAS, linhas,
         conflito=("tipo", "codigo"),
-        atualizar=("codigo_pdm", "nome_pdm", "descricao", "codigo_grupo",
-                   "nome_grupo", "nome_classe", "categoria", "ativo"),
+        atualizar=("codigo_pdm", "nome_pdm", "description", "codigo_grupo",
+                   "nome_grupo", "nome_classe", "categoria", "active"),
     )
 
 
 def marcar_inativos(sessao: Session, codigos: Sequence[tuple[str, str]]) -> int:
-    """Códigos com status 'removido' no delta da 0a viram `ativo = false`.
+    """Códigos com status 'removido' no delta da 0a viram `active = false`.
 
-    Desativa, nunca apaga: o item removido do catálogo continua sendo a origem de linhas de
+    Desativa, nunca apaga: o item removido do catálogo continua sendo a source de linhas de
     export já entregues, e apagá-lo quebraria a rastreabilidade (requisito nº 4 do projeto).
     """
     if not codigos:
@@ -47,15 +47,15 @@ def marcar_inativos(sessao: Session, codigos: Sequence[tuple[str, str]]) -> int:
     n = 0
     for tipo, codigo in codigos:
         n += sessao.execute(
-            text("UPDATE catalogo_item SET ativo = false, atualizado_em = now() "
-                 "WHERE tipo = CAST(:t AS tipo_catalogo) AND codigo = :c AND ativo"),
+            text("UPDATE catalogo_item SET active = false, updated_at = now() "
+                 "WHERE tipo = CAST(:t AS tipo_catalogo) AND codigo = :c AND active"),
             {"t": tipo, "c": codigo},
         ).rowcount
     return n
 
 
 def codigos_removidos(sessao: Session) -> set[str]:
-    """Códigos inativos — o que a etapa 8 poda do export final."""
+    """Códigos inativos — o que a step 8 poda do export final."""
     return set(sessao.scalars(
         select(CatalogoItem.codigo).where(CatalogoItem.ativo.is_(False))).all())
 
@@ -81,17 +81,17 @@ def tipo_do_codigo(sessao: Session) -> tuple[dict[str, str], list[str]]:
 
 
 def texto_por_codigo(sessao: Session) -> dict[str, dict]:
-    """`codigo → {tipo, nome_pdm, descricao, nome_classe}` — o que a etapa 8 escreve no XLSX.
+    """`codigo → {tipo, nome_pdm, description, nome_classe}` — o que a step 8 escreve no XLSX.
 
     Substitui `core.text.texto_catalogo()` / `e8.carregar_catalogo()` quando a fonte é o
     banco. Devolve o catálogo INTEIRO (2.212 linhas): não vale a pena paginar.
     """
     linhas = sessao.execute(text(
-        "SELECT codigo, tipo::text, nome_pdm, descricao, nome_classe FROM catalogo_item")).all()
+        "SELECT codigo, tipo::text, nome_pdm, description, nome_classe FROM catalogo_item")).all()
     return {
         codigo: {"tipo": tipo, "nome_pdm": nome_pdm or "",
-                 "descricao": descricao or "", "nome_classe": nome_classe or ""}
-        for codigo, tipo, nome_pdm, descricao, nome_classe in linhas
+                 "description": description or "", "nome_classe": nome_classe or ""}
+        for codigo, tipo, nome_pdm, description, nome_classe in linhas
     }
 
 

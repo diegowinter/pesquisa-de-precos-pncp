@@ -5,7 +5,7 @@ Validação por agregado — docs/05_MIGRACAO.md §4.
 diferentes, e a distinção entre elas é o ponto:
 
   **Contagem** — quantas linhas chegaram, contra os números medidos no acervo em 2026-08-16.
-  Divergência aqui é ACEITÁVEL desde que explicada (duplicata no CSV, dedup por chave natural,
+  Divergência aqui é ACEITÁVEL desde que explicada (duplicata no CSV, dedup por key natural,
   linha órfã descartada). Cada script de migração já reporta a sua explicação.
 
   **Integridade referencial** — órfãos. Aqui **toda contagem tem de ser zero**. Um item sem
@@ -36,7 +36,7 @@ CONTAGENS = (
     ("documento_pagina",  888_656,    "SELECT count(*) FROM documento_pagina"),
     ("item_enriquecido",  302_514,    "SELECT count(*) FROM item_enriquecido"),
     ("par",               250_114,    "SELECT count(*) FROM par"),
-    ("rotulo",            250_085,    "SELECT count(*) FROM rotulo"),
+    ("label",            250_085,    "SELECT count(*) FROM label"),
     ("embedding_cache",   305_000,    "SELECT count(*) FROM embedding_cache"),
     ("grupo_item",        118_722,    "SELECT count(*) FROM grupo_item"),
 )
@@ -71,7 +71,7 @@ ORFAOS = (
 # Coerências que não são FK mas seriam erro de lógica de migração.
 COERENCIAS = (
     ("par confirmado sem sinal (nem aceito nem sim)",
-     "SELECT count(*) FROM par WHERE decisao_final = 'confirmado' "
+     "SELECT count(*) FROM par WHERE final_decision = 'confirmado' "
      "AND decisao IS DISTINCT FROM 'aceito' AND veredito IS DISTINCT FROM 'sim'"),
     ("grupo_item com posicao <= 0",
      "SELECT count(*) FROM grupo_item WHERE posicao <= 0"),
@@ -79,7 +79,7 @@ COERENCIAS = (
      "SELECT count(*) FROM item_enriquecido e JOIN item i USING (item_key) "
      "WHERE NOT i.sobrevivente"),
     ("embedding com dimensão fora do padrão",
-     "SELECT count(*) FROM embedding_cache WHERE dimensao <> 1024"),
+     "SELECT count(*) FROM embedding_cache WHERE dimension <> 1024"),
 )
 
 
@@ -92,23 +92,23 @@ def validar() -> bool:
         tabela.add_column("esperado", justify="right")
         tabela.add_column("no banco", justify="right")
         tabela.add_column("Δ", justify="right")
-        for rotulo, esperado, consulta in CONTAGENS:
+        for label, esperado, consulta in CONTAGENS:
             real = s.execute(sql(consulta)).scalar_one()
             delta = real - esperado
             cor = "green" if abs(delta) <= max(1, esperado // 100) else "yellow"
-            tabela.add_row(rotulo, f"{esperado:,}".replace(",", "."),
+            tabela.add_row(label, f"{esperado:,}".replace(",", "."),
                            f"{real:,}".replace(",", "."),
                            f"[{cor}]{delta:+,}[/]".replace(",", "."))
         console.print(tabela)
 
         console.print("\n[bold]Integridade referencial (tem de ser ZERO)[/]")
-        for rotulo, consulta in ORFAOS + COERENCIAS:
+        for label, consulta in ORFAOS + COERENCIAS:
             n = s.execute(sql(consulta)).scalar_one()
             if n:
                 ok = False
-                console.print(f"  [red]✗ {rotulo}: {n}[/]")
+                console.print(f"  [red]✗ {label}: {n}[/]")
             else:
-                console.print(f"  [green]✓[/] {rotulo}")
+                console.print(f"  [green]✓[/] {label}")
 
     console.print(f"\n{'[bold green]Validação OK[/]' if ok else '[bold red]FALHOU[/]'}")
     return ok

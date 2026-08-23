@@ -12,10 +12,10 @@ de texto. Um INSERT por linha (ou até em lotes de mil) leva horas; `COPY` leva 
 O passo 3 é o que dá a **idempotência** exigida por docs/05_MIGRACAO.md §1: rodar duas vezes
 não duplica. E como a temp é `ON COMMIT DROP`, um lote interrompido no meio não deixa lixo.
 
-Regra: a tabela temporária é deduplicada antes do INSERT (`DISTINCT ON` na chave de conflito).
-Sem isso, um lote que traga a MESMA chave duas vezes faz o Postgres levantar
+Regra: a tabela temporária é deduplicada antes do INSERT (`DISTINCT ON` na key de conflito).
+Sem isso, um lote que traga a MESMA key duas vezes faz o Postgres levantar
 "ON CONFLICT DO UPDATE command cannot affect row a second time" — e o CSV do acervo tem
-duplicatas de verdade (a etapa 2 é append-only).
+duplicatas de verdade (a step 2 é append-only).
 """
 
 from collections.abc import Iterable, Iterator, Sequence
@@ -28,7 +28,7 @@ import psycopg
 LOTE_PADRAO = 5_000
 
 
-def texto_para_pg(valor: str) -> str:
+def texto_para_pg(value: str) -> str:
     """Remove bytes NUL (0x00), que uma coluna `text` do PostgreSQL não aceita.
 
     BUG REAL, encontrado ao migrar `5_pdf_texto.csv`: o parser de PDF deixa passar NUL em
@@ -42,7 +42,7 @@ def texto_para_pg(valor: str) -> str:
     aí um NUL vindo de outro lugar (onde ele indicaria dado corrompido de verdade) sumiria sem
     ninguém ver. Por isso a limpeza é explícita, chamada por quem lida com texto de PDF.
     """
-    return valor.replace("\x00", "") if "\x00" in valor else valor
+    return value.replace("\x00", "") if "\x00" in value else value
 
 
 def em_lotes(itens: Iterable[Any], tamanho: int = LOTE_PADRAO) -> Iterator[list]:
@@ -69,9 +69,9 @@ def copiar(
 ) -> int:
     """Copia `linhas` para `tabela`, resolvendo conflito. Devolve quantas linhas foram enviadas.
 
-    `conflito`   colunas da chave de conflito. `None` = INSERT direto (destino vazio/append).
+    `conflito`   colunas da key de conflito. `None` = INSERT direto (destino vazio/append).
     `atualizar`  colunas a sobrescrever em `DO UPDATE`. `None`/vazio = `DO NOTHING`.
-    `where_update` condição extra do `DO UPDATE` (ex.: só sobrescrever se o valor mudou).
+    `where_update` condição extra do `DO UPDATE` (ex.: só sobrescrever se o value mudou).
 
     O retorno é a contagem de linhas ENVIADAS, não de linhas efetivamente inseridas — a
     diferença entre as duas é justamente o que a idempotência absorve, e conferir o total real
@@ -92,12 +92,12 @@ def copiar(
 
         if conflito:
             # DISTINCT ON dedupa dentro do próprio lote (ver docstring do módulo).
-            chave = ", ".join(conflito)
-            origem = f"(SELECT DISTINCT ON ({chave}) {lista_cols} FROM {tmp}) t"
+            key = ", ".join(conflito)
+            source = f"(SELECT DISTINCT ON ({key}) {lista_cols} FROM {tmp}) t"
         else:
-            origem = f"{tmp} t"
+            source = f"{tmp} t"
 
-        sql = f"INSERT INTO {tabela} ({lista_cols}) SELECT {lista_cols} FROM {origem}"
+        sql = f"INSERT INTO {tabela} ({lista_cols}) SELECT {lista_cols} FROM {source}"
         if conflito:
             alvo = ", ".join(conflito)
             if atualizar:

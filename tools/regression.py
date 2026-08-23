@@ -2,9 +2,9 @@
 Suite de regressão de qualidade (Fase 9, docs/04_FASES.md item 1).
 
 Roda a decisão da 6b (thresholds `rerank_t_aceita`/`rerank_t_rejeita`, sem LLM nenhum) contra
-uma amostra de `rotulo` (ou uma fixture sintética, se o banco estiver vazio/indisponível — hoje
+uma amostra de `label` (ou uma fixture sintética, se o banco estiver vazio/indisponível — hoje
 é o caso: "ZERO linhas", ver CLAUDE.md) e reporta precisão/recall. É o que permite trocar de
-modelo/threshold/prompt sem ser no escuro (docs/08_CONVENCOES.md §6).
+model/threshold/prompt sem ser no escuro (docs/08_CONVENCOES.md §6).
 
 A lógica de decisão vive em `pesquisa_precos.core.regression` (pura, sem I/O) — este script só
 resolve DE ONDE vem a amostra e IMPRIME o relatório. `--reprovar-abaixo-de` faz o processo
@@ -32,22 +32,22 @@ for _s in (sys.stdout, sys.stderr):
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-from pesquisa_precos.core.regression import Rotulo, avaliar  # noqa: E402
+from pesquisa_precos.core.regression import Label, avaliar  # noqa: E402
 
 FIXTURE_PADRAO = RAIZ / "tests" / "fixtures" / "rotulos_sinteticos.csv"
 
 
-def carregar_da_fixture(caminho: Path = FIXTURE_PADRAO) -> list[Rotulo]:
+def carregar_da_fixture(caminho: Path = FIXTURE_PADRAO) -> list[Label]:
     with open(caminho, encoding="utf-8") as f:
         return [
-            Rotulo(par_key=l["par_key"],
+            Label(par_key=l["par_key"],
                   score_rerank=float(l["score_rerank"]) if l["score_rerank"] else None,
-                  decisao_final=l["decisao_final"])
+                  final_decision=l["final_decision"])
             for l in csv.DictReader(f)
         ]
 
 
-def carregar_do_banco(limite: int) -> list[Rotulo] | None:
+def carregar_do_banco(limite: int) -> list[Label] | None:
     """`None` se o banco estiver indisponível ou vazio — o chamador cai para a fixture."""
     from pesquisa_precos.db import session as db
     from pesquisa_precos.db.repos import par as repo_par
@@ -59,23 +59,23 @@ def carregar_do_banco(limite: int) -> list[Rotulo] | None:
         linhas = repo_par.amostra_rotulos(s, limite)
     if not linhas:
         return None
-    return [Rotulo(par_key=l["par_key"], score_rerank=l["score_rerank"],
-                   decisao_final=l["decisao_final"]) for l in linhas]
+    return [Label(par_key=l["par_key"], score_rerank=l["score_rerank"],
+                   final_decision=l["final_decision"]) for l in linhas]
 
 
-def carregar_amostra(fonte: str, limite: int) -> tuple[list[Rotulo], str]:
+def carregar_amostra(fonte: str, limite: int) -> tuple[list[Label], str]:
     if fonte == "fixture":
         return carregar_da_fixture(), "fixture sintética"
     if fonte == "banco":
         rotulos = carregar_do_banco(limite)
         if rotulos is None:
-            raise SystemExit("Banco indisponível ou `rotulo` vazio — rode com --fonte fixture.")
-        return rotulos, "banco (rotulo)"
+            raise SystemExit("Banco indisponível ou `label` vazio — rode com --fonte fixture.")
+        return rotulos, "banco (label)"
     # 'auto' (default): banco quando disponível e não-vazio, senão a fixture — sem quebrar
     # quando o acervo ainda não foi migrado (CLAUDE.md: "o banco existe com ZERO linhas").
     rotulos = carregar_do_banco(limite)
     if rotulos is not None:
-        return rotulos, "banco (rotulo)"
+        return rotulos, "banco (label)"
     return carregar_da_fixture(), "fixture sintética (banco vazio/indisponível)"
 
 
@@ -91,10 +91,10 @@ def main() -> int:
                     help="Sai com código 1 se precisão OU recall ficarem abaixo deste limiar")
     args = ap.parse_args()
 
-    rotulos, origem = carregar_amostra(args.fonte, args.limite)
+    rotulos, source = carregar_amostra(args.fonte, args.limite)
     resultado = avaliar(rotulos, t_aceita=args.t_aceita, t_rejeita=args.t_rejeita)
 
-    print(f"Amostra: {resultado.n_amostra} rótulos ({origem})")
+    print(f"Amostra: {resultado.n_amostra} rótulos ({source})")
     print(f"Thresholds: aceita≥{args.t_aceita}  rejeita<{args.t_rejeita}")
     print(f"Decididos pela 6b: {resultado.n_decididos}  |  ambíguos (iriam p/ 6c/LLM): "
           f"{resultado.n_ambiguos}")

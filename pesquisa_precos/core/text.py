@@ -55,7 +55,7 @@ def normalizar_termo(valor) -> str:
 
 
 def texto_hash(descricao, unidade=None) -> str:
-    """sha1(norm(descricao) || '|' || norm(unidade)) — chave do dedup de classificação.
+    """sha1(norm(descricao) || '|' || norm(unidade)) — key do dedup de classificação.
 
     (descrição, unidade) porque são exatamente os dois campos que o classificador lê: texto
     igual ⇒ mesma classe, sem perda. Ver docs/02_SCHEMA.md §4.

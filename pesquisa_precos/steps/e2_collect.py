@@ -81,7 +81,7 @@ class Params(BaseModel):
 #   2_itens_coletados.csv       → documento + item        (duas tabelas, não uma linha larga)
 #   2_conceitos_extra.csv       → documento_termo         (por documento, não por item)
 #   checkpoints/2_progresso.csv → coleta_progresso
-#   checkpoints/2_watermark.csv → coleta_watermark
+#   checkpoints/2_watermark.csv → collection_watermark
 #   checkpoints/2_pendentes.csv → coleta_pendente
 #
 # O documento é gravado com TODOS os seus itens na mesma transação: um documento pela metade
@@ -107,14 +107,14 @@ def termos_do_banco(filtro: set[str] | None, limite: int | None) -> list[dict]:
     with db.session() as s:
         linhas = s.execute(sa_text(
             "SELECT id, termo, coalesce(categoria, '') FROM termo "
-            " WHERE ativo ORDER BY id")).all()
+            " WHERE active ORDER BY id")).all()
     termos = [{"termo_id": i, "termo": t, "categoria": c} for i, t, c in linhas]
     if filtro:
         termos = [t for t in termos if t["termo"] in filtro]
     if limite:
         termos = termos[:limite]
     if not termos:
-        raise SystemExit("Nenhum termo ativo no banco — rode a etapa 1 antes.")
+        raise SystemExit("Nenhum termo active no banco — rode a etapa 1 antes.")
     return termos
 
 
@@ -124,7 +124,7 @@ def _linha_documento(linha: dict, data_atualizacao: str | None, n_itens: int) ->
     Por que da linha de item e não do `identificar()` da busca: `COLUNAS_ITENS` já carrega
     todos os campos do documento (é uma tabela desnormalizada — foi assim que o CSV único
     funcionou até aqui), incluindo `url_pncp` e os dois sequenciais, que `identificar()` NÃO
-    devolve (ele expõe o sequencial da ata como `_seq_ata`, chave privada). Usar a linha é o
+    devolve (ele expõe o sequencial da ata como `_seq_ata`, key privada). Usar a linha é o
     mesmo caminho que a migração `m07` faz sobre o CSV — uma fonte só, já validada.
 
     `data_atualizacao_pncp` é a exceção: não está na linha de item, vem do resultado da busca.
@@ -240,7 +240,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         pendentes_docs = {} if params.ignorar_cache else repo.pendentes(s)
 
     pendentes = [t for t in tarefas if (t[2], t[1]) not in feitas]
-    _modo = "[yellow]atualização (para no watermark)[/]" if params.atualizar else "completa"
+    _modo = "[yellow]atualização (para no watermark)[/]" if params.atualizar else "full"
     ctx.log("info", f"[bold][2] Coleta no PNCP → banco ({_modo}):[/] {len(pendentes)} buscas "
                     f"(termo×fonte) a fazer (já feitas: {len(tarefas) - len(pendentes)}, "
                     f"fontes: {', '.join(FONTES)})")
@@ -261,7 +261,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                 linhas, status = collect_pncp.revisitar_pendente(
                     rec["base"], rec["tipo_doc"], "")
             except Exception as exc:  # noqa: BLE001
-                ctx.erro_item(ctrl, exc, tipo=rec["tipo_doc"], nome="revisita")
+                ctx.erro_item(ctrl, exc, tipo=rec["tipo_doc"], name="revisita")
                 feitos_rev += 1
                 ctx.progresso(feitos_rev)
                 continue
@@ -286,7 +286,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     for termo, fonte, termo_id in pendentes:
         if ctx.cancelado():
             break
-        subprogresso(ctx, processados=0, total=None,
+        subprogresso(ctx, processed=0, total=None,
                      descricao=f"[cyan]{termo[:24]}[/] ({fonte})")
         n_docs_busca = n_itens_busca = 0
         wm = watermark.get((termo_id, fonte))
@@ -296,7 +296,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     termo, fonte, on_total=lambda n: subprogresso(ctx, total=n),
                     **tam_pagina_kw):
                 n_docs_busca += 1
-                subprogresso(ctx, processados=n_docs_busca)
+                subprogresso(ctx, processed=n_docs_busca)
                 atu = r.get("data_atualizacao_pncp") or ""
                 if atu > max_atu:
                     max_atu = atu
@@ -315,7 +315,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                 if status != "ok":
                     if status == "erro":
                         total_erros += 1
-                        ctx.erro_item(ctrl, status, tipo=fonte, nome=termo)
+                        ctx.erro_item(ctrl, status, tipo=fonte, name=termo)
                     elif status == "sem_homologado":
                         base = collect_pncp.identificar(r, fonte)
                         with db.session() as s:
@@ -344,7 +344,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         except Exception as exc:  # noqa: BLE001
             total_erros += 1
             ctx.log("erro", f"[red]erro[/] {termo} ({fonte}): {str(exc)[:80]}")
-            ctx.erro_item(termo, exc, tipo=fonte, nome=termo)
+            ctx.erro_item(termo, exc, tipo=fonte, name=termo)
         finally:
             feitas_buscas += 1
             ctx.progresso(feitas_buscas)
@@ -358,8 +358,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"→ banco ({contagens['documento']} documentos, {contagens['item']} itens)")
 
     return StepResult(
-        processados=total_itens, erros=total_erros,
-        metricas={"documentos_novos": total_docs, "itens_coletados": total_itens,
+        processed=total_itens, erros=total_erros,
+        metrics={"documentos_novos": total_docs, "itens_coletados": total_itens,
                   "pendentes_resolvidos": resolvidos,
                   "pendentes_restantes": len(pendentes_docs), **contagens},
         preview=[],
@@ -391,6 +391,6 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
         detalhes={"buscas_totais": total,
                   "já_feitas": total - faltam,
                   "modo": "atualização (para no watermark)" if params.atualizar
-                          else "completa",
+                          else "full",
                   "pendentes_sem_homologado": n_pendentes_doc},
     )

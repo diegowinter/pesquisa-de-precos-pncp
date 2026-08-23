@@ -7,37 +7,37 @@ from pydantic import BaseModel, Field
 
 
 class CriarRunBody(BaseModel):
-    rotulo: str
-    modo: str = "assistido"
+    label: str
+    mode: str = "assisted"
     config_rotulo: str = "default"
-    teto_custo_usd: float | None = None
-    criado_por: str | None = None
+    cost_cap_usd: float | None = None
+    created_by: str | None = None
 
 
 class ExecutarEtapaBody(BaseModel):
-    acao: str = "atualizar"
+    action: str = "update"
     params_override: dict[str, Any] = Field(default_factory=dict)
-    confirmar: bool = False
+    confirm: bool = False
 
 
 class AprovarEtapaBody(BaseModel):
-    aprovado_por: str
+    approved_by: str
     params_override: dict[str, Any] = Field(default_factory=dict)
 
 
 class CriarConfigVersaoBody(BaseModel):
-    rotulo: str
+    label: str
     valores: dict[str, Any] = Field(default_factory=dict)
-    notas: str | None = None
-    criado_por: str | None = None
+    notes: str | None = None
+    created_by: str | None = None
 
 
 class CriarPromptVersaoBody(BaseModel):
     template: str
-    notas: str | None = None
-    criado_por: str | None = None
+    notes: str | None = None
+    created_by: str | None = None
 
 
 class DestinatarioBody(BaseModel):
-    nome: str | None = None
+    name: str | None = None
     email: str | None = None

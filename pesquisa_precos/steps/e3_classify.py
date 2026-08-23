@@ -17,7 +17,7 @@ Chave de resumo: item_key.
 NÃO fazer: classificar por item em vez de por texto único — é o dedup de ~5x que segura o
 custo desta etapa, a mais cara do ciclo.
 
-Uso: python -m pesquisa_precos.steps.e3_classify [--provedor local|openrouter] [--limite N]
+Uso: python -m pesquisa_precos.steps.e3_classify [--provider local|openrouter] [--limite N]
 """
 
 import sys
@@ -43,16 +43,16 @@ CODE_VERSION = "2.0.0"
 
 
 class Params(BaseModel):
-    provedor: str | None = Field(
-        None, description="Override manual do provedor de chat [local|openrouter]. "
-        "Sem valor, usa o que estiver configurado em capacidade_provedor (Fase 7) — ou "
+    provider: str | None = Field(
+        None, description="Override manual do provider de chat [local|openrouter]. "
+        "Sem valor, usa o que estiver configurado em provider_capability (Fase 7) — ou "
         "'local' se o banco de provedores ainda não tiver sido configurado (ADR-014).")
     limite: int | None = Field(None, description="Teto de textos únicos a classificar (debug)")
     concurrency: int = Field(3, ge=1, le=32, description="Chamadas simultâneas ao LLM")
     retry_erros: bool = Field(
         False, description="Reprocessa só as chaves de erros/3_erros.csv")
     reasoning: bool = Field(
-        False, description="Mantém o raciocínio do modelo LIGADO. Padrão: desligado.")
+        False, description="Mantém o raciocínio do model LIGADO. Padrão: desligado.")
 
 
 def estimate(params: Params, ctx: RunContext) -> Estimate:
@@ -66,11 +66,11 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
         n_textos, n_itens = repo.contar_pendentes(s)
         ja = len(repo.hashes_ja_classificados(s))
     n = n_textos if not params.limite else min(n_textos, params.limite)
-    resolucao = ctx.provedores.resolucao_opcional("chat")
-    preco = resolucao.info.custo_usd_chamada if resolucao else None
+    resolucao = ctx.providers.resolucao_opcional("chat")
+    preco = resolucao.info.cost_usd_per_call if resolucao else None
     return Estimate(
         unidades=n, chamadas_llm=n,
-        custo_usd=None if preco is None else n * preco,
+        cost_usd=None if preco is None else n * preco,
         duracao_s=n / max(params.concurrency, 1) * 2,
         detalhes={"itens_pendentes": n_itens,
                   "textos_unicos": n_textos,
@@ -80,10 +80,10 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
 
 
 def run(params: Params, ctx: RunContext) -> StepResult:
-    # Fase 14 (ADR-022): uma fonte só. `resolucao` levanta `CapacidadeNaoConfigurada` se
+    # Fase 14 (ADR-022): uma fonte só. `resolucao` levanta `CapabilityNotConfigured` se
     # ninguém atende `chat` — a validação de `.env` que existia aqui virou desnecessária.
-    resolucao_chat = ctx.provedores.resolucao("chat")
-    nome_provedor = resolucao_chat.info.nome
+    resolucao_chat = ctx.providers.resolucao("chat")
+    nome_provedor = resolucao_chat.info.name
 
     # Prompt e reasoning são resolvidos igual nos dois caminhos; só o IO muda.
     reasoning_kw = {}
@@ -103,7 +103,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 #
 # O dedup por texto — o que segura o custo desta etapa, a mais cara do ciclo — deixa de ser
 # intra-execução e vira PERMANENTE (ADR-007): `texto_classificacao` sobrevive entre runs, e
-# um texto já pago nunca mais volta ao modelo. No CSV, o agrupamento era refeito a cada
+# um texto já pago nunca mais volta ao model. No CSV, o agrupamento era refeito a cada
 # execução sobre 1,6 milhão de linhas em memória; aqui o `texto_hash` já veio calculado da
 # ingestão da etapa 2 e o agrupamento é do banco.
 
@@ -123,7 +123,7 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
             n_recomputadas = repo.recomputar_item_categoria(s)
             s.commit()
         ctx.log("info", "[3] Nada a classificar (todo texto já está em texto_classificacao).")
-        return StepResult(metricas={"textos_ja_classificados": 0,
+        return StepResult(metrics={"textos_ja_classificados": 0,
                                         "item_categoria_recomputadas": n_recomputadas})
 
     n_itens = sum(g["n_itens"] for g in tarefas)
@@ -136,12 +136,12 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
 
     def _curador():
         if not hasattr(_tls, "c"):
-            _tls.c = ctx.provedores.novo_chat(
+            _tls.c = ctx.providers.novo_chat(
                 curador_kwargs={"prompts_ativos": prompts_ativos, **reasoning_kw}).curador
         return _tls.c
 
-    nome_provedor = resolucao_chat.info.nome
-    modelo = getattr(resolucao_chat.info, "modelo", None) or nome_provedor
+    nome_provedor = resolucao_chat.info.name
+    model = getattr(resolucao_chat.info, "model", None) or nome_provedor
     n_erros, n_ok = [0], [0]
     lote: list[tuple] = []
 
@@ -162,7 +162,7 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
         conf = res.get("confianca", "")
         if conf == "erro":
             n_erros[0] += 1
-            ctx.erro_item(g["texto_hash"], res.get("_erro"), nome=g["descricao"])
+            ctx.erro_item(g["texto_hash"], res.get("_erro"), name=g["descricao"])
             return   # texto com erro NÃO entra na tabela: entrar marcaria como pago algo
                      # que não foi classificado, e o retry nunca mais o encontraria.
         n_ok[0] += 1
@@ -170,13 +170,13 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
         # `repo.CONFIANCA_ORDINAL`, a mesma que a migração usa.
         lote.append((g["texto_hash"], g["descricao"], g.get("unidade"),
                      res["categorias"], repo.confianca_para_real(conf),
-                     res.get("_prompt_versao_id"), modelo, nome_provedor, None))
+                     res.get("_prompt_versao_id"), model, nome_provedor, None))
         if len(lote) >= 500:
             descarregar()
 
     def err(g, exc):
         n_erros[0] += 1
-        ctx.erro_item(g["texto_hash"], exc, nome=g["descricao"])
+        ctx.erro_item(g["texto_hash"], exc, name=g["descricao"])
 
     ctx.progresso(0, len(tarefas), descricao="classificando")
     try:
@@ -197,8 +197,8 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
                     f"item_categoria (+{n_recomputadas})")
 
     return StepResult(
-        processados=n_ok[0], erros=n_erros[0],
-        metricas={"textos_unicos": len(tarefas), "itens_afetados": n_itens,
+        processed=n_ok[0], erros=n_erros[0],
+        metrics={"textos_unicos": len(tarefas), "itens_afetados": n_itens,
                   "item_categoria_recomputadas": n_recomputadas,
                   "dedup": f"{n_itens_pend / max(n_textos, 1):.1f}x"},
         preview=[{"descricao": g["descricao"][:200], "itens": g["n_itens"]}

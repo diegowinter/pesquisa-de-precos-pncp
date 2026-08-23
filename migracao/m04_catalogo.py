@@ -1,15 +1,15 @@
 """
 m04 — Catálogo: `0a_catalogo_filtrado.csv` + `1_categoria_por_codigo.csv` → `catalogo_item`.
 
-A `categoria` NÃO vem do catálogo: vem de `1_categoria_por_codigo.csv`, produzido pela etapa 1.
+A `categoria` NÃO vem do catálogo: vem de `1_categoria_por_codigo.csv`, produzido pela step 1.
 É a fonte canônica por item usada pelo pareamento da 6a — o join é feito aqui, na migração, e
 não em cada consulta depois (docs/05_MIGRACAO.md §m04).
 
 `0a_catalogo_filtrado.csv` tem BOM: precisa de `utf-8-sig`. Sem isso a primeira coluna do
 cabeçalho vem como '\\ufefftipo' e todo `row["tipo"]` estoura.
 
-`0a_catalogo_delta.csv` marca códigos `removido` → `ativo = false`. Desativa, nunca apaga: o
-código removido do CATMAT continua sendo a origem de linhas já entregues em export.
+`0a_catalogo_delta.csv` marca códigos `removido` → `active = false`. Desativa, nunca apaga: o
+código removido do CATMAT continua sendo a source de linhas já entregues em export.
 
 Uso: python -m migracao.m04_catalogo
 """
@@ -46,7 +46,7 @@ def removidos() -> list[tuple[str, str]]:
 def migrar() -> Relatorio:
     rel = Relatorio("m04 — catálogo")
     if not existe(paths.E0A_CATALOGO):
-        raise SystemExit(f"{paths.E0A_CATALOGO} ausente. Rode a etapa 0a antes.")
+        raise SystemExit(f"{paths.E0A_CATALOGO} ausente. Rode a step 0a antes.")
 
     cats = categoria_por_codigo()
     rel.mais("categorias mapeadas", len(cats))
@@ -60,7 +60,7 @@ def migrar() -> Relatorio:
                 continue
             rel.mais("linhas lidas")
             yield (tipo, codigo, txt(r.get("codigo_pdm")), txt(r.get("nome_pdm")),
-                   r.get("descricao") or "", txt(r.get("codigo_grupo")),
+                   r.get("description") or "", txt(r.get("codigo_grupo")),
                    txt(r.get("nome_grupo")), txt(r.get("nome_classe")),
                    cats.get((tipo, codigo)), True)
 
@@ -77,7 +77,7 @@ def migrar() -> Relatorio:
             "WHERE categoria IS NULL OR categoria = ''")).scalar_one()
     if sem_categoria:
         # Código sem categoria não pareia na 6a (o produto é restrito à mesma categoria).
-        # Não é erro de migração — é buraco da etapa 1 —, mas precisa aparecer.
+        # Não é erro de migração — é buraco da step 1 —, mas precisa aparecer.
         rel.aviso(f"{sem_categoria} códigos ficaram SEM categoria — eles não pareiam na 6a.")
     return rel
 

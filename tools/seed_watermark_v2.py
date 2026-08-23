@@ -53,9 +53,9 @@ def _acumular(wm: dict, termo: str, fonte: str, data: str) -> None:
     """Mantém em wm[(termo, fonte)] a MAIOR data (string ISO — comparação lexical serve)."""
     if not (termo and data):
         return
-    chave = (termo, fonte)
-    if data > wm.get(chave, ""):
-        wm[chave] = data
+    key = (termo, fonte)
+    if data > wm.get(key, ""):
+        wm[key] = data
 
 
 def varrer_itens(wm: dict) -> tuple[int, dict[str, str]]:
@@ -71,10 +71,10 @@ def varrer_itens(wm: dict) -> tuple[int, dict[str, str]]:
     cols = ["item_key", "tipo_doc", "conceitos_origem", "data"]
     for chunk in pd.read_csv(ITENS, usecols=cols, dtype=str, chunksize=CHUNK, encoding="utf-8"):
         chunk = chunk.fillna("")
-        for ik, fonte, origem, data in zip(chunk["item_key"], chunk["tipo_doc"],
+        for ik, fonte, source, data in zip(chunk["item_key"], chunk["tipo_doc"],
                                            chunk["conceitos_origem"], chunk["data"]):
             total += 1
-            for termo in origem.split("|"):
+            for termo in source.split("|"):
                 _acumular(wm, termo, fonte, data)
             if item_meta is not None and ik and data:
                 item_meta[ik] = f"{fonte}|{data}"

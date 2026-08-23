@@ -6,7 +6,7 @@ script, justamente para não dependerem de alguém lembrar:
 
   idempotente   → toda escrita passa por `db/copy.py`, que faz `ON CONFLICT`;
   resumível     → `Retomada` grava quantas linhas do CSV já foram consumidas;
-  origem só p/ leitura → nenhuma função deste pacote abre CSV em modo de escrita;
+  source só p/ leitura → nenhuma função deste pacote abre CSV em mode de escrita;
   streaming     → `ler_csv()` é um gerador; `2_itens_coletados.csv` tem 746 MB e
                   `5_pdf_texto.csv` tem 2,6 GB, e nenhum dos dois cabe confortavelmente
                   em memória via `pd.read_csv`.
@@ -50,19 +50,19 @@ CHECKPOINTS_MIGRACAO = paths.CHECKPOINTS / "migracao"
 # permite `numeric(18,4)` e `date` no banco em vez de `text` — e, no caso do preço, é o que
 # cumpre a regra "preço nunca é float" (docs/08_CONVENCOES.md §5.8).
 
-def txt(valor) -> str | None:
+def txt(value) -> str | None:
     """String não-vazia, ou None. Espaço em branco conta como vazio."""
-    s = (valor or "").strip()
+    s = (value or "").strip()
     return s or None
 
 
-def dec(valor) -> Decimal | None:
+def dec(value) -> Decimal | None:
     """Decimal, ou None. Aceita o ponto decimal do CSV (que veio de `float` do pandas).
 
     Nunca passa por `float`: `Decimal(str(...))` preserva o que está escrito. Converter para
     float e voltar introduziria erro na quarta casa em valores de contrato de milhões.
     """
-    s = (valor or "").strip()
+    s = (value or "").strip()
     if not s:
         return None
     try:
@@ -71,8 +71,8 @@ def dec(valor) -> Decimal | None:
         return None
 
 
-def inteiro(valor) -> int | None:
-    s = (valor or "").strip()
+def inteiro(value) -> int | None:
+    s = (value or "").strip()
     if not s:
         return None
     try:
@@ -81,9 +81,9 @@ def inteiro(valor) -> int | None:
         return None
 
 
-def data(valor) -> date | None:
+def data(value) -> date | None:
     """Data ISO, tolerando o sufixo de hora ('2026-07-10T12:22:06.340806706')."""
-    s = (valor or "").strip()
+    s = (value or "").strip()
     if not s:
         return None
     try:
@@ -92,10 +92,10 @@ def data(valor) -> date | None:
         return None
 
 
-def timestamp(valor) -> datetime | None:
+def timestamp(value) -> datetime | None:
     """Timestamp ISO. Os nanossegundos que a API do PNCP devolve não cabem em `datetime`
     (que vai só a microssegundo), então a fração é truncada em 6 dígitos."""
-    s = (valor or "").strip()
+    s = (value or "").strip()
     if not s:
         return None
     if "." in s:
@@ -107,9 +107,9 @@ def timestamp(valor) -> datetime | None:
         return data(s) and datetime.combine(data(s), datetime.min.time())
 
 
-def lista_pipe(valor) -> list[str]:
+def lista_pipe(value) -> list[str]:
     """Campo multivalorado separado por '|' (categorias, conceitos_origem, codigos_catalogo)."""
-    return [p for p in (valor or "").split("|") if p.strip()]
+    return [p for p in (value or "").split("|") if p.strip()]
 
 
 # ── Leitura em streaming ────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ def ler_csv(caminho: Path, encoding: str = "utf-8") -> Iterator[dict]:
 def estimar_linhas(caminho: Path) -> int:
     """LIMITE SUPERIOR do número de registros, contando '\\n' em blocos de 1 MB.
 
-    Não é a contagem exata, e o nome diz isso de propósito: as descrições do PNCP contêm
+    Não é a contagem exata, e o name diz isso de propósito: as descrições do PNCP contêm
     quebras de linha DENTRO de campos entre aspas (um contrato de 78 mil `\\n` tem 60 mil
     registros). Contar de verdade exigiria uma passada completa do parser de CSV — cara
     justamente nos arquivos onde a barra de progresso importa, que são os de gigabytes.
@@ -152,25 +152,25 @@ def existe(caminho: Path) -> bool:
 class Retomada:
     """Quantas linhas do CSV este script já consumiu.
 
-    O contador é por LINHA DE ORIGEM, não por linha inserida: os CSVs de origem são
+    O contador é por LINHA DE ORIGEM, não por linha inserida: os CSVs de source são
     somente-leitura e append-only, então "pular as N primeiras" é estável entre execuções.
     Contar destino não serviria — o destino dedupa, e o número não voltaria a bater.
 
     O avanço só é gravado DEPOIS que o lote foi comitado no banco. Gravar antes faria uma
-    interrupção no meio do lote pular linhas nunca inseridas — o mesmo modo de falha que
+    interrupção no meio do lote pular linhas nunca inseridas — o mesmo mode de falha que
     docs/08_CONVENCOES.md §5.3 descreve para o resultado de LLM.
     """
 
-    nome: str
+    name: str
     linhas: int = 0
 
     @property
     def arquivo(self) -> Path:
-        return CHECKPOINTS_MIGRACAO / f"{self.nome}.json"
+        return CHECKPOINTS_MIGRACAO / f"{self.name}.json"
 
     @classmethod
-    def carregar(cls, nome: str) -> "Retomada":
-        r = cls(nome)
+    def carregar(cls, name: str) -> "Retomada":
+        r = cls(name)
         if r.arquivo.exists():
             try:
                 r.linhas = int(json.loads(r.arquivo.read_text("utf-8"))["linhas"])
@@ -208,8 +208,8 @@ class Relatorio:
         self.contadores: dict[str, int] = {}
         self.avisos: list[str] = []
 
-    def mais(self, chave: str, n: int = 1) -> None:
-        self.contadores[chave] = self.contadores.get(chave, 0) + n
+    def mais(self, key: str, n: int = 1) -> None:
+        self.contadores[key] = self.contadores.get(key, 0) + n
 
     def aviso(self, msg: str) -> None:
         self.avisos.append(msg)
@@ -217,16 +217,16 @@ class Relatorio:
     def imprimir(self) -> None:
         console.print(f"\n[bold]{self.titulo}[/]")
         largura = max((len(k) for k in self.contadores), default=0)
-        for chave, valor in self.contadores.items():
-            console.print(f"  {chave:<{largura}}  {valor:>12,}".replace(",", "."))
+        for key, value in self.contadores.items():
+            console.print(f"  {key:<{largura}}  {value:>12,}".replace(",", "."))
         for msg in self.avisos:
             console.print(f"  [yellow]⚠ {msg}[/]")
 
 
-def cabecalho(titulo: str, origem: Path | list[Path], destino: str) -> None:
-    origens = origem if isinstance(origem, list) else [origem]
+def cabecalho(titulo: str, source: Path | list[Path], destino: str) -> None:
+    origens = source if isinstance(source, list) else [source]
     console.print(f"\n[bold cyan]{titulo}[/]")
     for o in origens:
         marca = "[green]✓[/]" if existe(o) else "[red]✗ ausente[/]"
-        console.print(f"  origem : {o.name} {marca}")
+        console.print(f"  source : {o.name} {marca}")
     console.print(f"  destino: {destino}")

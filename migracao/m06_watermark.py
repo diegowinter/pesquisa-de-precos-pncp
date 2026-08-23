@@ -1,5 +1,5 @@
 """
-m06 — Watermark da coleta: `checkpoints/2_watermark.csv` → `coleta_watermark`.
+m06 — Watermark da coleta: `checkpoints/2_watermark.csv` → `collection_watermark`.
 
 Colunas: `termo, tipo_doc, data_max`.
 
@@ -10,7 +10,7 @@ nunca o salvou, então o watermark do acervo foi RECONSTRUÍDO de forma conserva
 pula documento; no máximo re-varre um pouco a mais. A semeadura foi feita uma vez só, por
 `tools/seed_watermark_v2.py`, e **não deve ser refeita**.
 
-Aqui só transportamos esse valor para o banco. O termo é resolvido por `termo_norm` — termos do
+Aqui só transportamos esse value para o banco. O termo é resolved por `termo_norm` — termos do
 checkpoint que não existem mais em `termo` são contados, não inventados.
 
 Uso: python -m migracao.m06_watermark
@@ -51,12 +51,12 @@ def migrar() -> Relatorio:
             rel.mais("gravados")
 
         _, _, n = repo.contar(s)
-        rel.mais("coleta_watermark no banco", n)
+        rel.mais("collection_watermark no banco", n)
     return rel
 
 
 def main() -> None:
-    cabecalho("m06 — watermark", paths.CK_2_WATERMARK, "coleta_watermark")
+    cabecalho("m06 — watermark", paths.CK_2_WATERMARK, "collection_watermark")
     console.print(f"  banco  : {db.database_url()}")
     migrar().imprimir()
 

@@ -4,7 +4,7 @@ Seed de provedores a partir do `.env` (Fase 14 bloco 4, ADR-022).
 `plano()` é puro — lê o ambiente e devolve o que faria. Todos os testes daqui exercitam só ele,
 sem banco e sem escrita: é o `--conferir` do script.
 
-O teste que mais importa é `test_modelo_caro_nao_e_semeado`: semear o PASS2 criaria um provedor
+O teste que mais importa é `test_modelo_caro_nao_e_semeado`: semear o PASS2 criaria um provider
 pronto para ser apontado por engano, contra a restrição de custo do CLAUDE.md.
 """
 
@@ -23,34 +23,34 @@ def _ambiente_limpo(monkeypatch):
 
 
 def _por_nome(provedores):
-    return {p["nome"]: p for p in provedores}
+    return {p["name"]: p for p in provedores}
 
 
 def test_openrouter_vira_provedor_de_chat(monkeypatch):
     monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("OPENAI_MODEL_PASS1", "modelo-barato")
+    monkeypatch.setenv("OPENAI_MODEL_PASS1", "model-barato")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-or-v1-x")
     monkeypatch.setenv("CUSTO_USD_CHAMADA_PASS1", "0.0001")
 
     provedores, apontamentos, _ = plano()
     p = _por_nome(provedores)["openrouter"]
-    assert p["capacidades"] == ["chat"]
-    assert p["modelo_padrao"] == "modelo-barato"
-    assert p["custo_usd_chamada"] == 0.0001
+    assert p["capabilities"] == ["chat"]
+    assert p["default_model"] == "model-barato"
+    assert p["cost_usd_per_call"] == 0.0001
     assert p["api_key"] == "sk-or-v1-x"
-    assert {"capacidade": "chat", "provedor": "openrouter"} in apontamentos
+    assert {"capability": "chat", "provider": "openrouter"} in apontamentos
 
 
 def test_modelo_caro_nao_e_semeado(monkeypatch):
     """ADR-004 + restrição de custo do CLAUDE.md: o PASS2 não entra, e o script AVISA que
     deixou de entrar — silêncio aqui viraria "sumiu, será que era para ter vindo?"."""
     monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("OPENAI_MODEL_PASS1", "modelo-barato")
-    monkeypatch.setenv("OPENAI_MODEL_PASS2", "modelo-caro")
+    monkeypatch.setenv("OPENAI_MODEL_PASS1", "model-barato")
+    monkeypatch.setenv("OPENAI_MODEL_PASS2", "model-caro")
 
     provedores, _, avisos = plano()
-    modelos = [p.get("modelo_padrao") for p in provedores]
-    assert "modelo-caro" not in modelos
+    modelos = [p.get("default_model") for p in provedores]
+    assert "model-caro" not in modelos
     assert any("PASS2" in a for a in avisos)
 
 
@@ -62,7 +62,7 @@ def test_lm_studio_entra_mas_nao_e_apontado(monkeypatch):
 
     provedores, apontamentos, _ = plano()
     assert "lm_studio" in _por_nome(provedores)
-    assert not [a for a in apontamentos if a["provedor"] == "lm_studio"]
+    assert not [a for a in apontamentos if a["provider"] == "lm_studio"]
 
 
 def test_lm_studio_e_gratis_nao_desconhecido(monkeypatch):
@@ -71,7 +71,7 @@ def test_lm_studio_e_gratis_nao_desconhecido(monkeypatch):
     monkeypatch.setenv("LOCAL_MODEL", "gemma")
 
     provedores, _, _ = plano()
-    assert _por_nome(provedores)["lm_studio"]["custo_usd_chamada"] == 0.0
+    assert _por_nome(provedores)["lm_studio"]["cost_usd_per_call"] == 0.0
 
 
 def test_gpu_atende_embed_e_rerank_com_modelos_diferentes(monkeypatch):
@@ -80,10 +80,10 @@ def test_gpu_atende_embed_e_rerank_com_modelos_diferentes(monkeypatch):
     monkeypatch.setenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     provedores, apontamentos, _ = plano()
-    assert set(_por_nome(provedores)["gpu_caseira"]["capacidades"]) == {"embed", "rerank"}
-    por_capacidade = {a["capacidade"]: a for a in apontamentos}
-    assert por_capacidade["embed"]["modelo"] == "BAAI/bge-m3"
-    assert por_capacidade["rerank"]["modelo"] == "BAAI/bge-reranker-v2-m3"
+    assert set(_por_nome(provedores)["gpu_caseira"]["capabilities"]) == {"embed", "rerank"}
+    por_capacidade = {a["capability"]: a for a in apontamentos}
+    assert por_capacidade["embed"]["model"] == "BAAI/bge-m3"
+    assert por_capacidade["rerank"]["model"] == "BAAI/bge-reranker-v2-m3"
 
 
 def test_servicos_do_companion(monkeypatch):
@@ -93,13 +93,13 @@ def test_servicos_do_companion(monkeypatch):
     provedores, apontamentos, avisos = plano()
     nomes = _por_nome(provedores)
     assert nomes["service_pdf"]["base_url"] == "http://pdf:8200"
-    assert nomes["service_pareamento"]["base_url"] == "http://par:8300"
-    assert {a["capacidade"] for a in apontamentos} >= {"pdf", "pareamento"}
+    assert nomes["service_matching"]["base_url"] == "http://par:8300"
+    assert {a["capability"] for a in apontamentos} >= {"pdf", "matching"}
     assert not [a for a in avisos if "BASE_URL" in a]
 
 
 def test_service_sem_url_vira_aviso_nao_provedor_quebrado():
-    """Semear um provedor com `base_url` vazia criaria exatamente a linha que a ADR-021 proíbe.
+    """Semear um provider com `base_url` vazia criaria exatamente a linha que a ADR-021 proíbe.
     Melhor não cadastrar e dizer o que falta."""
     provedores, _, avisos = plano()
     assert not [p for p in provedores if not p["base_url"]]

@@ -58,9 +58,9 @@ def extrair_tabela(curador, texto_doc: str) -> list[dict]:
         for linha in curador.extrair_tabela_texto(chunk):
             if not (linha.get("descricao") or "").strip():
                 continue
-            chave = _chave_dedup(linha)
-            if chave in vistas:
+            key = _chave_dedup(linha)
+            if key in vistas:
                 continue
-            vistas.add(chave)
+            vistas.add(key)
             tabela.append(linha)
     return tabela

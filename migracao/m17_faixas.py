@@ -1,7 +1,7 @@
 """
 m17 — Faixas de preço: `config_faixas_preco.csv` → `faixa_preco`.
 
-Arquivo pequeno e **curado à mão**: por categoria, o preço mínimo e máximo plausível. A etapa 7
+Arquivo pequeno e **curado à mão**: por categoria, o preço mínimo e máximo plausível. A step 7
 o usa para sinalizar preço fora da faixa, ao lado do outlier por IQR. Limite vazio significa
 "sem limite deste lado" (`arma_fogo,5,` = mínimo 5, sem teto) — vira NULL, não zero. Confundir
 os dois transformaria "sem teto" em "teto zero" e sinalizaria a categoria inteira.
@@ -18,7 +18,7 @@ from migracao._comum import Relatorio, cabecalho, console, dec, existe, ler_csv
 def migrar() -> Relatorio:
     rel = Relatorio("m17 — faixas de preço")
     if not existe(paths.FAIXAS_PRECO):
-        rel.aviso(f"{paths.FAIXAS_PRECO.name} ausente — a etapa 7 aplica só o corte por IQR.")
+        rel.aviso(f"{paths.FAIXAS_PRECO.name} ausente — a step 7 aplica só o corte por IQR.")
         return rel
 
     faixas = []

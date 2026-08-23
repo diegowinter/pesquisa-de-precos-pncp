@@ -1,7 +1,7 @@
 """
 Diff entre runs (Fase 9, docs/04_FASES.md item 2) — "o que mudou do export de ontem para o de
 hoje": item novo, item sumiu, preço mudou. Generaliza a lógica de `--novos`/`export_snapshot`
-da etapa 8 (compara chaves entre dois conjuntos) para comparar dois `grupo_item` de runs
+da step 8 (compara chaves entre dois conjuntos) para comparar dois `grupo_item` de runs
 DIFERENTES, em vez de um run contra o snapshot do último `--novos`.
 
 `api/` e `web/` só chamam este módulo (docs/01_ARQUITETURA.md §7) — nenhum SQL solto fora de
@@ -18,11 +18,11 @@ from pesquisa_precos.db.repos import grupo as repo_grupo
 
 
 class RunSemRankingError(RuntimeError):
-    """Run não tem linhas em `grupo_item` — não há o que comparar (etapa 7 não rodou nele)."""
+    """Run não tem linhas em `grupo_item` — não há o que comparar (step 7 não rodou nele)."""
 
 
 def _chave(linha: dict) -> tuple[str, str, int]:
-    """Identidade de uma linha do ranking: (código, nº controle PNCP, item) — a mesma chave
+    """Identidade de uma linha do ranking: (código, nº controle PNCP, item) — a mesma key
     de `export`/`export_snapshot` (etapas 7/8), só que agora comparando dois runs quaisquer."""
     return (linha["codigo"], linha["numero_controle_pncp"], linha["numero_item"])
 
@@ -41,9 +41,9 @@ def diff_runs(run_a_id: int, run_b_id: int, *, limiar_variacao: float = 0.0) -> 
         linhas_a = repo_grupo.linhas_do_run(sessao, run_a_id)
         linhas_b = repo_grupo.linhas_do_run(sessao, run_b_id)
     if not linhas_a:
-        raise RunSemRankingError(f"run #{run_a_id} não tem linhas em grupo_item (rode a etapa 7)")
+        raise RunSemRankingError(f"run #{run_a_id} não tem linhas em grupo_item (rode a step 7)")
     if not linhas_b:
-        raise RunSemRankingError(f"run #{run_b_id} não tem linhas em grupo_item (rode a etapa 7)")
+        raise RunSemRankingError(f"run #{run_b_id} não tem linhas em grupo_item (rode a step 7)")
 
     por_chave_a = {_chave(l): l for l in linhas_a}
     por_chave_b = {_chave(l): l for l in linhas_b}
@@ -53,8 +53,8 @@ def diff_runs(run_a_id: int, run_b_id: int, *, limiar_variacao: float = 0.0) -> 
     itens_sumidos = sorted(chaves_a - chaves_b)
 
     precos_mudaram: list[dict[str, Any]] = []
-    for chave in sorted(chaves_a & chaves_b):
-        la, lb = por_chave_a[chave], por_chave_b[chave]
+    for key in sorted(chaves_a & chaves_b):
+        la, lb = por_chave_a[key], por_chave_b[key]
         pa, pb = _preco(la), _preco(lb)
         if pa is None or pb is None or pa == pb:
             continue
@@ -62,14 +62,14 @@ def diff_runs(run_a_id: int, run_b_id: int, *, limiar_variacao: float = 0.0) -> 
         if variacao is not None and abs(variacao) <= limiar_variacao:
             continue
         precos_mudaram.append({
-            "codigo": chave[0], "numero_controle_pncp": chave[1], "numero_item": chave[2],
+            "codigo": key[0], "numero_controle_pncp": key[1], "numero_item": key[2],
             "preco_antes": pa, "preco_depois": pb, "variacao": variacao,
         })
 
-    def _linhas(chaves: list[tuple], origem: dict[tuple, dict]) -> list[dict]:
+    def _linhas(chaves: list[tuple], source: dict[tuple, dict]) -> list[dict]:
         return [{"codigo": c, "numero_controle_pncp": nc, "numero_item": ni,
-                 "preco_unitario": origem[(c, nc, ni)].get("preco_unitario"),
-                 "descricao_final": origem[(c, nc, ni)].get("descricao_final")}
+                 "preco_unitario": source[(c, nc, ni)].get("preco_unitario"),
+                 "descricao_final": source[(c, nc, ni)].get("descricao_final")}
                 for c, nc, ni in chaves]
 
     return {

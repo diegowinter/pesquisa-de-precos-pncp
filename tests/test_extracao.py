@@ -1,5 +1,5 @@
 """
-Extração de item a partir de texto (Fase 9 — prioridade 2 de docs/08_CONVENCOES.md §6):
+Extração de item a partir de texto (Fase 9 — priority 2 de docs/08_CONVENCOES.md §6):
 `janela_para_item`, `validar_extracao`, `_variantes_preco`, `num`. Funções puras — teste de
 tabela com casos reais, incluindo números BR malformados (`107.222,00` não pode virar `107,22`).
 """
@@ -68,7 +68,7 @@ class TestJanelaParaItem:
         assert "PISTOLA 9MM CALIBRE ESPECIAL" in janela
 
     def test_ancora_no_preco_quando_descricao_nao_bate(self):
-        texto = "a" * 3000 + "valor unitario: 1.500,00 reais" + "b" * 3000
+        texto = "a" * 3000 + "value unitario: 1.500,00 reais" + "b" * 3000
         item = {"descricao_api": "algo que não está no texto", "preco_unitario": 1500.00}
         janela = janela_para_item(texto, item, janela_max=9000, raio_preco=200)
         assert "1.500,00" in janela

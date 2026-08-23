@@ -2,7 +2,7 @@
 Camada de curadoria com LLM via LangChain (um provider OpenAI-compatível).
 
 Os prompts e as categorias ficam em `scripts/prompts.py`; aqui fica só a lógica de
-chamada ao modelo e o parsing da resposta. Os nomes de prompts/categorias são
+chamada ao model e o parsing da resposta. Os nomes de prompts/categorias são
 reexportados abaixo para manter compatibilidade com quem importa deste módulo.
 
 Para cada item candidato do catálogo, decide UMA categoria:
@@ -64,7 +64,7 @@ def _extrair_json(texto: str) -> dict:
 
 
 def _sem_acento(s: str) -> str:
-    """Remove acentos p/ casar a resposta do modelo (ex.: 'MUNIÇÃO') com o id ascii."""
+    """Remove acentos p/ casar a resposta do model (ex.: 'MUNIÇÃO') com o id ascii."""
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
@@ -124,14 +124,14 @@ class Curador:
         # (texto hardcoded de `core/prompts.py`).
         self._prompts_ativos = prompts_ativos
 
-    # `from_provedor(cfg, provedor, forte=...)` foi REMOVIDO na Fase 14 (ADR-022): ele
-    # resolvia modelo/URL/key pelo `.env`, contornando `capacidade_provedor` — o segundo
+    # `from_provedor(cfg, provider, forte=...)` foi REMOVIDO na Fase 14 (ADR-022): ele
+    # resolvia model/URL/key pelo `.env`, contornando `provider_capability` — o segundo
     # caminho que a ADR-022 existe para eliminar. Quem precisa de um Curador pede
-    # `ctx.provedores.novo_chat(...)`, que passa pelo resolver.
+    # `ctx.providers.novo_chat(...)`, que passa pelo resolver.
 
     def _invocar_json(self, prompt: str) -> dict:
         """
-        Invoca o modelo esperando JSON puro. Faz 1 retry em resposta inválida (JSONDecodeError).
+        Invoca o model esperando JSON puro. Faz 1 retry em resposta inválida (JSONDecodeError).
         Levanta a última exceção se as duas tentativas falharem — quem chama trata/loga o erro.
         """
         ultimo_erro = None
@@ -151,13 +151,13 @@ class Curador:
         Filtra ids inválidos. Nunca levanta: em erro devolve
         {"categorias": [], "confianca": "erro", "_erro": msg}.
 
-        O texto do prompt vem do banco (`prompt_versao` ativa de 'classificar_item') se houver
+        O texto do prompt vem do banco (`prompt_version` ativa de 'classificar_item') se houver
         uma; senão cai no hardcoded de `core/prompts.py` (Fase 6, ver `prompts_resolver`). O
         bloco de categorias é sempre renderizado em código a partir de `categorias.py` — é
         dado de domínio, não texto de instrução (ADR-014).
         """
         ctx_unidade = f"\n  Unidade: {unidade}" if unidade else ""
-        prompt, prompt_versao_id = prompts_resolver.resolver(
+        prompt, prompt_version_id = prompts_resolver.resolver(
             self._prompts_ativos, "classificar_item",
             montar_prompt_classificar_item(descricao, unidade),
             bloco_categorias=_bloco_categorias_classificacao(),
@@ -166,13 +166,13 @@ class Curador:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
             return {"categorias": [], "confianca": "erro", "_erro": str(e)[:200],
-                    "_prompt_versao_id": prompt_versao_id}
+                    "_prompt_versao_id": prompt_version_id}
         cats = data.get("categorias") or []
         if isinstance(cats, str):
             cats = [cats]
         validas = [c for c in (str(x).strip().lower() for x in cats) if c in _IDS_CONTEUDO]
         return {"categorias": validas, "confianca": str(data.get("confianca", "")).lower(),
-                "_prompt_versao_id": prompt_versao_id}
+                "_prompt_versao_id": prompt_version_id}
 
     def extrair_item_pdf(self, janela_texto: str, item_api: dict) -> dict:
         """
@@ -182,7 +182,7 @@ class Curador:
         """
         numero = item_api.get("numeroItem", "")
         descricao_api = item_api.get("descricao_api", "")
-        prompt, prompt_versao_id = prompts_resolver.resolver(
+        prompt, prompt_version_id = prompts_resolver.resolver(
             self._prompts_ativos, "extrair_item_pdf",
             montar_prompt_extrair_item_pdf(janela_texto, item_api),
             numero=numero, descricao_api=descricao_api, janela_texto=janela_texto)
@@ -190,18 +190,18 @@ class Curador:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
             return {"encontrado": False, "_erro": str(e)[:200],
-                    "_prompt_versao_id": prompt_versao_id}
+                    "_prompt_versao_id": prompt_version_id}
         return {
             "descricao_completa": data.get("descricao_completa") or "",
             "preco_unitario": data.get("preco_unitario"),
             "quantidade": data.get("quantidade"),
             "encontrado": bool(data.get("encontrado")),
-            "_prompt_versao_id": prompt_versao_id,
+            "_prompt_versao_id": prompt_version_id,
         }
 
     def extrair_tabela_pdf(self, png_bytes: bytes) -> list[dict]:
         """
-        Etapa 5_alt_a — envia a IMAGEM de UMA página a um modelo de VISÃO e recebe a
+        Etapa 5_alt_a — envia a IMAGEM de UMA página a um model de VISÃO e recebe a
         tabela de itens da página, "as it is" (lista de linhas estruturadas). Uma imagem
         por chamada (nunca o doc inteiro). Nunca levanta: em erro devolve [].
         """
@@ -275,7 +275,7 @@ class Curador:
         Retorna {"mesmo_item": "sim|nao", "justificativa": str, "_prompt_versao_id": ...}.
         Nunca levanta: em erro devolve {"mesmo_item":"erro","justificativa":msg}.
         """
-        prompt, prompt_versao_id = prompts_resolver.resolver(
+        prompt, prompt_version_id = prompts_resolver.resolver(
             self._prompts_ativos, "comparar_par",
             montar_prompt_comparar_par(texto_catalogo, texto_item),
             texto_catalogo=texto_catalogo, texto_item=texto_item)
@@ -283,16 +283,16 @@ class Curador:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
             return {"mesmo_item": "erro", "justificativa": str(e)[:200],
-                    "_prompt_versao_id": prompt_versao_id}
+                    "_prompt_versao_id": prompt_version_id}
         mesmo = _sem_acento(str(data.get("mesmo_item", "")).strip().lower())
         mesmo = "sim" if mesmo.startswith("sim") else ("nao" if mesmo.startswith("nao") else "erro")
         return {"mesmo_item": mesmo, "justificativa": str(data.get("justificativa", ""))[:200],
-                "_prompt_versao_id": prompt_versao_id}
+                "_prompt_versao_id": prompt_version_id}
 
-    def gerar_termos_item(self, nome: str, descricao: str, tipo: str = "material",
+    def gerar_termos_item(self, name: str, descricao: str, tipo: str = "material",
                           nome_grupo: str = "") -> list[str]:
         """Etapa 1 (nova) — termos de busca genéricos direto de UM item. [] em erro."""
-        prompt = montar_prompt_termos_item(nome, descricao, tipo, nome_grupo)
+        prompt = montar_prompt_termos_item(name, descricao, tipo, nome_grupo)
         try:
             data = self._invocar_json(prompt)
         except Exception:  # noqa: BLE001
@@ -315,13 +315,13 @@ class Curador:
             return "erro", str(e)[:120]
         return parse_resposta(texto, categoria_map)
 
-    def gerar_termo_busca(self, nome: str, descricao: str, categoria: str = "") -> str:
+    def gerar_termo_busca(self, name: str, descricao: str, categoria: str = "") -> str:
         """
         Gera um termo de busca otimizado p/ o PNCP a partir de um item do catálogo já curado.
         Nunca levanta: em erro ou resposta vazia, retorna "" (quem chama cai no fallback
-        do `termo_busca`/`nome` cru do catálogo).
+        do `termo_busca`/`name` cru do catálogo).
         """
-        prompt = montar_prompt_busca(nome, descricao, categoria)
+        prompt = montar_prompt_busca(name, descricao, categoria)
         try:
             resp = self.llm.invoke([HumanMessage(content=prompt)])
             texto = (resp.content or "").strip()
@@ -331,8 +331,8 @@ class Curador:
 
     def extrair_itens(self, texto: str) -> str:
         """
-        Extrai os itens de uma ata (texto corrido de `parsear_pdfs.py`) usando o modelo de
-        visão/extração (tipicamente um modelo pequeno, ex. 7B). Nunca levanta: em erro,
+        Extrai os itens de uma ata (texto corrido de `parsear_pdfs.py`) usando o model de
+        visão/extração (tipicamente um model pequeno, ex. 7B). Nunca levanta: em erro,
         retorna "" (quem chama decide o fallback/status).
         """
         prompt = montar_prompt_extrair_itens(texto)

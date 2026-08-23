@@ -3,12 +3,12 @@ Guarda da Fase 10 bloco C: etapas 2, 3 e 4 com `--fonte banco`.
 
 O que estes testes protegem:
   1. o documento levar `numero_sequencial`/`numero_sequencial_ata` (ADR-012) — sem eles a
-     etapa 5 não refaz `listar_arquivos()`, e o sintoma só apareceria dois blocos adiante;
+     step 5 não refaz `listar_arquivos()`, e o sintoma só apareceria dois blocos adiante;
   2. `data_atualizacao_pncp` chegar ao banco — é o watermark; perdê-lo custa uma varredura
      completa do PNCP na atualização seguinte;
   3. o progresso da coleta NÃO ser derivado do resultado (busca sem documento é busca feita);
-  4. o dedup por texto da etapa 3 ser permanente entre runs (ADR-007);
-  5. a etapa 4 desmarcar quem perdeu categoria, não só marcar.
+  4. o dedup por texto da step 3 ser permanente entre runs (ADR-007);
+  5. a step 4 desmarcar quem perdeu categoria, não só marcar.
 
 Precisa de Postgres com o schema aplicado; PULADO sem ele.
 """
@@ -44,7 +44,7 @@ LINHA_ITEM = {
 # ── Mapeamento (puro) ────────────────────────────────────────────────────────────────
 
 def test_documento_leva_os_identificadores_que_a_etapa_5_precisa():
-    """ADR-012: sem `numero_sequencial` a etapa 5 só consegue rebaixar pela url pública."""
+    """ADR-012: sem `numero_sequencial` a step 5 só consegue rebaixar pela url pública."""
     linha = _linha_documento(LINHA_ITEM, "2026-02-01T10:00:00", 3)
     assert linha[11] == "42"                     # numero_sequencial
     assert linha[10] == LINHA_ITEM["url_pncp"]   # url_pncp
@@ -64,7 +64,7 @@ def test_data_invalida_vira_null_em_vez_de_derrubar_o_lote():
 
 def test_item_calcula_texto_hash_na_ingestao():
     """O hash vem da ingestão, nunca da hora de classificar — é ele que faz o dedup da
-    etapa 3 ser uma consulta em vez de um agrupamento de 1,6 milhão de linhas."""
+    step 3 ser uma consulta em vez de um agrupamento de 1,6 milhão de linhas."""
     from pesquisa_precos.core.text import texto_hash
 
     linha = _linha_item(LINHA_ITEM)
@@ -211,7 +211,7 @@ def test_etapa_4_marca_e_desmarca(coleta_limpa):
 # ── Escala de confiança (o bug que a coluna `real` denunciou) ────────────────────────
 
 def test_confianca_palavra_vira_numero():
-    """O LLM devolve 'alta'/'media'/'baixa'; a coluna é `real`. Sem a conversão, a etapa 3
+    """O LLM devolve 'alta'/'media'/'baixa'; a coluna é `real`. Sem a conversão, a step 3
     quebra no PRIMEIRO lote — foi assim que este teste nasceu."""
     assert repo_cls.confianca_para_real("alta") == 1.0
     assert repo_cls.confianca_para_real("MÉDIA") == 0.6
@@ -227,7 +227,7 @@ def test_confianca_erro_e_desconhecida_viram_null():
 
 def test_escala_da_migracao_e_a_mesma_da_etapa():
     """Duas tabelas de conversão divergindo fariam o mesmo texto ter confiança diferente
-    conforme tivesse vindo do CSV migrado ou da etapa."""
+    conforme tivesse vindo do CSV migrado ou da step."""
     from migracao.m08_classificacao import CONFIANCA
 
     assert CONFIANCA is repo_cls.CONFIANCA_ORDINAL

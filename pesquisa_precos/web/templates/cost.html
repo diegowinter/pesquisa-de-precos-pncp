@@ -13,7 +13,7 @@
     <tbody>
       {% for l in resumo.por_run %}
       <tr onclick="location.href='/runs/{{ l.run_id }}'" style="cursor:pointer;">
-        <td>#{{ l.run_id }}</td><td>{{ l.rotulo }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td>
+        <td>#{{ l.run_id }}</td><td>{{ l.label }}</td><td>US$ {{ "%.2f"|format(l.cost_usd) }}</td>
       </tr>
       {% else %}<tr><td colspan="3">sem custo registrado</td></tr>{% endfor %}
     </tbody>
@@ -26,7 +26,7 @@
     <thead><tr><th>etapa</th><th>custo</th></tr></thead>
     <tbody>
       {% for l in resumo.por_etapa %}
-      <tr><td>{{ l.etapa }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td></tr>
+      <tr><td>{{ l.step }}</td><td>US$ {{ "%.2f"|format(l.cost_usd) }}</td></tr>
       {% else %}<tr><td colspan="2">sem custo registrado</td></tr>{% endfor %}
     </tbody>
   </table>
@@ -38,7 +38,7 @@
     <thead><tr><th>mês</th><th>custo</th></tr></thead>
     <tbody>
       {% for l in resumo.por_mes %}
-      <tr><td>{{ l.mes }}</td><td>US$ {{ "%.2f"|format(l.custo_usd) }}</td></tr>
+      <tr><td>{{ l.mes }}</td><td>US$ {{ "%.2f"|format(l.cost_usd) }}</td></tr>
       {% else %}<tr><td colspan="2">sem custo registrado</td></tr>{% endfor %}
     </tbody>
   </table>

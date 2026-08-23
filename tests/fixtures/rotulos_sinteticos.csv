@@ -1,4 +1,4 @@
-par_key,score_rerank,decisao_final
+par_key,score_rerank,final_decision
 p001,0.95,confirmado
 p002,0.92,confirmado
 p003,0.88,confirmado

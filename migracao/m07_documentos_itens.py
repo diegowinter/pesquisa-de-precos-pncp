@@ -5,12 +5,12 @@ O passo mais pesado da migração: 746 MB, 1.613.517 linhas, achatado (o documen
 cada item). Duas passadas em STREAMING, nunca `pd.read_csv` (docs/08_CONVENCOES.md §5.2).
 
   Passada 1 — documentos. Agrupa por `numeroControlePNCP`, pega os campos de documento da
-              PRIMEIRA ocorrência, conta itens e reúne os conceitos de origem. 68 mil
+              PRIMEIRA ocorrência, conta itens e reúne os conceitos de source. 68 mil
               documentos cabem em memória; 1,6 milhão de itens não caberiam, e por isso a
               passada 2 é separada.
   Passada 2 — itens. Uma linha por item, com o `texto_hash` calculado AQUI.
 
-`texto_hash = core.text.texto_hash(descricao_api, unidade)`. É a mesma função que a etapa 3
+`texto_hash = core.text.texto_hash(descricao_api, unidade)`. É a mesma função que a step 3
 usa para agrupar. Uma diferença mínima entre as duas pontas invalidaria o dedup permanente e
 mandaria 320 mil textos já pagos de volta ao LLM (docs/08_CONVENCOES.md §5.4).
 
@@ -109,7 +109,7 @@ def passada_documentos(rel: Relatorio, total: int) -> dict[str, set[str]]:
                     None,                                # data_atualizacao_pncp: não existe na v2
                     url_documento(nc, tipo_doc) or None,
                     # Só as linhas coletadas a partir da Fase 8 trazem os sequenciais; as
-                    # herdadas da v2 vêm vazias, e a etapa 5 cai no fluxo de rebaixar por
+                    # herdadas da v2 vêm vazias, e a step 5 cai no fluxo de rebaixar por
                     # `url_pncp`. Não é perda nova — a v2 nunca gravou esses campos.
                     txt(r.get("numero_sequencial")),
                     txt(r.get("numero_sequencial_ata")),
@@ -148,8 +148,8 @@ def ligar_termos(rel: Relatorio, conceitos: dict[str, set[str]]) -> None:
 
     def pares():
         for nc, nomes in conceitos.items():
-            for nome in nomes:
-                termo_id = por_norm.get(normalizar_termo(nome))
+            for name in nomes:
+                termo_id = por_norm.get(normalizar_termo(name))
                 if termo_id is None:
                     rel.mais("conceitos sem termo correspondente")
                     continue
@@ -174,16 +174,16 @@ def passada_itens(rel: Relatorio, total: int, retomada: Retomada) -> None:
             nc = (r.get("numeroControlePNCP") or "").strip()
             numero = inteiro(r.get("numeroItem"))
             if not (item_key and nc and numero is not None):
-                rel.mais("itens sem chave (descartados)")
+                rel.mais("itens sem key (descartados)")
                 continue
-            descricao = r.get("descricao_api") or ""
+            description = r.get("descricao_api") or ""
             unidade = txt(r.get("unidade"))
             rel.mais("itens lidos")
-            yield (item_key, nc, numero, descricao, unidade,
+            yield (item_key, nc, numero, description, unidade,
                    dec(r.get("quantidade")), dec(r.get("preco_unitario")),
                    dec(r.get("preco_estimado")), txt(r.get("fornecedor")),
                    data(r.get("data_resultado")),
-                   texto_hash(descricao, unidade))
+                   texto_hash(description, unidade))
 
     with _barra() as barra, db.raw_connection() as conn:
         tarefa = barra.add_task("passada 2/2 · itens", total=total, completed=pular)
@@ -201,7 +201,7 @@ def passada_itens(rel: Relatorio, total: int, retomada: Retomada) -> None:
 def migrar(reiniciar: bool = False) -> Relatorio:
     rel = Relatorio("m07 — documentos e itens")
     if not existe(paths.E2_ITENS):
-        raise SystemExit(f"{paths.E2_ITENS} ausente. Rode a etapa 2 antes.")
+        raise SystemExit(f"{paths.E2_ITENS} ausente. Rode a step 2 antes.")
 
     retomada = Retomada.carregar("m07_itens")
     if reiniciar:
@@ -218,8 +218,8 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     passada_itens(rel, total, retomada)
 
     with db.session() as s:
-        for chave, valor in repo.contar(s).items():
-            rel.mais(f"{chave} no banco", valor)
+        for key, value in repo.contar(s).items():
+            rel.mais(f"{key} no banco", value)
     return rel
 
 

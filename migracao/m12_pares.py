@@ -8,12 +8,12 @@ o da **6b**, com `LEFT JOIN` nas outras duas — usar a 6a como base descartaria
 rerankeados. Os pares sem correspondente na 6a ficam com `score_bm25`/`score_cosseno` nulos, e
 quantos são aparece no relatório (docs/05_MIGRACAO.md §m12).
 
-`codigo` nos CSVs não traz o `tipo`. Ele é resolvido pelo join com `catalogo_item`, sob a
+`codigo` nos CSVs não traz o `tipo`. Ele é resolved pelo join com `catalogo_item`, sob a
 premissa de que o código é único no catálogo filtrado — premissa que este script **valida e
 aborta** se for falsa, em vez de assumir. Um código ambíguo migrado com o tipo errado apontaria
 para outro item de catálogo, e o erro só apareceria como um preço estranho no export.
 
-`decisao_final` não é escrita linha a linha: é derivada (`confirmado` = decisão 'aceito' OU
+`final_decision` não é escrita linha a linha: é derivada (`confirmado` = decisão 'aceito' OU
 veredito 'sim') e recomputada por SQL no fim, que é o único jeito de ela não divergir da regra.
 
 Uso: python -m migracao.m12_pares
@@ -39,9 +39,9 @@ DECISAO = {"aceito": "aceito", "ambiguo": "ambiguo", "ambíguo": "ambiguo",
            "rejeitado": "rejeitado"}
 
 
-def _float(valor) -> float | None:
+def _float(value) -> float | None:
     """Score é métrica adimensional, não dinheiro — `real` no banco, `float` aqui é correto."""
-    s = (valor or "").strip()
+    s = (value or "").strip()
     if not s:
         return None
     try:
@@ -84,7 +84,7 @@ def carregar_6c(rel: Relatorio) -> dict[str, tuple]:
 def migrar() -> Relatorio:
     rel = Relatorio("m12 — pares")
     if not existe(paths.E6B_RERANKEADOS):
-        raise SystemExit(f"{paths.E6B_RERANKEADOS} ausente. Rode a etapa 6b antes.")
+        raise SystemExit(f"{paths.E6B_RERANKEADOS} ausente. Rode a step 6b antes.")
 
     seis_a = carregar_6a(rel)
     seis_c = carregar_6c(rel)
@@ -166,9 +166,9 @@ def migrar() -> Relatorio:
         for lote in em_lotes(vereditos, LOTE):
             rel.mais("vereditos da 6c aplicados", repo.gravar_veredito(s, lote))
 
-        rel.mais("decisao_final recomputada", repo.recomputar_decisao_final(s))
-        for chave, valor in repo.contar(s).items():
-            rel.mais(f"{chave} no banco", valor)
+        rel.mais("final_decision recomputada", repo.recomputar_decisao_final(s))
+        for key, value in repo.contar(s).items():
+            rel.mais(f"{key} no banco", value)
     return rel
 
 

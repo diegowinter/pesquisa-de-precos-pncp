@@ -2,7 +2,7 @@
 m09 — Sobreviventes: `4_itens_sobreviventes.csv` → `item.sobrevivente` +
 `documento.n_itens_sobreviventes`.
 
-O CSV da etapa 4 é o corpus inteiro filtrado (190 MB, 302.514 linhas) e repete todas as colunas
+O CSV da step 4 é o corpus inteiro filtrado (190 MB, 302.514 linhas) e repete todas as colunas
 do item. Aqui só interessa a CHAVE: quem sobreviveu ao corte. Nada mais é migrado deste arquivo
 — os dados do item já vieram do m07, e reimportá-los daqui abriria a chance de duas versões da
 mesma linha no banco.
@@ -37,7 +37,7 @@ LOTE = 20_000
 def migrar(reiniciar: bool = False) -> Relatorio:
     rel = Relatorio("m09 — sobreviventes")
     if not existe(paths.E4_SOBREVIVENTES):
-        raise SystemExit(f"{paths.E4_SOBREVIVENTES} ausente. Rode a etapa 4 antes.")
+        raise SystemExit(f"{paths.E4_SOBREVIVENTES} ausente. Rode a step 4 antes.")
 
     retomada = Retomada.carregar("m09_sobreviventes")
     if reiniciar:
@@ -74,8 +74,8 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     with db.session() as s:
         rel.mais("documentos recontados", repo.recontar_sobreviventes_por_documento(s))
         contagens = repo.contar(s)
-    for chave, valor in contagens.items():
-        rel.mais(f"{chave} no banco", valor)
+    for key, value in contagens.items():
+        rel.mais(f"{key} no banco", value)
 
     # Comparação contra as linhas EFETIVAMENTE lidas, nunca contra `estimar_linhas` — que é
     # um limite superior e faria este aviso disparar em todo arquivo com descrição multilinha.
@@ -83,7 +83,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     marcados = contagens["item_sobrevivente"]
     if marcados < lidas:
         rel.aviso(f"{lidas - marcados} chaves do CSV não viraram sobreviventes no banco — "
-                  f"são item_keys que não existem em `item` (linhas do CSV da etapa 4 cujo "
+                  f"são item_keys que não existem em `item` (linhas do CSV da step 4 cujo "
                   f"item não está em 2_itens_coletados.csv). Verifique antes de seguir.")
     return rel
 

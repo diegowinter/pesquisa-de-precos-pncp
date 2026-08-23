@@ -2,7 +2,7 @@
 Repositório de classificação (`texto_classificacao`, `item_categoria`).
 
 A tabela cara é chaveada por TEXTO, não por item: 320 mil linhas em vez de 1,6 milhão. É o
-dedup de ~5x da etapa 3, que aqui deixa de ser intra-execução e vira permanente (ADR-007) —
+dedup de ~5x da step 3, que aqui deixa de ser intra-execução e vira permanente (ADR-007) —
 um texto classificado hoje não volta a custar nada nunca mais.
 
 `item_categoria` é derivada e barata: `recomputar_item_categoria()` a reconstrói inteira por
@@ -19,8 +19,8 @@ from sqlalchemy.orm import Session
 
 from pesquisa_precos.db import copy
 
-COLUNAS = ("texto_hash", "descricao", "unidade", "categorias", "confianca",
-           "prompt_versao_id", "modelo", "provedor", "run_id")
+COLUNAS = ("texto_hash", "description", "unidade", "categorias", "confianca",
+           "prompt_version_id", "model", "provider", "run_id")
 
 # O LLM devolve a confiança como PALAVRA ('alta'/'media'/'baixa'/'erro'); a coluna é `real`.
 # A escala é ORDINAL e declarada — não é probabilidade, e tratá-la como tal inventaria uma
@@ -28,34 +28,34 @@ COLUNAS = ("texto_hash", "descricao", "unidade", "categorias", "confianca",
 # marca de uma chamada que falhou.
 #
 # Fonte ÚNICA da escala: a migração `m08` importa daqui. Duas tabelas de conversão divergindo
-# fariam o mesmo texto ter confiança diferente conforme tivesse vindo do CSV ou da etapa.
+# fariam o mesmo texto ter confiança diferente conforme tivesse vindo do CSV ou da step.
 CONFIANCA_ORDINAL: dict[str, float | None] = {
     "alta": 1.0, "media": 0.6, "média": 0.6, "baixa": 0.3, "erro": None,
 }
 
 
-def confianca_para_real(valor: str | float | None) -> float | None:
+def confianca_para_real(value: str | float | None) -> float | None:
     """Palavra do LLM → `real`. Número já numérico passa direto; desconhecido vira NULL."""
-    if valor is None or valor == "":
+    if value is None or value == "":
         return None
-    if isinstance(valor, int | float):
-        return float(valor)
-    return CONFIANCA_ORDINAL.get(str(valor).strip().lower())
+    if isinstance(value, int | float):
+        return float(value)
+    return CONFIANCA_ORDINAL.get(str(value).strip().lower())
 
 
 def gravar(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Upsert por `texto_hash` (ordem de `COLUNAS`). `categorias` é `list[str]` → `text[]`.
 
     `DO NOTHING`: reclassificar um texto já classificado é exatamente o gasto que esta tabela
-    existe para evitar. Trocar de prompt/modelo é uma operação explícita (apagar as linhas da
-    versão antiga), nunca um efeito colateral de rodar a etapa de novo.
+    existe para evitar. Trocar de prompt/model é uma operação explícita (apagar as linhas da
+    versão antiga), nunca um efeito colateral de rodar a step de novo.
     """
     return copy.copiar(conn, "texto_classificacao", COLUNAS, linhas,
                         conflito=("texto_hash",))
 
 
 def hashes_ja_classificados(sessao: Session) -> set[str]:
-    """Todos os `texto_hash` já pagos — o filtro de "o que ainda falta" da etapa 3."""
+    """Todos os `texto_hash` já pagos — o filtro de "o que ainda falta" da step 3."""
     return set(sessao.scalars(text("SELECT texto_hash FROM texto_classificacao")).all())
 
 
@@ -73,16 +73,16 @@ SQL_TEXTOS_PENDENTES = """
 def textos_pendentes(sessao: Session, limite: int | None = None) -> list[dict]:
     """Textos ÚNICOS ainda não classificados, do mais repetido para o menos.
 
-    É o dedup da etapa 3 virando consulta: no CSV era preciso carregar 1,6 milhão de linhas
-    em memória e agrupar por `(descricao, unidade)`; aqui o `texto_hash` já foi calculado na
-    ingestão (etapa 2) e o agrupamento é do banco.
+    É o dedup da step 3 virando consulta: no CSV era preciso carregar 1,6 milhão de linhas
+    em memória e agrupar por `(description, unidade)`; aqui o `texto_hash` já foi calculado na
+    ingestão (step 2) e o agrupamento é do banco.
 
     A ordem por `n_itens` não é cosmética: com `--limite`, classificar primeiro os textos que
     se repetem mais é o que dá mais cobertura de itens por chamada paga.
     """
     sql = SQL_TEXTOS_PENDENTES + ("\n LIMIT :limite" if limite else "")
     linhas = sessao.execute(text(sql), {"limite": limite} if limite else {}).all()
-    return [{"texto_hash": h, "descricao": d or "", "unidade": u, "n_itens": n}
+    return [{"texto_hash": h, "description": d or "", "unidade": u, "n_itens": n}
             for h, d, u, n in linhas]
 
 

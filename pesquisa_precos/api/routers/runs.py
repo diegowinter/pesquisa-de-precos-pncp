@@ -33,7 +33,7 @@ def listar_runs(limite: int = Query(50, le=200)):
 @router.get("/runs/diff")
 def diff_runs(run_a: int, run_b: int, limiar_variacao: float = 0.0):
     """Fase 9, item 2: "o que mudou do export de ontem para o de hoje" — generaliza o
-    `--novos` da etapa 8 para comparar dois runs quaisquer (não só run × snapshot)."""
+    `--novos` da step 8 para comparar dois runs quaisquer (não só run × snapshot)."""
     try:
         return service_diff.diff_runs(run_a, run_b, limiar_variacao=limiar_variacao)
     except RunSemRankingError as exc:
@@ -43,8 +43,8 @@ def diff_runs(run_a: int, run_b: int, limiar_variacao: float = 0.0):
 @router.post("/runs", status_code=201)
 def criar_run(body: CriarRunBody):
     run_id = service.criar_run(
-        body.rotulo, modo=body.modo, config_rotulo=body.config_rotulo,
-        teto_custo_usd=body.teto_custo_usd, criado_por=body.criado_por)
+        body.rotulo, mode=body.modo, config_rotulo=body.config_rotulo,
+        cost_cap_usd=body.teto_custo_usd, created_by=body.criado_por)
     return service.obter_run(run_id)
 
 
@@ -71,29 +71,29 @@ def estimativa_etapa(run_id: int, key: str):
 @router.post("/runs/{run_id}/steps/{key}/run", status_code=202)
 def executar_etapa(run_id: int, key: str, body: ExecutarEtapaBody):
     return service.executar_etapa(
-        run_id, key, acao=body.acao, params_override=body.params_override,
-        confirmar=body.confirmar)
+        run_id, key, action=body.acao, params_override=body.params_override,
+        confirm=body.confirmar)
 
 
 @router.post("/runs/{run_id}/steps/{key}/cancel")
 def cancelar_etapa(run_id: int, key: str):
-    return {"cancelada": service.cancelar_etapa(run_id, key)}
+    return {"cancelled": service.cancelar_etapa(run_id, key)}
 
 
 @router.post("/runs/{run_id}/steps/{key}/approve")
 def aprovar_etapa(run_id: int, key: str, body: AprovarEtapaBody):
     return service.aprovar_etapa(
-        run_id, key, aprovado_por=body.aprovado_por, params_override=body.params_override)
+        run_id, key, approved_by=body.aprovado_por, params_override=body.params_override)
 
 
 @router.get("/runs/{run_id}/log")
-def log_run(run_id: int, etapa: str | None = None, n: int = Query(200, le=1000)):
-    return service.logs(run_id, etapa=etapa, limite=n)
+def log_run(run_id: int, step: str | None = None, n: int = Query(200, le=1000)):
+    return service.logs(run_id, step=step, limite=n)
 
 
 @router.get("/runs/{run_id}/errors")
-def erros_run(run_id: int, etapa: str | None = None):
-    return service.erros(run_id, etapa=etapa)
+def erros_run(run_id: int, step: str | None = None):
+    return service.erros(run_id, step=step)
 
 
 @router.get("/runs/{run_id}/cost")
@@ -101,10 +101,10 @@ def custo_run(run_id: int):
     return service.custo(run_id)
 
 
-async def _eventos_log(run_id: int, etapa: str | None) -> AsyncIterator[str]:
+async def _eventos_log(run_id: int, step: str | None) -> AsyncIterator[str]:
     ultimo_id = 0
     while True:
-        recentes = sorted(service.logs(run_id, etapa=etapa, limite=50), key=lambda l: l["id"])
+        recentes = sorted(service.logs(run_id, step=step, limite=50), key=lambda l: l["id"])
         for linha in recentes:
             if linha["id"] > ultimo_id:
                 ultimo_id = linha["id"]
@@ -113,8 +113,8 @@ async def _eventos_log(run_id: int, etapa: str | None) -> AsyncIterator[str]:
 
 
 @router.get("/runs/{run_id}/log/stream")
-def log_stream(run_id: int, etapa: str | None = None):
-    return StreamingResponse(_eventos_log(run_id, etapa), media_type="text/event-stream")
+def log_stream(run_id: int, step: str | None = None):
+    return StreamingResponse(_eventos_log(run_id, step), media_type="text/event-stream")
 
 
 async def _eventos_progresso(run_id: int) -> AsyncIterator[str]:

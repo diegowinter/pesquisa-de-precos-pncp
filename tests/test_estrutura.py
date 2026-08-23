@@ -2,9 +2,9 @@
 Guarda da Fase 0: a árvore nova aponta para os MESMOS arquivos da árvore antiga.
 
 O risco específico desta fase não é "quebrou e deu erro" — é "moveu, rodou, e escreveu num
-`data/` diferente". Isso não levanta exceção: a etapa simplesmente não encontra a entrada
+`data/` diferente". Isso não levanta exceção: a step simplesmente não encontra a entrada
 resumível, reprocessa tudo do zero e cobra o LLM de novo. Estes testes existem para que esse
-modo de falha apareça em segundos, não numa fatura.
+mode de falha apareça em segundos, não numa fatura.
 
 Não testam regra de negócio (isso é a Fase 9) — testam fiação.
 """
@@ -46,11 +46,11 @@ def test_todo_o_pacote_importa():
 @pytest.mark.parametrize("name", ETAPAS)
 def test_etapa_nao_expoe_nenhum_caminho(name):
     """
-    Fase 13 (ADR-020): nenhuma etapa pode ter constante de caminho.
+    Fase 13 (ADR-020): nenhuma step pode ter constante de caminho.
 
-    Este teste era o INVERSO — "todo caminho da etapa cai dentro de `paths.DATA`" — enquanto
+    Este teste era o INVERSO — "todo caminho da step cai dentro de `paths.DATA`" — enquanto
     as etapas escreviam CSV. Com o banco como único meio de persistência, qualquer `Path` de
-    volta ao módulo de uma etapa é o começo do caminho paralelo de novo: um arquivo que a web
+    volta ao módulo de uma step é o começo do caminho paralelo de novo: um arquivo que a web
     não sabe servir, que o container não persiste e que ninguém lembra de migrar.
 
     `paths.py` continua existindo, mas é do importador (`migracao/`), não das etapas.
@@ -64,8 +64,8 @@ def test_etapa_nao_expoe_nenhum_caminho(name):
 @pytest.mark.parametrize("name", ETAPAS)
 def test_etapa_nao_importa_paths(name):
     """A outra metade da mesma regra: nem por importação indireta."""
-    origem = (paths.RAIZ / "pesquisa_precos" / "steps" / f"{name}.py").read_text(encoding="utf-8")
-    assert "config import paths" not in origem and "config.paths" not in origem, (
+    source = (paths.RAIZ / "pesquisa_precos" / "steps" / f"{name}.py").read_text(encoding="utf-8")
+    assert "config import paths" not in source and "config.paths" not in source, (
         f"{name} importa `config.paths` — ver o docstring de `paths.py`")
 
 
@@ -81,7 +81,7 @@ def test_nao_restou_nenhum_import_do_pacote_scripts():
 # ── Fase 14 (ADR-022): o `.env` deixou de ser fonte de configuração ─────────────────
 #
 # A guarda que impede o caminho removido de voltar. Ele não voltaria por decisão consciente —
-# voltaria como um `os.getenv("GPU_BASE_URL")` conveniente dentro de uma etapa, e a partir daí
+# voltaria como um `os.getenv("GPU_BASE_URL")` conveniente dentro de uma step, e a partir daí
 # a tela de provedores passaria a mentir sobre o que está em uso.
 
 _VARS_QUE_MIGRARAM = (
@@ -106,7 +106,7 @@ def _modulos_do_pacote():
 
 @pytest.mark.parametrize("variavel", _VARS_QUE_MIGRARAM)
 def test_nenhum_modulo_le_variavel_que_migrou_para_o_banco(variavel):
-    """ADR-022: quem sabe modelo/URL/key/threshold é o banco, e o único ponto que o lê é
+    """ADR-022: quem sabe model/URL/key/threshold é o banco, e o único ponto que o lê é
     `providers/resolver.py`."""
     infratores = [arq.name for arq in _modulos_do_pacote()
                   if arq.name not in _PODEM_LER_O_ENV_ANTIGO
@@ -116,16 +116,16 @@ def test_nenhum_modulo_le_variavel_que_migrou_para_o_banco(variavel):
 
 def test_resolver_nao_tem_mais_caminho_env():
     """A função `_resolver_via_env` saiu na ADR-022. Um fallback reintroduzido devolveria o
-    modo em que um erro de configuração vira etapa rodando com o modelo errado."""
+    mode em que um erro de configuração vira step rodando com o model errado."""
     from pesquisa_precos.providers import resolver
 
     assert not hasattr(resolver, "_resolver_via_env")
-    origem = Path(resolver.__file__).read_text(encoding="utf-8")
-    assert 'origem="env"' not in origem
+    source = Path(resolver.__file__).read_text(encoding="utf-8")
+    assert 'source="env"' not in source
 
 
 def test_settings_nao_resolve_mais_provedor():
-    """`resolver_provedor`/`exigir`/`custo_por_chamada` eram a API de provedor do `.env`."""
+    """`resolver_provedor`/`exigir`/`custo_por_chamada` eram a API de provider do `.env`."""
     from pesquisa_precos.config import settings
 
     for funcao in ("resolver_provedor", "exigir", "custo_por_chamada"):

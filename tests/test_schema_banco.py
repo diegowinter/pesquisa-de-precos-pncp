@@ -3,7 +3,7 @@ Guarda anti-drift entre os modelos SQLAlchemy e o schema real do PostgreSQL.
 
 O schema é criado pela migration `0001_schema_inicial` (DDL literal de docs/02_SCHEMA.md, que é
 normativo); os modelos de `db/modelos.py` são um espelho manual dele. Espelho manual entorta:
-alguém acrescenta uma coluna na migration e esquece o modelo, e o sintoma é um `SELECT` do
+alguém acrescenta uma coluna na migration e esquece o model, e o sintoma é um `SELECT` do
 repositório que devolve dados incompletos — sem erro.
 
 Este teste compara os dois por reflexão. Ele é PULADO quando não há banco disponível, para que
@@ -32,14 +32,14 @@ def test_todas_as_tabelas_dos_modelos_existem(inspetor):
     no_banco = set(inspetor.get_table_names())
     nos_modelos = set(Base.metadata.tables)
     faltando = nos_modelos - no_banco
-    assert not faltando, f"tabelas no modelo e não no banco: {sorted(faltando)}"
+    assert not faltando, f"tabelas no model e não no banco: {sorted(faltando)}"
 
 
 def test_nenhuma_tabela_do_banco_ficou_sem_modelo(inspetor):
-    # `alembic_version` é do próprio Alembic e não tem (nem deve ter) modelo.
+    # `alembic_version` é do próprio Alembic e não tem (nem deve ter) model.
     no_banco = set(inspetor.get_table_names()) - {"alembic_version"}
     sem_modelo = no_banco - set(Base.metadata.tables)
-    assert not sem_modelo, f"tabelas no banco e não no modelo: {sorted(sem_modelo)}"
+    assert not sem_modelo, f"tabelas no banco e não no model: {sorted(sem_modelo)}"
 
 
 def test_colunas_batem(inspetor):
@@ -48,16 +48,16 @@ def test_colunas_batem(inspetor):
         if name not in inspetor.get_table_names():
             continue
         reais = {c["name"] for c in inspetor.get_columns(name)}
-        modelo = set(tabela.columns.keys())
-        if faltam := modelo - reais:
-            divergencias.append(f"{name}: no modelo e não no banco {sorted(faltam)}")
-        if sobram := reais - modelo:
-            divergencias.append(f"{name}: no banco e não no modelo {sorted(sobram)}")
+        model = set(tabela.columns.keys())
+        if faltam := model - reais:
+            divergencias.append(f"{name}: no model e não no banco {sorted(faltam)}")
+        if sobram := reais - model:
+            divergencias.append(f"{name}: no banco e não no model {sorted(sobram)}")
     assert not divergencias, "\n".join(divergencias)
 
 
 def test_valores_dos_enums_batem(inspetor):
-    """Um valor de enum que só existe no Python vira erro de INSERT em produção, não aqui."""
+    """Um value de enum que só existe no Python vira erro de INSERT em produção, não aqui."""
     do_banco = {e["name"]: set(e["labels"]) for e in inspetor.get_enums()}
     for name, classe in NOMES.items():
         assert name in do_banco, f"tipo enum {name} não existe no banco"
@@ -67,7 +67,7 @@ def test_valores_dos_enums_batem(inspetor):
 
 
 def test_indices_que_sao_comportamento_existem(inspetor):
-    """Índices parciais e GIN não são estética: sem eles a consulta muda de plano e a etapa
+    """Índices parciais e GIN não são estética: sem eles a consulta muda de plano e a step
     fica lenta o bastante para parecer travada. O autogenerate do Alembic não os reproduz, o
     que é exatamente por que a migration inicial é SQL literal."""
     esperados = {
@@ -75,7 +75,7 @@ def test_indices_que_sao_comportamento_existem(inspetor):
         "item": "ix_item_sobrevivente",
         "par": "ix_par_codigo",
         "texto_classificacao": "ix_texto_classif_cats",
-        "erro_item": "ix_erro_pendente",
+        "item_error": "ix_erro_pendente",
     }
     for tabela, indice in esperados.items():
         nomes = {i["name"] for i in inspetor.get_indexes(tabela)}
@@ -84,6 +84,6 @@ def test_indices_que_sao_comportamento_existem(inspetor):
 
 def test_coluna_gerada_de_documento_pagina(inspetor):
     """`n_chars` é GENERATED ALWAYS: se virar coluna comum, o `COPY` da migração passa a
-    exigir o valor e a política de retenção perde o número que usa para medir o ganho."""
+    exigir o value e a política de retenção perde o número que usa para medir o ganho."""
     colunas = {c["name"]: c for c in inspetor.get_columns("documento_pagina")}
     assert colunas["n_chars"].get("computed"), "n_chars deixou de ser coluna gerada"

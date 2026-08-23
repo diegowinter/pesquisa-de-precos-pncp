@@ -31,10 +31,10 @@ class TestRegressaoComThresholdsAtuais:
         assert resultado.recall >= LIMIAR_APROVACAO
 
     def test_pendente_e_descartado_da_amostra(self):
-        """`decisao_final='pendente'` não é gabarito — não pode contar nem a favor nem contra."""
+        """`final_decision='pendente'` não é gabarito — não pode contar nem a favor nem contra."""
         rotulos = carregar_da_fixture(FIXTURE)
         resultado = avaliar(rotulos, t_aceita=T_ACEITA_OK, t_rejeita=T_REJEITA_OK)
-        n_pendentes = sum(1 for r in rotulos if r.decisao_final == "pendente")
+        n_pendentes = sum(1 for r in rotulos if r.final_decision == "pendente")
         assert n_pendentes > 0  # a fixture tem 2 de propósito
         assert resultado.n_amostra == len(rotulos) - n_pendentes
 

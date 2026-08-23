@@ -15,11 +15,11 @@ v2/v3 não era perfeito, e o número aparece no relatório (docs/05_MIGRACAO.md 
 tratá-la como tal seria inventar precisão que o dado nunca teve. 'erro' vira NULL, porque
 aquela linha não é uma classificação: é a marca de uma chamada que falhou.
 
-`modelo`/`provedor` são constantes: o acervo foi classificado pelo modelo local (LM Studio) ao
+`model`/`provider` são constantes: o acervo foi classificado pelo model local (LM Studio) ao
 longo da v2/v3 e não há registro por linha de qual build era. Ficam sobrescrevíveis por flag em
 vez de gravados como um palpite fixo.
 
-Uso: python -m migracao.m08_classificacao [--modelo X] [--provedor Y] [--reiniciar]
+Uso: python -m migracao.m08_classificacao [--model X] [--provider Y] [--reiniciar]
 """
 
 import sys
@@ -48,16 +48,16 @@ STAGING = "stg_m08_classificacao"
 
 # Escala ORDINAL, não probabilidade. Preserva a ordem que o rótulo textual carregava e nada
 # além disso; qualquer leitura como "72% de certeza" seria leitura errada.
-# A escala vive em `db.repos.classification` (fonte única — a etapa 3 usa a MESMA).
+# A escala vive em `db.repos.classification` (fonte única — a step 3 usa a MESMA).
 CONFIANCA = repo.CONFIANCA_ORDINAL
 
-MODELO_PADRAO = "acervo v2/v3 (modelo local, build não registrado)"
+MODELO_PADRAO = "acervo v2/v3 (model local, build não registrado)"
 PROVEDOR_PADRAO = "lm_studio"
 
 
 def preparar_staging(conn) -> None:
     """Tabela de apoio UNLOGGED: ela existe por minutos e não precisa sobreviver a um crash
-    (o CSV de origem é intocado e a retomada recomeça o lote). UNLOGGED evita escrever 1,6
+    (o CSV de source é intocado e a retomada recomeça o lote). UNLOGGED evita escrever 1,6
     milhão de linhas no WAL à toa."""
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -97,10 +97,10 @@ def carregar_staging(rel: Relatorio, retomada: Retomada, total: int) -> None:
             barra.update(tarefa, completed=retomada.linhas)
 
 
-def colapsar_por_texto(rel: Relatorio, modelo: str, provedor: str) -> None:
+def colapsar_por_texto(rel: Relatorio, model: str, provider: str) -> None:
     """Agrupa por `texto_hash` e insere o vencedor por frequência."""
     with db.session() as s:
-        prompt_versao_id = repo_exec.prompt_versao_ativa(s, "classificar_item")
+        prompt_version_id = repo_exec.prompt_versao_ativa(s, "classificar_item")
         run_id = repo_exec.run_do_acervo_migrado(s)
 
         divergentes = s.execute(sql(f"""
@@ -122,15 +122,15 @@ def colapsar_por_texto(rel: Relatorio, modelo: str, provedor: str) -> None:
         # mesmo resultado, que é o requisito de idempotência.
         inseridos = s.execute(sql(f"""
             INSERT INTO texto_classificacao
-                (texto_hash, descricao, unidade, categorias, confianca,
-                 prompt_versao_id, modelo, provedor, run_id)
-            SELECT texto_hash, descricao, unidade, categorias, confianca,
-                   :pv, :modelo, :provedor, :run
+                (texto_hash, description, unidade, categorias, confianca,
+                 prompt_version_id, model, provider, run_id)
+            SELECT texto_hash, description, unidade, categorias, confianca,
+                   :pv, :model, :provider, :run
               FROM (
                 SELECT DISTINCT ON (texto_hash) *
                   FROM (
                     SELECT i.texto_hash,
-                           min(i.descricao_api) AS descricao,
+                           min(i.descricao_api) AS description,
                            min(i.unidade)       AS unidade,
                            s.categorias,
                            max(s.confianca)     AS confianca,
@@ -141,13 +141,13 @@ def colapsar_por_texto(rel: Relatorio, modelo: str, provedor: str) -> None:
                  ORDER BY texto_hash, n DESC, categorias
               ) vencedor
             ON CONFLICT (texto_hash) DO NOTHING
-        """), {"pv": prompt_versao_id, "modelo": modelo, "provedor": provedor,
+        """), {"pv": prompt_version_id, "model": model, "provider": provider,
                "run": run_id}).rowcount
         rel.mais("texto_classificacao inseridos", inseridos)
 
         rel.mais("item_categoria inseridos", repo.recomputar_item_categoria(s))
-        for chave, valor in repo.contar(s).items():
-            rel.mais(f"{chave} no banco", valor)
+        for key, value in repo.contar(s).items():
+            rel.mais(f"{key} no banco", value)
 
 
 def descartar_staging() -> None:
@@ -155,11 +155,11 @@ def descartar_staging() -> None:
         cur.execute(f"DROP TABLE IF EXISTS {STAGING}")
 
 
-def migrar(modelo: str = MODELO_PADRAO, provedor: str = PROVEDOR_PADRAO,
+def migrar(model: str = MODELO_PADRAO, provider: str = PROVEDOR_PADRAO,
            reiniciar: bool = False) -> Relatorio:
     rel = Relatorio("m08 — classificação")
     if not existe(paths.E3_CLASSIFICADOS):
-        raise SystemExit(f"{paths.E3_CLASSIFICADOS} ausente. Rode a etapa 3 antes.")
+        raise SystemExit(f"{paths.E3_CLASSIFICADOS} ausente. Rode a step 3 antes.")
 
     retomada = Retomada.carregar("m08_classificacao")
     if reiniciar:
@@ -171,7 +171,7 @@ def migrar(modelo: str = MODELO_PADRAO, provedor: str = PROVEDOR_PADRAO,
     rel.mais("registros no CSV (estimado)", total)
 
     carregar_staging(rel, retomada, total)
-    colapsar_por_texto(rel, modelo, provedor)
+    colapsar_por_texto(rel, model, provider)
     descartar_staging()
     retomada.zerar()  # staging consumida: uma reexecução recomeça o carregamento do zero
     return rel
@@ -183,11 +183,11 @@ def main() -> None:
     console.print(f"  banco  : {db.database_url()}")
     args = sys.argv[1:]
 
-    def flag(nome: str, default: str) -> str:
-        return args[args.index(nome) + 1] if nome in args else default
+    def flag(name: str, default: str) -> str:
+        return args[args.index(name) + 1] if name in args else default
 
-    migrar(modelo=flag("--modelo", MODELO_PADRAO),
-           provedor=flag("--provedor", PROVEDOR_PADRAO),
+    migrar(model=flag("--model", MODELO_PADRAO),
+           provider=flag("--provider", PROVEDOR_PADRAO),
            reiniciar="--reiniciar" in args).imprimir()
 
 

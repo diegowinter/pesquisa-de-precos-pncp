@@ -5,7 +5,7 @@ Os `str, Enum` daqui existem para o Python; quem cria os tipos no PostgreSQL é 
 inicial, com o DDL literal do documento. `NOMES` é a lista usada pelos modelos para referenciar
 o tipo já existente (`create_type=False`), evitando que o SQLAlchemy tente recriá-lo.
 
-Os VALORES são normativos: mudar um valor aqui sem migration correspondente faz o insert
+Os VALORES são normativos: mudar um value aqui sem migration correspondente faz o insert
 falhar no banco, não no Python.
 """
 
@@ -13,7 +13,7 @@ from enum import StrEnum
 
 
 class _Valor(StrEnum):
-    """Enum de string que serializa como o próprio valor (é o que o psycopg manda ao PG)."""
+    """Enum de string que serializa como o próprio value (é o que o psycopg manda ao PG)."""
 
 
 class TipoCatalogo(_Valor):
@@ -28,7 +28,7 @@ class TipoDocumento(_Valor):
 
 class EstadoDocumento(_Valor):
     descoberto = "descoberto"          # capa obtida da API, nada baixado
-    fora_de_escopo = "fora_de_escopo"  # nenhum item sobreviveu ao corte da etapa 4
+    fora_de_escopo = "fora_de_escopo"  # nenhum item sobreviveu ao corte da step 4
     baixando = "baixando"
     extraido = "extraido"              # texto obtido, PDF já descartado
     ilegivel = "ilegivel"              # nenhuma página produziu texto útil
@@ -37,9 +37,9 @@ class EstadoDocumento(_Valor):
 
 
 class EstrategiaExtracao(_Valor):
-    janela = "janela"
-    completa = "completa"
-    visao = "visao"
+    window = "window"
+    full = "full"
+    vision = "vision"
 
 
 class StatusEnriquecimento(_Valor):
@@ -79,33 +79,33 @@ class DecisaoFinalPar(_Valor):
 
 
 class ModoRun(_Valor):
-    assistido = "assistido"
-    sequencial = "sequencial"
-    amostra = "amostra"
-    simulacao = "simulacao"
+    assisted = "assisted"
+    sequential = "sequential"
+    sample = "sample"
+    simulation = "simulation"
 
 
 class StatusRun(_Valor):
-    aberto = "aberto"
-    concluido = "concluido"
-    abortado = "abortado"
+    open = "open"
+    finished = "finished"
+    aborted = "aborted"
 
 
 class StatusEtapa(_Valor):
-    nao_iniciada = "nao_iniciada"
-    aguardando_aprovacao = "aguardando_aprovacao"
-    executando = "executando"
-    concluida = "concluida"
-    desatualizada = "desatualizada"
-    falhou = "falhou"
-    cancelada = "cancelada"
-    pulada = "pulada"
+    not_started = "not_started"
+    awaiting_approval = "awaiting_approval"
+    running = "running"
+    finished = "finished"
+    outdated = "outdated"
+    failed = "failed"
+    cancelled = "cancelled"
+    skipped = "skipped"
 
 
 class AcaoExecucao(_Valor):
-    atualizar = "atualizar"
-    retomar = "retomar"
-    refazer = "refazer"
+    update = "update"
+    resume = "resume"
+    redo = "redo"
 
 
 class Capacidade(_Valor):
@@ -115,7 +115,7 @@ class Capacidade(_Valor):
     ocr = "ocr"
     # Fase 11 (ADR-019): o processamento pesado que ainda rodava em processo vira serviço.
     pdf = "pdf"                  # baixa o PDF, extrai texto por página, chama o OCR por dentro
-    pareamento = "pareamento"    # BM25 + cosseno + corte em streaming
+    matching = "matching"    # BM25 + cosseno + corte em streaming
 
 
 # Nome do tipo no PostgreSQL → classe Python. A ordem é a de criação em 02_SCHEMA.md §2.
@@ -123,15 +123,15 @@ NOMES: dict[str, type[_Valor]] = {
     "tipo_catalogo": TipoCatalogo,
     "tipo_documento": TipoDocumento,
     "estado_documento": EstadoDocumento,
-    "estrategia_extracao": EstrategiaExtracao,
+    "extraction_strategy": EstrategiaExtracao,
     "status_enriquecimento": StatusEnriquecimento,
     "destino_item": DestinoItem,
     "decisao_rerank": DecisaoRerank,
     "veredito_par": VereditoPar,
     "decisao_final_par": DecisaoFinalPar,
-    "modo_run": ModoRun,
-    "status_run": StatusRun,
-    "status_etapa": StatusEtapa,
-    "acao_execucao": AcaoExecucao,
-    "capacidade": Capacidade,
+    "run_mode": ModoRun,
+    "run_status": StatusRun,
+    "step_status": StatusEtapa,
+    "run_action": AcaoExecucao,
+    "capability": Capacidade,
 }

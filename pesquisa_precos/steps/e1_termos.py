@@ -15,7 +15,7 @@ Fluxo:
   4. Agrega um-termo-por-linha: termo → união dos codigos_catalogo (categoria = maioria).
 
 A etapa não escreve NADA em disco (ADR-018/ADR-020):
-  entrada          catalogo_item (ativo)
+  entrada          catalogo_item (active)
   termo_geracao    checkpoint por item — a saída BRUTA do LLM (o que era 1_termos_item.csv)
   termo/termo_codigo  o agregado um-termo-por-linha (o que era 1_conceitos_termos.csv)
   catalogo_item.categoria  a categoria final pós-cascata (era 1_categoria_por_codigo.csv)
@@ -24,15 +24,15 @@ resultado.
 
 Entrada: `catalogo_item` (etapa 0a).
 Saídas:
-  data/1_conceitos_termos.csv    (conceito=termo, categoria, termos=termo, codigos_catalogo, origem)
+  data/1_conceitos_termos.csv    (conceito=termo, categoria, termos=termo, codigos_catalogo, source)
   data/1_categoria_por_codigo.csv (tipo, codigo, categoria)  ← fonte canônica por-item p/ a etapa 6a
 Chave de resumo: (tipo, codigo) — `termo_geracao` no banco, checkpoints/1_termos_item.csv no CSV.
-Erros: erro_item no banco; erros/1_erros.csv no CSV.
+Erros: item_error no banco; erros/1_erros.csv no CSV.
 
 NÃO fazer: deixar categoria vazia (a cascata de fallback existe por isso) nem descartar as
-linhas `origem=manual` da saída — elas são curadoria humana e são preservadas na regeração.
+linhas `source=manual` da saída — elas são curadoria humana e são preservadas na regeração.
 
-Uso: python -m pesquisa_precos.steps.e1_termos [--provedor local|openrouter] [--forte]
+Uso: python -m pesquisa_precos.steps.e1_termos [--provider local|openrouter] [--forte]
                                                 [--limite N] [--concurrency N] [--regerar]
 """
 
@@ -70,10 +70,10 @@ CAT_FALLBACK = "outros"
 
 
 class Params(BaseModel):
-    provedor: str = Field("local", description="Provedor de LLM [local|openrouter]")
+    provider: str = Field("local", description="Provedor de LLM [local|openrouter]")
     limite: int | None = Field(None, description="Processa só N itens do catálogo (teste)")
     concurrency: int = Field(3, ge=1, le=32, description="Chamadas simultâneas ao LLM")
-    forte: bool = Field(False, description="Usa o modelo PASS2 (caro). Só afeta 'openrouter'.")
+    forte: bool = Field(False, description="Usa o model PASS2 (caro). Só afeta 'openrouter'.")
     regerar: bool = Field(False, description="Recria a saída do zero (pede confirmação)")
 
 
@@ -162,7 +162,7 @@ def agregar_por_termo(df, checkpoint, categorias, ctx: RunContext) -> list[dict]
             "categoria": categoria,
             "termos": termo,
             "codigos_catalogo": "|".join(sorted(codigos[termo])),
-            "origem": "llm",
+            "source": "llm",
         })
     return linhas
 
@@ -185,14 +185,14 @@ def _exigir_banco():
 
 
 def carregar_catalogo_do_banco() -> pd.DataFrame:
-    """`catalogo_item` ativo com as colunas que o resto da etapa espera do CSV."""
+    """`catalogo_item` active com as colunas que o resto da etapa espera do CSV."""
     db = _exigir_banco()
     with db.session() as s:
         linhas = s.execute(sa_text(
             "SELECT tipo::text, codigo, coalesce(codigo_pdm, '') AS codigo_pdm, "
             "       coalesce(nome_pdm, '') AS nome_pdm, coalesce(descricao, '') AS descricao, "
             "       coalesce(nome_grupo, '') AS nome_grupo "
-            "  FROM catalogo_item WHERE ativo ORDER BY tipo, codigo")).all()
+            "  FROM catalogo_item WHERE active ORDER BY tipo, codigo")).all()
     if not linhas:
         raise SystemExit("catalogo_item vazio — rode a etapa 0a antes (ou revise a "
                          "allow-list em pdm_permitido).")
@@ -229,7 +229,7 @@ def gerar_por_item_no_banco(df, criar_curador, concurrency, params,
         return _tls.c
 
     n_ok, n_erros = [0], [0]
-    modelo = "PASS2" if params.forte else "PASS1"
+    model = "PASS2" if params.forte else "PASS1"
 
     def fn(row):
         cur = _curador()
@@ -242,28 +242,28 @@ def gerar_por_item_no_banco(df, criar_curador, concurrency, params,
         n_ok[0] += 1
         with db.session() as s:
             repo_termo.gravar_geracao(s, row["tipo"], row["codigo"], res["termos"],
-                                      res["categoria"], modelo=modelo,
-                                      provedor=params.provedor)
+                                      res["categoria"], model=model,
+                                      provider=params.provedor)
             s.commit()
 
     def err(row, exc):
         n_erros[0] += 1
         ctx.log("erro", f"[red]erro[/] {row.get('tipo')}/{row.get('codigo')}: {exc}")
         ctx.erro_item(str(row.get("codigo")), exc, tipo=str(row.get("tipo")),
-                      nome=str(row.get("nome_pdm")))
+                      name=str(row.get("nome_pdm")))
 
     ctx.progresso(0, len(pendentes), descricao="itens")
     executar_paralelo(pendentes, fn, concurrency=concurrency, on_result=ok,
                       on_error=err, on_progress=lambda f, t: ctx.progresso(f, t))
     if n_erros[0]:
-        ctx.log("aviso", f"[yellow][1] {n_erros[0]} itens falharam — ver erro_item[/]")
+        ctx.log("aviso", f"[yellow][1] {n_erros[0]} itens falharam — ver item_error[/]")
     return n_ok[0], n_erros[0]
 
 
 def gravar_termos_no_banco(linhas: list[dict], ctx: RunContext) -> dict:
     """Agregado da etapa (um termo por linha) → `termo` + `termo_codigo`.
 
-    `origem='manual'` não é tocado em nenhum momento: é curadoria humana, e o caminho CSV já
+    `source='manual'` não é tocado em nenhum momento: é curadoria humana, e o caminho CSV já
     a preservava na regeração. Os termos de LLM que deixaram de ser gerados são DESATIVADOS
     (não apagados) — ver `repo_termo.desativar_llm_ausentes`.
     """
@@ -305,9 +305,9 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         df = df.head(params.limite)
 
     def criar_curador():
-        return ctx.provedores.novo_chat(curador_kwargs={"max_retries": 6}).curador
+        return ctx.providers.novo_chat(curador_kwargs={"max_retries": 6}).curador
 
-    ctx.log("debug", f"[dim][1] Provedor: {params.provedor} · modelo: "
+    ctx.log("debug", f"[dim][1] Provedor: {params.provedor} · model: "
                      f"{'PASS2 (forte)' if params.forte else 'PASS1'} · fonte: banco[/]")
     n_ok, n_erros = gerar_por_item_no_banco(df, criar_curador, params.concurrency, params, ctx)
 
@@ -322,13 +322,13 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"([bold]{len(categorias)}[/] códigos, {alteradas} alterados).")
 
     novas = agregar_por_termo(df, checkpoint, categorias, ctx)
-    metricas = gravar_termos_no_banco(novas, ctx)
+    metrics = gravar_termos_no_banco(novas, ctx)
     ctx.log("info", f"[bold green][1] Gravado[/] [bold]{len(novas)}[/] termos "
-                    f"({metricas['termos_no_banco']} no banco, incluindo manuais).")
+                    f"({metrics['termos_no_banco']} no banco, incluindo manuais).")
 
     return StepResult(
-        processados=n_ok, erros=n_erros,
-        metricas={"itens_do_catalogo": len(df), "termos_gerados": len(novas), **metricas},
+        processed=n_ok, erros=n_erros,
+        metrics={"itens_do_catalogo": len(df), "termos_gerados": len(novas), **metrics},
         preview=novas[:50],
     )
 
@@ -353,11 +353,11 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
     with db.session() as s:
         feitas = repo_termo.codigos_ja_gerados(s)
     n = sum(1 for _, r in df.iterrows() if (r["tipo"], r["codigo"]) not in feitas)
-    resolucao = ctx.provedores.resolucao_opcional("chat")
-    preco = resolucao.info.custo_usd_chamada if resolucao else None
+    resolucao = ctx.providers.resolucao_opcional("chat")
+    preco = resolucao.info.cost_usd_per_call if resolucao else None
     return Estimate(
         unidades=n, chamadas_llm=n,
-        custo_usd=None if preco is None else n * preco,
+        cost_usd=None if preco is None else n * preco,
         duracao_s=n / max(params.concurrency, 1) * 2,
         detalhes={"codigos_no_catalogo": len(df),
                   "já_feitos": len(feitas)},

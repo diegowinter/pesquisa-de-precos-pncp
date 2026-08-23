@@ -1,12 +1,12 @@
 """
 Rotas HTML de `/providers` (Fase 14 bloco 2, ADR-022).
 
-Subir a app num `TestClient` não é executar etapa (CLAUDE.md, regra nº 1): nenhuma rota aqui
-dispara `POST .../run` nem `.../approve`. O `testar` de provedor é sondagem HTTP e está
+Subir a app num `TestClient` não é executar step (CLAUDE.md, regra nº 1): nenhuma rota aqui
+dispara `POST .../run` nem `.../approve`. O `testar` de provider é sondagem HTTP e está
 mockado — nunca bate na rede de verdade, mesmo padrão de `tests/test_notifications.py`.
 
 O teste que mais importa é `test_chave_nunca_aparece_no_html`: se ele cair, a razão que
-permitiu a chave sair do `.env` deixou de valer.
+permitiu a key sair do `.env` deixou de valer.
 """
 
 from unittest.mock import patch
@@ -27,35 +27,35 @@ CHAVE = "sk-or-v1-nao-pode-vazar"
 
 def _limpar():
     with db.session() as sessao:
-        sessao.execute(text("DELETE FROM capacidade_provedor WHERE provedor LIKE :p"),
+        sessao.execute(text("DELETE FROM provider_capability WHERE provider LIKE :p"),
                        {"p": f"{PREFIXO}%"})
-        sessao.execute(text("DELETE FROM provedor_status WHERE provedor LIKE :p"),
+        sessao.execute(text("DELETE FROM provider_status WHERE provider LIKE :p"),
                        {"p": f"{PREFIXO}%"})
-        sessao.execute(text("DELETE FROM provedor WHERE nome LIKE :p"), {"p": f"{PREFIXO}%"})
+        sessao.execute(text("DELETE FROM provider WHERE name LIKE :p"), {"p": f"{PREFIXO}%"})
 
 
-def _snapshot_capacidades():
-    """Fotografa `capacidade_provedor` inteira.
+def _snapshot_capabilities():
+    """Fotografa `provider_capability` inteira.
 
-    Os testes apontam capacidades REAIS (`chat`, `embed`, ...) para provedores fictícios — não
-    há capacidade "de teste", o enum é fechado. Sem restaurar depois, rodar `pytest` apagaria a
-    configuração de produção do operador: as etapas parariam de resolver provedor e a culpa
+    Os testes apontam capabilities REAIS (`chat`, `embed`, ...) para provedores fictícios — não
+    há capability "de teste", o enum é fechado. Sem restaurar depois, rodar `pytest` apagaria a
+    configuração de produção do operador: as etapas parariam de resolver provider e a culpa
     pareceria do código. Já aconteceu uma vez.
     """
     with db.session() as sessao:
         return [dict(r) for r in sessao.execute(text(
-            "SELECT capacidade, provedor, modelo, fallback FROM capacidade_provedor"
+            "SELECT capability, provider, model, fallback FROM provider_capability"
         )).mappings()]
 
 
-def _restaurar_capacidades(linhas):
+def _restaurar_capabilities(linhas):
     from pesquisa_precos.db.repos import execution as repo
 
     with db.session() as sessao:
-        sessao.execute(text("DELETE FROM capacidade_provedor"))
+        sessao.execute(text("DELETE FROM provider_capability"))
         for linha in linhas:
-            repo.apontar_capacidade(sessao, linha["capacidade"], linha["provedor"],
-                                    linha["modelo"], linha["fallback"])
+            repo.apontar_capacidade(sessao, linha["capability"], linha["provider"],
+                                    linha["model"], linha["fallback"])
 
 
 @pytest.fixture
@@ -66,41 +66,41 @@ def cliente(monkeypatch):
 
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     monkeypatch.delenv("WEB_SENHA", raising=False)   # login desligado, como local
-    capacidades = _snapshot_capacidades()
+    capabilities = _snapshot_capabilities()
     _limpar()
     with TestClient(app, follow_redirects=False) as c:
         yield c
     _limpar()
-    _restaurar_capacidades(capacidades)
+    _restaurar_capabilities(capabilities)
 
 
 def test_criar_provedor_pela_tela(cliente):
     resp = cliente.post("/providers", data={
         "name": f"{PREFIXO}or", "base_url": "https://openrouter.ai/api/v1",
-        "capacidades": ["chat"], "modelo_padrao": "modelo-barato",
-        "batch_size": "16", "custo_in_por_mtok": "0.01", "ativo": "on", "api_key": CHAVE})
+        "capabilities": ["chat"], "default_model": "model-barato",
+        "batch_size": "16", "cost_in_per_mtok": "0.01", "active": "on", "api_key": CHAVE})
     assert resp.status_code == 303
     p = service.obter(f"{PREFIXO}or")
     assert p["base_url"] == "https://openrouter.ai/api/v1"
-    assert p["batch_size"] == 16 and p["tem_api_key"] is True
+    assert p["batch_size"] == 16 and p["has_api_key"] is True
 
 
 def test_campos_numericos_vazios_nao_quebram(cliente):
     """Campo numérico de formulário HTML chega como `''`, não `None`."""
     resp = cliente.post("/providers", data={
-        "name": f"{PREFIXO}gpu", "base_url": "http://gpu:8100", "capacidades": ["embed"],
-        "batch_size": "", "rpm_limite": "", "custo_in_por_mtok": "", "ativo": "on"})
+        "name": f"{PREFIXO}gpu", "base_url": "http://gpu:8100", "capabilities": ["embed"],
+        "batch_size": "", "rpm_limit": "", "cost_in_per_mtok": "", "active": "on"})
     assert resp.status_code == 303
     p = service.obter(f"{PREFIXO}gpu")
-    assert p["rpm_limite"] is None and p["custo_in_por_mtok"] is None
+    assert p["rpm_limit"] is None and p["cost_in_per_mtok"] is None
 
 
 def test_chave_nunca_aparece_no_html(cliente):
-    """A promessa da ADR-022: a chave entra e não volta. Nem na listagem, nem no formulário
+    """A promessa da ADR-022: a key entra e não volta. Nem na listagem, nem no formulário
     de edição, nem num `value=` de input."""
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"],
-        "ativo": "on", "api_key": CHAVE})
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"],
+        "active": "on", "api_key": CHAVE})
 
     html = cliente.get("/providers").text
     assert CHAVE not in html and "nao-pode-vazar" not in html
@@ -114,26 +114,26 @@ def test_chave_nunca_aparece_no_html(cliente):
 
 def test_editar_sem_preencher_a_chave_mantem_a_gravada(cliente):
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"],
-        "ativo": "on", "api_key": CHAVE})
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"],
+        "active": "on", "api_key": CHAVE})
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://novo", "capacidades": ["chat"],
-        "ativo": "on", "api_key": ""})
+        "name": f"{PREFIXO}or", "base_url": "http://novo", "capabilities": ["chat"],
+        "active": "on", "api_key": ""})
     p = service.obter(f"{PREFIXO}or")
-    assert p["base_url"] == "http://novo" and p["tem_api_key"] is True
+    assert p["base_url"] == "http://novo" and p["has_api_key"] is True
 
 
 def test_limpar_chave_pela_tela(cliente):
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"],
-        "ativo": "on", "api_key": CHAVE})
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"],
+        "active": "on", "api_key": CHAVE})
     assert cliente.post(f"/providers/{PREFIXO}or/key/clear").status_code == 303
-    assert service.obter(f"{PREFIXO}or")["tem_api_key"] is False
+    assert service.obter(f"{PREFIXO}or")["has_api_key"] is False
 
 
 def test_formulario_invalido_volta_com_erro(cliente):
     resp = cliente.post("/providers", data={
-        "name": f"{PREFIXO}x", "base_url": "", "capacidades": ["chat"], "ativo": "on"})
+        "name": f"{PREFIXO}x", "base_url": "", "capabilities": ["chat"], "active": "on"})
     assert resp.status_code == 303
     assert "erro=" in resp.headers["location"]
     assert service.obter(f"{PREFIXO}x") is None
@@ -141,10 +141,10 @@ def test_formulario_invalido_volta_com_erro(cliente):
 
 def test_apontar_capacidade_pela_tela(cliente):
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"], "ativo": "on"})
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"], "active": "on"})
     resp = cliente.post("/providers/capabilities",
-                        data={"capacidade": "chat", "provedor": f"{PREFIXO}or",
-                              "modelo": "modelo-x", "fallback": ""})
+                        data={"capability": "chat", "provider": f"{PREFIXO}or",
+                              "model": "model-x", "fallback": ""})
     assert resp.status_code == 303 and "erro=" not in resp.headers["location"]
 
 
@@ -152,42 +152,42 @@ def test_fallback_em_embed_recusado_pela_tela(cliente):
     for sufixo in ("a", "b"):
         cliente.post("/providers", data={
             "name": f"{PREFIXO}{sufixo}", "base_url": f"http://{sufixo}",
-            "capacidades": ["embed"], "ativo": "on"})
+            "capabilities": ["embed"], "active": "on"})
     resp = cliente.post("/providers/capabilities",
-                        data={"capacidade": "embed", "provedor": f"{PREFIXO}a",
+                        data={"capability": "embed", "provider": f"{PREFIXO}a",
                               "fallback": f"{PREFIXO}b"})
     assert resp.status_code == 303 and "erro=" in resp.headers["location"]
 
 
 def test_ativar_desativar_pela_tela(cliente):
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"], "ativo": "on"})
-    cliente.post(f"/providers/{PREFIXO}or/active", data={"ativo": "off"})
-    assert service.obter(f"{PREFIXO}or")["ativo"] is False
-    cliente.post(f"/providers/{PREFIXO}or/active", data={"ativo": "on"})
-    assert service.obter(f"{PREFIXO}or")["ativo"] is True
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"], "active": "on"})
+    cliente.post(f"/providers/{PREFIXO}or/active", data={"active": "off"})
+    assert service.obter(f"{PREFIXO}or")["active"] is False
+    cliente.post(f"/providers/{PREFIXO}or/active", data={"active": "on"})
+    assert service.obter(f"{PREFIXO}or")["active"] is True
 
 
 def test_testar_provedor_grava_status(cliente):
-    """Sondagem mockada: o teste é sobre gravar `provedor_status`, não sobre a rede."""
+    """Sondagem mockada: o teste é sobre gravar `provider_status`, não sobre a rede."""
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}or", "base_url": "http://x", "capacidades": ["chat"], "ativo": "on"})
-    falso = {"saudavel": True, "latencia_ms": 12, "mensagem": None}
+        "name": f"{PREFIXO}or", "base_url": "http://x", "capabilities": ["chat"], "active": "on"})
+    falso = {"healthy": True, "latency_ms": 12, "message": None}
     with patch("pesquisa_precos.providers.health.sondar_url", return_value=falso) as mock:
         assert cliente.post(f"/providers/{PREFIXO}or/test").status_code == 303
     mock.assert_called_once()
     with db.session() as sessao:
-        linha = sessao.execute(text("SELECT saudavel, latencia_ms FROM provedor_status "
-                                    "WHERE provedor = :n"), {"n": f"{PREFIXO}or"}).first()
+        linha = sessao.execute(text("SELECT healthy, latency_ms FROM provider_status "
+                                    "WHERE provider = :n"), {"n": f"{PREFIXO}or"}).first()
     assert linha is not None and linha[0] is True and linha[1] == 12
 
 
 def test_provedor_de_service_usa_health_e_nao_models(cliente):
     """`pdf`/`pareamento` expõem `/health`, não o `/models` da convenção OpenAI."""
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}pdf", "base_url": "http://pdf:8200", "capacidades": ["pdf"],
-        "ativo": "on"})
-    falso = {"saudavel": True, "latencia_ms": 5, "mensagem": None}
+        "name": f"{PREFIXO}pdf", "base_url": "http://pdf:8200", "capabilities": ["pdf"],
+        "active": "on"})
+    falso = {"healthy": True, "latency_ms": 5, "message": None}
     with patch("pesquisa_precos.providers.health.sondar_health", return_value=falso) as mock:
         cliente.post(f"/providers/{PREFIXO}pdf/test")
     mock.assert_called_once()

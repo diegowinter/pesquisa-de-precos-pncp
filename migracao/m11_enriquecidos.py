@@ -11,13 +11,13 @@ Mapeamentos que valem registrar:
   `enriquecimento` → `status`    1:1 com o enum `status_enriquecimento` (conferido no acervo:
                                  os 7 valores presentes existem todos no enum).
   `doc_status`     → `documento.estado`   ok→extraido, suspeito→suspeito, ilegivel→ilegivel.
-  `estrategia`     = 'janela' para TODO o acervo — foi o único caminho usado na v2/v3. Marcar
+  `estrategia`     = 'window' para TODO o acervo — foi o único caminho usado na v2/v3. Marcar
                      assim é o que vai permitir, na Fase 8, comparar a `completa` contra uma
                      linha de base identificada.
   `paginas_ocr`    → `documento_extracao.n_paginas_ocr`, agregado por documento (máximo: o
-                     valor se repete em todos os itens do mesmo documento).
+                     value se repete em todos os itens do mesmo documento).
 
-`custo_usd`/`tokens` de `documento_extracao` ficam ZERADOS e `modelo`/`provedor` NULL: a v2/v3
+`cost_usd`/`tokens` de `documento_extracao` ficam ZERADOS e `model`/`provider` NULL: a v2/v3
 não mediu nada disso. Preencher com estimativa contaminaria a série histórica de custo que a
 Fase 3 vai construir — o dado ausente precisa continuar ausente.
 
@@ -79,7 +79,7 @@ def carregar_destino(rel: Relatorio) -> dict[str, tuple[str, str]]:
 def migrar(reiniciar: bool = False) -> Relatorio:
     rel = Relatorio("m11 — itens enriquecidos")
     if not existe(paths.E5_ENRIQUECIDOS):
-        raise SystemExit(f"{paths.E5_ENRIQUECIDOS} ausente. Rode a etapa 5b antes.")
+        raise SystemExit(f"{paths.E5_ENRIQUECIDOS} ausente. Rode a step 5b antes.")
 
     retomada = Retomada.carregar("m11_enriquecidos")
     if reiniciar:
@@ -123,7 +123,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
                    dec(r.get("divergencia_preco")),
                    txt(r.get("fornecedor")), dec(r.get("quantidade_pdf")),
                    (r.get("enriquecimento") or "erro").strip(),
-                   destino, "janela", ESTADO_DO_DOC_STATUS[doc_status], run_id)
+                   destino, "window", ESTADO_DO_DOC_STATUS[doc_status], run_id)
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
@@ -137,10 +137,10 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             rel.mais("gravados", len(lote))
             barra.update(tarefa, completed=retomada.linhas)
 
-    # `documento_extracao`: uma linha por documento, estratégia 'janela', custo NÃO medido.
+    # `documento_extracao`: uma linha por documento, estratégia 'window', custo NÃO medido.
     with db.raw_connection() as conn:
         extracoes = [
-            (nc, "janela", None, None, ocr_por_doc.get(nc), 0, 0, 0, None, None, None, run_id)
+            (nc, "window", None, None, ocr_por_doc.get(nc), 0, 0, 0, None, None, None, run_id)
             for nc in estado_por_doc
         ]
         for lote in em_lotes(extracoes, LOTE):
@@ -149,8 +149,8 @@ def migrar(reiniciar: bool = False) -> Relatorio:
     with db.session() as s:
         rel.mais("documentos com estado atualizado",
                  repo_doc.atualizar_estado(s, list(estado_por_doc.items())))
-        for chave, valor in repo.contar(s).items():
-            rel.mais(f"{chave} no banco", valor)
+        for key, value in repo.contar(s).items():
+            rel.mais(f"{key} no banco", value)
     return rel
 
 

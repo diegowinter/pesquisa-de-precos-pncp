@@ -1,6 +1,6 @@
 """
-Agrupamento e menor preço (Fase 9 — prioridade 3 de docs/08_CONVENCOES.md §6): outlier IQR
-(`flag_iqr`, etapa 7). Bug silencioso aqui vira preço errado no export — o dano real do projeto.
+Agrupamento e menor preço (Fase 9 — priority 3 de docs/08_CONVENCOES.md §6): outlier IQR
+(`flag_iqr`, step 7). Bug silencioso aqui vira preço errado no export — o dano real do projeto.
 """
 
 import pandas as pd
@@ -50,7 +50,7 @@ class TestFlagIqr:
         assert not flag_iqr(precos).any()
 
     def test_grupo_por_codigo_isola_a_faixa(self):
-        """`flag_iqr` é usado via `groupby('codigo').transform(...)` na etapa 7 — um preço
+        """`flag_iqr` é usado via `groupby('codigo').transform(...)` na step 7 — um preço
         alto num código não pode contaminar a faixa de outro código."""
         df = pd.DataFrame({
             "codigo": ["A"] * 5 + ["B"] * 5,

@@ -2,16 +2,16 @@
 Política de retenção — implementação da tabela de docs/02_SCHEMA.md §11.
 
 Decidida na Fase 2 e não depois, porque `documento_pagina` cresce sem limite: 888 mil linhas e
-2,6 GB de texto já hoje, e a etapa 5 acrescenta a cada coleta. Sem política, o banco vira o
+2,6 GB de texto já hoje, e a step 5 acrescenta a cada coleta. Sem política, o banco vira o
 novo problema dos 111 GB de PDF.
 
 O que **não** é apagado, nunca, e o motivo (ADR-007 — reprocessar é perda):
 
     item, item_enriquecido, par, grupo_item     é o produto
-    texto_classificacao, embedding_cache        ativo caro; recomprá-lo é perda de dinheiro
-    rotulo                                      base de calibração; append-only
-    llm_chamada                                 série histórica de custo
-    documento_extracao.itens_json               pequeno, e é o insumo da estratégia 'completa'
+    texto_classificacao, embedding_cache        active caro; recomprá-lo é perda de dinheiro
+    label                                      base de calibração; append-only
+    llm_call                                 série histórica de custo
+    documento_extracao.itens_json               pequeno, e é o insumo da estratégia 'full'
 
 Só duas coisas expiram:
 
@@ -64,7 +64,7 @@ def limpar_paginas(sessao: Session, *, dias: int = DIAS_PAGINA,
         JOIN documento d USING (numero_controle_pncp)
        WHERE d.estado = 'extraido'
          AND d.url_pncp IS NOT NULL AND d.url_pncp <> ''
-         AND d.atualizado_em < now() - make_interval(days => :dias)
+         AND d.updated_at < now() - make_interval(days => :dias)
     """
     linhas, bytes_texto = sessao.execute(
         text(f"SELECT count(*), COALESCE(sum(p.n_chars), 0) {where}"),
@@ -86,13 +86,13 @@ def limpar_run_log(sessao: Session, *, dias: int = DIAS_RUN_LOG,
                    simular: bool = True) -> Prevista:
     """Log é diagnóstico, não produto. 90 dias cobrem qualquer investigação realista."""
     linhas = sessao.execute(
-        text("SELECT count(*) FROM run_log WHERE criado_em < now() - make_interval(days => :d)"),
+        text("SELECT count(*) FROM run_log WHERE created_at < now() - make_interval(days => :d)"),
         {"d": dias}).scalar_one()
     prev = Prevista("run_log", int(linhas))
     if simular or not linhas:
         return prev
     sessao.execute(
-        text("DELETE FROM run_log WHERE criado_em < now() - make_interval(days => :d)"),
+        text("DELETE FROM run_log WHERE created_at < now() - make_interval(days => :d)"),
         {"d": dias})
     prev.aplicado = True
     return prev

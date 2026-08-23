@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block titulo %}Run #{{ run.id }} — {{ run.rotulo }}{% endblock %}
+{% block titulo %}Run #{{ run.id }} — {{ run.label }}{% endblock %}
 {% block conteudo %}
 <div class="painel">
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <div>
-      <h2>Run #{{ run.id }} · "{{ run.rotulo }}"</h2>
-      <span class="tag">modo: {{ run.modo }}</span>
+      <h2>Run #{{ run.id }} · "{{ run.label }}"</h2>
+      <span class="tag">modo: {{ run.mode }}</span>
       <span class="tag">status: {{ run.status }}</span>
-      <span class="tag">custo: US$ {{ "%.2f"|format(run.custo_usd or 0) }}{% if run.teto_custo_usd %} / US$ {{ "%.2f"|format(run.teto_custo_usd) }}{% endif %}</span>
+      <span class="tag">custo: US$ {{ "%.2f"|format(run.cost_usd or 0) }}{% if run.cost_cap_usd %} / US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</span>
     </div>
     {% if run.status == 'aberto' %}
     <form method="post" action="/runs/{{ run.id }}/abort"

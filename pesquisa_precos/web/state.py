@@ -1,24 +1,24 @@
-"""Ícones e rótulos de `status_etapa` (docs/06_API_E_WEB.md §4.1) — usados pelos templates do
-grafo e da tela de etapa. Central para não espalhar o mapeamento em cada `.html`."""
+"""Ícones e rótulos de `step_status` (docs/06_API_E_WEB.md §4.1) — usados pelos templates do
+grafo e da tela de step. Central para não espalhar o mapeamento em cada `.html`."""
 
 ICONE_STEP = {
-    "nao_iniciada": "○",
-    "executando": "▶",
-    "aguardando_aprovacao": "⏸",
-    "concluida": "✓",
-    "desatualizada": "⚠",
-    "falhou": "✗",
-    "cancelada": "⊘",
-    "pulada": "⊘",
+    "not_started": "○",
+    "running": "▶",
+    "awaiting_approval": "⏸",
+    "finished": "✓",
+    "outdated": "⚠",
+    "failed": "✗",
+    "cancelled": "⊘",
+    "skipped": "⊘",
 }
 
 CLASSE_STEP = {
-    "nao_iniciada": "nao-iniciada",
-    "executando": "executando",
-    "aguardando_aprovacao": "gate",
-    "concluida": "concluida",
-    "desatualizada": "desatualizada",
-    "falhou": "falhou",
-    "cancelada": "cancelada",
-    "pulada": "cancelada",
+    "not_started": "nao-iniciada",
+    "running": "running",
+    "awaiting_approval": "gate",
+    "finished": "finished",
+    "outdated": "outdated",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "skipped": "cancelled",
 }

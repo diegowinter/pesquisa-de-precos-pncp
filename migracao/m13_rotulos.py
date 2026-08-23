@@ -1,13 +1,13 @@
 """
-m13 — Rótulos: `6_rotulos_acumulados.csv` → `rotulo`.
+m13 — Rótulos: `6_rotulos_acumulados.csv` → `label`.
 
 250.085 linhas acumuladas ao longo de todas as execuções de 6b/6c. É a base de calibração de
 threshold e o insumo de qualquer fine-tune futuro do reranker — tabela append-only que **nunca
 se trunca** (docs/02_SCHEMA.md §7). Migrar é transporte puro: nada é derivado, nada é filtrado.
 
-`UNIQUE (par_key, origem)` faz o dedup: o CSV traz o mesmo par mais de uma vez quando ele foi
+`UNIQUE (par_key, source)` faz o dedup: o CSV traz o mesmo par mais de uma vez quando ele foi
 reavaliado, e o `ON CONFLICT DO NOTHING` mantém a primeira ocorrência. A coluna `timestamp` do
-CSV não tem destino no schema — `criado_em` recebe o `now()` da migração. Isso perde a data
+CSV não tem destino no schema — `created_at` recebe o `now()` da migração. Isso perde a data
 original do rótulo; é uma perda real e pequena (a ordem relativa dentro do arquivo é
 preservada) que fica registrada aqui para quem for calibrar por época.
 
@@ -58,16 +58,16 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             if i <= retomada.linhas:
                 continue
             pk = (r.get("par_key") or "").strip()
-            origem = (r.get("origem") or "").strip()
-            if not (pk and origem):
-                rel.mais("linhas sem par_key/origem")
+            source = (r.get("source") or "").strip()
+            if not (pk and source):
+                rel.mais("linhas sem par_key/source")
                 continue
             score = (r.get("score_rerank") or "").strip()
             rel.mais("linhas lidas")
             yield (pk, r.get("texto_catalogo") or "", r.get("texto_item") or "",
                    float(score) if score else None,
-                   (r.get("decisao_final") or "").strip(), origem,
-                   txt(r.get("modelo")), run_id)
+                   (r.get("final_decision") or "").strip(), source,
+                   txt(r.get("model")), run_id)
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
@@ -81,17 +81,17 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             barra.update(tarefa, completed=retomada.linhas)
 
     with db.session() as s:
-        n = repo.contar(s)["rotulo"]
-    rel.mais("rotulo no banco", n)
+        n = repo.contar(s)["label"]
+    rel.mais("label no banco", n)
     lidas = retomada.linhas  # linhas reais; `total` é só o limite superior da barra
     if n < lidas:
-        rel.aviso(f"{lidas - n} linhas do CSV colapsaram por UNIQUE (par_key, origem) — "
-                  f"são reavaliações do mesmo par pela mesma origem. Esperado.")
+        rel.aviso(f"{lidas - n} linhas do CSV colapsaram por UNIQUE (par_key, source) — "
+                  f"são reavaliações do mesmo par pela mesma source. Esperado.")
     return rel
 
 
 def main() -> None:
-    cabecalho("m13 — rótulos", paths.E6_ROTULOS, "rotulo")
+    cabecalho("m13 — rótulos", paths.E6_ROTULOS, "label")
     console.print(f"  banco  : {db.database_url()}")
     migrar(reiniciar="--reiniciar" in sys.argv).imprimir()
 

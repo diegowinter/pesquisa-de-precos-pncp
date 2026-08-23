@@ -1,8 +1,8 @@
 """
 m14 — Cache de embeddings: `checkpoints/6a_emb_cache.parquet` → `embedding_cache`.
 
-O parquet é chaveado só por `sha1(texto)`. A chave nova inclui **provedor, modelo e dimensão**
-(ADR-006 §1) — sem isso, trocar de provedor mistura espaços vetoriais em silêncio, e o sintoma
+O parquet é chaveado só por `sha1(texto)`. A key nova inclui **provider, model e dimensão**
+(ADR-006 §1) — sem isso, trocar de provider mistura espaços vetoriais em silêncio, e o sintoma
 seria um cosseno que parou de fazer sentido, sem nenhum erro.
 
 Como o parquet não guarda de onde os vetores vieram, os três valores são preenchidos com o que
@@ -10,10 +10,10 @@ foi efetivamente usado na v2/v3 e ficam sobrescrevíveis por flag. **A dimensão
 é MEDIDA no próprio parquet** e comparada com o esperado — errar aqui invalidaria em silêncio
 os embeddings pagos em GPU, e é o risco explicitamente apontado em docs/05_MIGRACAO.md §m14.
 
-O vetor vai como float16 little-endian em `bytea`. Os vetores são L2-normalizados e servem só
+O vector vai como float16 little-endian em `bytea`. Os vetores são L2-normalizados e servem só
 para cosseno; meia precisão custa ~1e-3 no score e corta o armazenamento pela metade.
 
-Uso: python -m migracao.m14_embeddings [--provedor X] [--modelo Y]
+Uso: python -m migracao.m14_embeddings [--provider X] [--model Y]
 """
 
 import sys
@@ -31,18 +31,18 @@ from migracao._comum import Relatorio, cabecalho, console, existe
 LOTE = 5_000
 
 # Quem gerou o cache: o servidor de GPU caseira rodando bge-m3 (ver `providers/gpu_remoto.py`
-# e `embedder_local.py` — ambos gravam no MESMO parquet, com a mesma chave sha1(texto)).
+# e `embedder_local.py` — ambos gravam no MESMO parquet, com a mesma key sha1(texto)).
 PROVEDOR_PADRAO = "gpu_caseira"
 DIMENSAO_ESPERADA = 1024  # bge-m3
 
 
-def migrar(provedor: str = PROVEDOR_PADRAO, modelo: str | None = None) -> Relatorio:
+def migrar(provider: str = PROVEDOR_PADRAO, model: str | None = None) -> Relatorio:
     rel = Relatorio("m14 — cache de embeddings")
     if not existe(paths.CK_6A_EMB_CACHE):
         rel.aviso(f"{paths.CK_6A_EMB_CACHE.name} ausente — a próxima 6a reembeda tudo na GPU.")
         return rel
 
-    modelo = modelo or carregar_config()["embedder_model"]
+    model = model or carregar_config()["embedder_model"]
     arquivo = pq.ParquetFile(paths.CK_6A_EMB_CACHE)
     total = arquivo.metadata.num_rows
     rel.mais("vetores no parquet", total)
@@ -51,26 +51,26 @@ def migrar(provedor: str = PROVEDOR_PADRAO, modelo: str | None = None) -> Relato
     enviados = 0
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), console=console) as barra, db.raw_connection() as conn:
-        tarefa = barra.add_task(f"gravando ({provedor}/{modelo})", total=total)
-        for bloco in arquivo.iter_batches(batch_size=LOTE, columns=["hash", "vetor"]):
+        tarefa = barra.add_task(f"gravando ({provider}/{model})", total=total)
+        for bloco in arquivo.iter_batches(batch_size=LOTE, columns=["hash", "vector"]):
             dados = bloco.to_pydict()
             itens = []
-            for h, v in zip(dados["hash"], dados["vetor"]):
-                vetor = np.asarray(v, dtype=np.float32)
-                dimensoes.add(int(vetor.size))
-                itens.append((h, vetor))
-            enviados += repo.gravar_embeddings(conn, provedor, modelo, itens)
+            for h, v in zip(dados["hash"], dados["vector"]):
+                vector = np.asarray(v, dtype=np.float32)
+                dimensoes.add(int(vector.size))
+                itens.append((h, vector))
+            enviados += repo.gravar_embeddings(conn, provider, model, itens)
             conn.commit()
             barra.update(tarefa, completed=enviados)
     rel.mais("vetores enviados", enviados)
 
     # Medido, não assumido. Uma dimensão diferente da esperada significa que o parquet foi
-    # gerado por outro modelo — e migrá-lo sob o nome errado é exatamente o bug silencioso
-    # que a chave composta existe para evitar.
+    # gerado por outro model — e migrá-lo sob o name errado é exatamente o bug silencioso
+    # que a key composta existe para evitar.
     rel.mais("dimensões distintas", len(dimensoes))
     if dimensoes != {DIMENSAO_ESPERADA}:
         rel.aviso(f"dimensão MEDIDA no parquet: {sorted(dimensoes)} (esperado "
-                  f"{DIMENSAO_ESPERADA} para bge-m3). Confirme `--modelo` antes de usar este "
+                  f"{DIMENSAO_ESPERADA} para bge-m3). Confirme `--model` antes de usar este "
                   f"cache na 6a — espaço vetorial errado não dá erro, dá resultado ruim.")
 
     with db.session() as s:
@@ -83,11 +83,11 @@ def main() -> None:
     console.print(f"  banco  : {db.database_url()}")
     args = sys.argv[1:]
 
-    def flag(nome: str, default):
-        return args[args.index(nome) + 1] if nome in args else default
+    def flag(name: str, default):
+        return args[args.index(name) + 1] if name in args else default
 
-    migrar(provedor=flag("--provedor", PROVEDOR_PADRAO),
-           modelo=flag("--modelo", None)).imprimir()
+    migrar(provider=flag("--provider", PROVEDOR_PADRAO),
+           model=flag("--model", None)).imprimir()
 
 
 if __name__ == "__main__":

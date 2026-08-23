@@ -34,7 +34,7 @@ def database_url() -> str:
 
 
 def engine() -> Engine:
-    """Engine singleton. `pool_pre_ping` porque o processo de etapa vive horas e o Postgres
+    """Engine singleton. `pool_pre_ping` porque o processo de step vive horas e o Postgres
     local pode ser reiniciado no meio — sem isso a conexão morta só aparece como erro no
     primeiro INSERT depois da queda, muito longe da causa."""
     global _engine, _Sessao
@@ -83,11 +83,11 @@ def raw_connection():
 
 
 def is_available() -> tuple[bool, str]:
-    """(ok, mensagem) — usado pelo `--fonte banco` para falhar com mensagem útil em vez de
+    """(ok, message) — usado pelo `--fonte banco` para falhar com message útil em vez de
     stack trace de driver quando o serviço está fora ou a base não existe."""
     try:
         with engine().connect() as c:
             c.execute(text("SELECT 1"))
         return True, database_url()
-    except Exception as exc:  # noqa: BLE001 — a mensagem do driver é o diagnóstico
+    except Exception as exc:  # noqa: BLE001 — a message do driver é o diagnóstico
         return False, f"{type(exc).__name__}: {exc}"

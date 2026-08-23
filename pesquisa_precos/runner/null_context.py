@@ -2,7 +2,7 @@
 `RunContext` que não mostra nada — o contexto de `estimar()`.
 
 `estimar(params, ctx)` tem a mesma assinatura de `executar(params, ctx)` de propósito (é o
-contrato da Fase 1), mas roda FORA de um run: ninguém criou `run_etapa`, não há barra para
+contrato da Fase 1), mas roda FORA de um run: ninguém criou `run_step`, não há barra para
 alimentar nem `run_log` para escrever. Este contexto existe para preencher esse buraco — ele
 aceita todas as chamadas do contrato e descarta o que é apresentação.
 
@@ -11,24 +11,24 @@ isso. Com a CLI fora, `rich` não tem mais para onde imprimir: quem consome a es
 formulário da web, que lê o `Estimate` de volta.
 
 `gastar()` continua contando e continua respeitando o teto (ADR-004): `estimar` não deveria
-gastar nada, e se uma etapa gastar, o teto ainda a interrompe.
+gastar nada, e se uma step gastar, o teto ainda a interrompe.
 """
 
 from pesquisa_precos.steps.base import MANTER, TetoDeCustoExcedido
-from pesquisa_precos.providers.resolver import Provedores
+from pesquisa_precos.providers.resolver import Providers
 
 
 class NullContext:
     """Contexto silencioso. Use como context manager para simetria com os outros."""
 
-    def __init__(self, etapa: str, *,
-                 acao: str = "atualizar", modo: str = "assistido",
-                 teto_custo_usd: float | None = None, provedores_sessao=None):
-        self.etapa = etapa
-        self.acao = acao
-        self.modo = modo
-        self.teto_custo_usd = teto_custo_usd
-        self.provedores = Provedores(provedores_sessao)
+    def __init__(self, step: str, *,
+                 action: str = "update", mode: str = "assisted",
+                 cost_cap_usd: float | None = None, providers_session=None):
+        self.step = step
+        self.action = action
+        self.mode = mode
+        self.teto_custo_usd = cost_cap_usd
+        self.providers = Providers(providers_session)
 
         self.gasto_usd = 0.0
         self.n_erros = 0
@@ -46,12 +46,12 @@ class NullContext:
         pass
 
     # ── contrato RunContext ────────────────────────────────────────────────
-    def progresso(self, processados: int, total: int | None = None,
+    def progresso(self, processed: int, total: int | None = None,
                   descricao: str | None = None) -> None:
-        self.ultimo_progresso = (processados, total if total is not None
+        self.ultimo_progresso = (processed, total if total is not None
                                  else self.ultimo_progresso[1])
 
-    def subprogresso(self, processados: int | None = None, total=MANTER,
+    def subprogresso(self, processed: int | None = None, total=MANTER,
                      descricao: str | None = None) -> None:
         pass
 
@@ -61,8 +61,8 @@ class NullContext:
     def log(self, nivel: str, msg: str, **contexto) -> None:
         pass
 
-    def erro_item(self, chave: str, exc: object, *, tipo: str = "", nome: str = "") -> None:
-        # Conta, mas não persiste: erro por item vive em `erro_item`, e quem grava lá é o
+    def item_error(self, key: str, exc: object, *, tipo: str = "", name: str = "") -> None:
+        # Conta, mas não persiste: erro por item vive em `item_error`, e quem grava lá é o
         # `DbContext`, dentro de um run. Uma estimativa não tem run a que pendurar erro.
         self.n_erros += 1
 

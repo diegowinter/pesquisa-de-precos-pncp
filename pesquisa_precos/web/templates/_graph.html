@@ -2,7 +2,7 @@
 <div id="grafo" class="grafo" hx-get="/runs/{{ run.id }}/graph" hx-trigger="every 3s" hx-swap="outerHTML">
   {% for e in run.steps %}
   <a class="no-etapa {{ classe_step[e.status] }}" href="/runs/{{ run.id }}/steps/{{ e.step }}">
-    <span class="icone">{{ icone_etapa[e.status] }}</span>
+    <span class="icone">{{ icone_step[e.status] }}</span>
     <span class="titulo">{{ e.step }}<br>{{ e.titulo }}</span>
   </a>
   {% if not loop.last %}<span class="seta">──►</span>{% endif %}

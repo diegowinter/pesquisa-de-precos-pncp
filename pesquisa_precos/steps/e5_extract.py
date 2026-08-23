@@ -7,7 +7,7 @@ Substitui o par `e5a_ocr.py` (parse/OCR) + `e5b_extrair.py` (janela) e o embriã
 
     baixa PDF → extrai texto (nativo + OCR nas páginas escaneadas)
               → grava data/5_pdf_texto.csv
-              → DESCARTA o PDF (ADR-012: url_pncp + hash preservados, texto é o ativo)
+              → DESCARTA o PDF (ADR-012: url_pncp + hash preservados, texto é o active)
               → aplica a estratégia (janela | completa | visao | auto)
               → grava item_enriquecido (contrato único, independente de estratégia)
 
@@ -34,7 +34,7 @@ truncar documento grande em silêncio na estratégia `completa` (usar `strategie
 dividir_em_chunks`, que tem overlap).
 
 Uso: python -m pesquisa_precos.steps.e5_extract [--estrategia auto|janela|completa|visao]
-     [--provedor openrouter|local] [--concurrency-docs 4] [--concurrency-llm 8]
+     [--provider openrouter|local] [--concurrency-docs 4] [--concurrency-llm 8]
      [--documentos <numeroControlePNCP,...>] [--limite-docs N]
 """
 
@@ -70,11 +70,11 @@ CODE_VERSION = "2.0.0"
 
 
 class Params(BaseModel):
-    estrategia: Literal["auto", "janela", "completa", "visao"] = Field(
+    estrategia: Literal["auto", "window", "full", "vision"] = Field(
         "auto", description="Estratégia de extração; 'auto' roteia por documento (ADR-010)")
-    provedor: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
+    provider: str = Field("openrouter", description="Provedor de LLM [local|openrouter]")
     concurrency_docs: int = Field(
-        4, ge=1, le=16, description="Documentos processados em paralelo (download+OCR+extração)")
+        4, ge=1, le=16, description="Documentos processed em paralelo (download+OCR+extração)")
     concurrency_llm: int = Field(
         8, ge=1, le=32, description="Chamadas de LLM em paralelo por item, dentro de um documento")
     janela_max: int = Field(9000, ge=1000, description="Teto de chars da janela (estratégia janela)")
@@ -82,7 +82,7 @@ class Params(BaseModel):
     tamanho_tabela: int = Field(
         2500, ge=0, description="Estimate de chars da tabela — usado na fórmula do roteamento auto")
     limiar_visao: int = Field(
-        3, ge=1, description="Nº mínimo de itens sobreviventes p/ escalar a 'visao' quando o "
+        3, ge=1, description="Nº mínimo de itens sobreviventes p/ escalar a 'vision' quando o "
                              "documento fica suspeito/ilegível após janela/completa")
     max_paginas: int | None = Field(None, description="Teto de páginas por documento (OCR/visão)")
     pular_ocr: bool = Field(False, description="Só texto nativo (não chama o OCR)")
@@ -133,7 +133,7 @@ class DestinoBanco:
             _num(l.get("preco_api")), _num(l.get("preco_pdf")), _num(l.get("divergencia_preco")),
             l.get("fornecedor") or None, _num(l.get("quantidade_pdf")),
             l.get("status") or "", l.get("destino") or "revisar",
-            l.get("estrategia") or "janela", l.get("doc_status") or "ok", self.run_id,
+            l.get("estrategia") or "window", l.get("doc_status") or "ok", self.run_id,
         ) for l in linhas]
         with db.raw_connection() as conn:
             repo.gravar_enriquecidos(conn, lote)
@@ -226,7 +226,7 @@ def _documentos_alvo(params: Params) -> set[str]:
 
 
 def _identificadores(doc_ctrl: str, item0: dict) -> dict:
-    """Os campos que a capacidade `pdf` precisa para achar o arquivo (ADR-012).
+    """Os campos que a capability `pdf` precisa para achar o arquivo (ADR-012).
 
     `url_pncp` sozinha aponta para a PÁGINA do documento no portal, não para o PDF — quem
     resolve o arquivo é `listar_arquivos()`, a partir dos sequenciais que a etapa 2 preserva
@@ -249,7 +249,7 @@ def _extrair_texto(provedor_pdf, doc_ctrl: str, item0: dict,
 
     Fase 11 (ADR-019): substitui `_baixar_pdfs` + `_parsear_e_ocr`, que baixavam o PDF numa
     pasta local e rodavam PyMuPDF aqui dentro. Agora quem baixa, parseia, rasteriza e chama o
-    OCR é a capacidade `pdf` — a etapa recebe texto. Com `PDF_BASE_URL` vazio o trabalho
+    OCR é a capability `pdf` — a etapa recebe texto. Com `PDF_BASE_URL` vazio o trabalho
     acontece em processo, exatamente como antes; com serviço configurado, o container nunca vê
     o PDF.
     """
@@ -257,8 +257,8 @@ def _extrair_texto(provedor_pdf, doc_ctrl: str, item0: dict,
     resultado = provedor_pdf.extrair(url, **_identificadores(doc_ctrl, item0))
     paginas = resultado.get("paginas") or []
     if pular_ocr:
-        # A capacidade já devolveu tudo; aqui só se descarta o que veio de OCR. Pedir ao
-        # provedor para não fazer OCR seria melhor, mas nem todo provedor honra a flag — e
+        # A capability já devolveu tudo; aqui só se descarta o que veio de OCR. Pedir ao
+        # provider para não fazer OCR seria melhor, mas nem todo provider honra a flag — e
         # filtrar aqui garante o comportamento independentemente de quem atendeu.
         paginas = [pg for pg in paginas if pg.get("fonte") != "ocr"]
     linhas_paginas = [{
@@ -282,7 +282,7 @@ def _processar_estrategia(estrategia: str, curador_factory, texto_doc: str, imag
     chamadas "caras" por documento (tabela) + casamentos baratos; rodam sequenciais na thread
     do documento — o paralelismo de `concurrency_docs` já basta para elas.
     """
-    if estrategia == "janela":
+    if estrategia == "window":
         def fn(item):
             return estr_window.extrair_item(curador_factory(), texto_doc, item,
                                             janela_max=params.janela_max,
@@ -296,7 +296,7 @@ def _processar_estrategia(estrategia: str, curador_factory, texto_doc: str, imag
         return out
 
     curador = curador_factory()
-    if estrategia == "completa":
+    if estrategia == "full":
         tabela = estr_full.extrair_tabela(curador, texto_doc)
         return estr_base.casar_itens_contra_tabela(curador, itens_doc, tabela)
 
@@ -343,10 +343,10 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
     texto_doc, linhas_paginas, n_ocr = _extrair_texto(
         provedor_pdf, doc_ctrl, item0, params.pular_ocr)
     if not linhas_paginas:
-        linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "janela"),
+        linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "window"),
                   "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
                  for it in itens_doc]
-        doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "janela",
+        doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "window",
                              "n_paginas": 0, "n_paginas_ocr": 0, "n_itens_tabela": 0,
                              "chamadas_llm": 0, "doc_status": "ilegivel"})
         return linhas, doc_extracao
@@ -354,10 +354,10 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
         _grava_paginas(linhas_paginas)
 
         if not texto_doc.strip():
-            linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "janela"),
+            linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "window"),
                       "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
                      for it in itens_doc]
-            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "janela",
+            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "window",
                                  "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
                                  "n_itens_tabela": 0, "chamadas_llm": 0, "doc_status": "ilegivel"})
             return linhas, doc_extracao
@@ -380,20 +380,20 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
 
         # Escalonamento (docs/03_ETAPAS.md §5.3): auto/visao explícito, doc ficou
         # suspeito/ilegível, e itens suficientes para amortizar o custo por página.
-        if (estrategia != "visao" and params.estrategia in ("auto", "visao")
+        if (estrategia != "vision" and params.estrategia in ("auto", "vision")
                 and doc_status in ("suspeito", "ilegivel") and len(itens_doc) >= params.limiar_visao):
-            extraidos_v = _processar_estrategia("visao", curador_factory, texto_doc, imagens_fn,
+            extraidos_v = _processar_estrategia("vision", curador_factory, texto_doc, imagens_fn,
                                             itens_doc, params)
             doc_status_v = estr_base.doc_status_de_motivos({
                 ik: estr_base.validar_extracao(ex, next(
                     it for it in itens_doc if it["item_key"] == ik))[0]
                 for ik, ex in extraidos_v.items()})
-            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "visao",
+            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "vision",
                                  "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
                                  "n_itens_tabela": len(extraidos_v), "chamadas_llm": len(itens_doc),
                                  "doc_status": doc_status_v})
             if doc_status_v == "ok" or doc_status == "ilegivel":
-                extraidos, estrategia, doc_status = extraidos_v, "visao", doc_status_v
+                extraidos, estrategia, doc_status = extraidos_v, "vision", doc_status_v
 
         linhas = [_linha_enriquecido(it, extraidos.get(it["item_key"], {"encontrado": False}),
                                      estrategia) for it in itens_doc]
@@ -415,7 +415,7 @@ def _grava_paginas(linhas: list[dict]) -> None:
 
 
 def _marcar_documento_extraido(linhas_doc: list[dict]) -> None:
-    """`documento.estado` é a chave de resumo da etapa no banco (ADR-018).
+    """`documento.estado` é a key de resumo da etapa no banco (ADR-018).
 
     Sem isso o documento voltaria à fila na execução seguinte, repagando OCR e LLM — que é
     exatamente o gasto que o checkpoint por documento existe para evitar. O estado carrega o
@@ -467,10 +467,10 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         with db.session() as s:
             cont = repo_extr.contar(s)
         ctx.log("info", "[5] Nada a fazer (todos os documentos já extraídos).")
-        return StepResult(metricas=dict(cont))
+        return StepResult(metrics=dict(cont))
 
     ctx.log("info", f"[bold][5] {len(grupos)} documentos sobreviventes, pendentes: {len(pend)}[/] "
-                    f"— estratégia: {params.estrategia}, provedor: {params.provedor}, "
+                    f"— estratégia: {params.estrategia}, provider: {params.provedor}, "
                     f"concorrência: {params.concurrency_docs} docs × {params.concurrency_llm} itens")
 
     prompts_ativos = {}
@@ -486,13 +486,13 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     def curador_factory():
         if not hasattr(_tls, "c"):
-            _tls.c = ctx.provedores.novo_chat(curador_kwargs={
+            _tls.c = ctx.providers.novo_chat(curador_kwargs={
                 "max_retries": 6, "prompts_ativos": prompts_ativos}).curador
         return _tls.c
 
     # ADR-019: a etapa não conhece mais PyMuPDF nem o servidor de OCR. Ela pede texto à
-    # capacidade `pdf`, que decide se o trabalho acontece aqui ou num serviço externo.
-    provedor_pdf = ctx.provedores.pdf
+    # capability `pdf`, que decide se o trabalho acontece aqui ou num serviço externo.
+    provedor_pdf = ctx.providers.pdf
 
     n_erros = [0]
 
@@ -529,6 +529,6 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     ctx.log("info", f"[bold green][5] Concluído.[/] → banco ({cont})")
     n_itens = sum(len(grupos[d]) for d in pend)
     return StepResult(
-        processados=n_itens - n_erros[0], erros=n_erros[0],
-        metricas={"documentos_processados": len(pend) - n_erros[0], **cont},
+        processed=n_itens - n_erros[0], erros=n_erros[0],
+        metrics={"documentos_processados": len(pend) - n_erros[0], **cont},
     )

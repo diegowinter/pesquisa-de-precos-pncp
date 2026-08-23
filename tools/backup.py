@@ -21,7 +21,7 @@ Uso:
 Procedimento de restauração/validação (manual, documentado em vez de automatizado):
     1. `createdb pesquisa_precos_teste_restore` num Postgres local descartável.
     2. `pg_restore --dbname=pesquisa_precos_teste_restore --no-owner arquivo.dump`
-    3. `python -m migracao.validar` (ou uma contagem manual de tabelas-chave) contra o banco
+    3. `python -m migracao.validar` (ou uma contagem manual de tabelas-key) contra o banco
        restaurado, comparando com o original.
     4. `dropdb pesquisa_precos_teste_restore`.
    Não é automatizado aqui porque exige um segundo Postgres disponível — o que não pode ser
@@ -78,7 +78,7 @@ def nome_arquivo(agora: datetime | None = None) -> str:
 
 
 def rodar_pg_dump(url_sqlalchemy: str, destino: Path, *, executavel: str = "pg_dump") -> Path:
-    """Roda `pg_dump -Fc` e devolve o caminho do arquivo gerado. A senha vai por `PGPASSWORD`
+    """Roda `pg_dump -Fc` e devolve o caminho do arquivo gerado. A password vai por `PGPASSWORD`
     no ambiente do subprocesso (não na linha de comando, que ficaria visível em `ps`/histórico)."""
     destino.mkdir(parents=True, exist_ok=True)
     arquivo = destino / nome_arquivo()

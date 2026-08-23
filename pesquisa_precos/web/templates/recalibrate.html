@@ -25,10 +25,10 @@
   <form method="post" action="/config">
     <input type="hidden" name="campo__rerank_t_aceita" value="{{ resultado.t_aceita }}">
     <input type="hidden" name="campo__rerank_t_rejeita" value="{{ resultado.t_rejeita }}">
-    <label for="rotulo">Rótulo</label>
-    <input id="rotulo" name="rotulo" required placeholder="ex.: recalibração {{ resultado.t_aceita }}/{{ resultado.t_rejeita }}">
-    <label for="notas">Notas</label>
-    <input id="notas" name="notas" placeholder="precisão/recall observados nesta amostra">
+    <label for="label">Rótulo</label>
+    <input id="label" name="label" required placeholder="ex.: recalibração {{ resultado.t_aceita }}/{{ resultado.t_rejeita }}">
+    <label for="notes">Notas</label>
+    <input id="notes" name="notes" placeholder="precisão/recall observados nesta amostra">
     <p style="margin-top:.75rem;"><button class="principal" type="submit">Salvar como versão nova</button></p>
   </form>
 </div>

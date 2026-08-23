@@ -3,11 +3,11 @@ Semeia no banco os prompts da pipeline ativa (Fase 6, docs/04_FASES.md — "prom
 `core/prompts.py` para o banco, com versão ativa e histórico").
 
 Grava a versão 1, ATIVA, dos três prompts que a Curador de fato usa nas etapas com custo de
-LLM (3, 5b, 6c — os mesmos citados em docs/02_SCHEMA.md §10 como exemplo de `prompt.nome`):
+LLM (3, 5b, 6c — os mesmos citados em docs/02_SCHEMA.md §10 como exemplo de `prompt.name`):
 'classificar_item', 'extrair_item_pdf', 'comparar_par'. O TEXTO gravado aqui é idêntico ao
 hardcoded em `core/prompts.py`, só reescrito como template `str.format()` — rodar este script
 não muda nenhum resultado: antes dele, `providers/llm_curador.py` usa o hardcoded (nenhuma
-`prompt_versao` ativa no banco); depois, usa o texto do banco, byte a byte igual.
+`prompt_version` ativa no banco); depois, usa o texto do banco, byte a byte igual.
 
 Placeholders de cada template (ver `core/prompts_resolver.py` e `providers/llm_curador.py`
 para quem os preenche):
@@ -19,7 +19,7 @@ Chaves `{`/`}` literais do JSON de exemplo pedido na resposta vêm escapadas (`{
 sintaxe de `str.format`, não do prompt em si.
 
 Uso:
-  uv run python -m tools.seed_prompts            # semeia (não sobrescreve se já ativo)
+  uv run python -m tools.seed_prompts            # semeia (não sobrescreve se já active)
   uv run python -m tools.seed_prompts --forcar    # sobrescreve o texto da versão 1
 """
 
@@ -85,7 +85,7 @@ TEMPLATE_EXTRAIR_ITEM_PDF = (
 TEMPLATE_COMPARAR_PAR = (
     "Você compara um item de catálogo (CATMAT/CATSER) com um item real de contrato/ata "
     "do PNCP para decidir se são o MESMO item para fins de pesquisa de preço.\n\n"
-    "CRITÉRIO: mesmo TIPO de item conta como 'sim' — variações de marca, modelo, redação "
+    "CRITÉRIO: mesmo TIPO de item conta como 'sim' — variações de marca, model, redação "
     "ou nível de detalhe equivalentes são o mesmo item. Itens de natureza ou finalidade "
     "distinta contam como 'não', mesmo que relacionados (ex.: arma vs. coldre da arma).\n\n"
     "ITEM DO CATÁLOGO (referência):\n"
@@ -112,15 +112,15 @@ def main() -> None:
     args = ap.parse_args()
 
     with db.session() as sessao:
-        for nome, descricao, template in PROMPTS:
-            existente = repo.prompt_versao_ativa(sessao, nome)
+        for name, descricao, template in PROMPTS:
+            existente = repo.prompt_versao_ativa(sessao, name)
             if existente is not None and not args.forcar:
-                console.print(f"[dim]'{nome}' já tem versão ativa (id={existente}) — pulado "
+                console.print(f"[dim]'{name}' já tem versão ativa (id={existente}) — pulado "
                               f"(use --forcar para sobrescrever a v1)[/]")
                 continue
-            versao_id = repo.upsert_prompt(sessao, nome, descricao, "chat", template,
+            versao_id = repo.upsert_prompt(sessao, name, descricao, "chat", template,
                                            versao=1, ativa=True)
-            console.print(f"[green]'{nome}'[/] semeado — prompt_versao.id={versao_id}")
+            console.print(f"[green]'{name}'[/] semeado — prompt_version.id={versao_id}")
 
 
 if __name__ == "__main__":

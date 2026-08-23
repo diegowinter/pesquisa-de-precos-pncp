@@ -1,5 +1,5 @@
 """
-Camada de serviço de prompts (Fase 6). `prompt`/`prompt_versao` — versão ativa + histórico
+Camada de serviço de prompts (Fase 6). `prompt`/`prompt_version` — versão ativa + histórico
 (docs/02_SCHEMA.md §10). Editar nunca sobrescreve: `criar_prompt_versao` sempre nasce inativa;
 `ativar_prompt_versao` é quem promove.
 
@@ -25,29 +25,29 @@ def listar_prompts() -> list[dict[str, Any]]:
         return repo.listar_prompts(sessao)
 
 
-def versoes_prompt(nome: str) -> list[dict[str, Any]]:
+def versoes_prompt(name: str) -> list[dict[str, Any]]:
     with db.session() as sessao:
-        versoes = repo.prompt_versoes(sessao, nome)
+        versoes = repo.prompt_versoes(sessao, name)
     if not versoes:
-        raise PromptInexistente(f"prompt {nome!r} não existe")
+        raise PromptInexistente(f"prompt {name!r} não existe")
     return versoes
 
 
-def criar_versao(nome: str, template: str, *, criado_por: str | None = None,
-                 notas: str | None = None) -> int:
+def criar_versao(name: str, template: str, *, created_by: str | None = None,
+                 notes: str | None = None) -> int:
     with db.session() as sessao:
-        return repo.criar_prompt_versao(sessao, nome, template, criado_por=criado_por,
-                                        notas=notas)
+        return repo.criar_prompt_versao(sessao, name, template, created_by=created_by,
+                                        notes=notes)
 
 
-def ativar_versao(nome: str, versao: int) -> bool:
+def ativar_versao(name: str, versao: int) -> bool:
     with db.session() as sessao:
-        ok = repo.ativar_prompt_versao(sessao, nome, versao)
+        ok = repo.ativar_prompt_versao(sessao, name, versao)
     if not ok:
-        raise PromptInexistente(f"prompt {nome!r} versão {versao} não existe")
+        raise PromptInexistente(f"prompt {name!r} versão {versao} não existe")
     return ok
 
 
-def diff_versoes(nome: str, versao_a: int, versao_b: int) -> dict[str, Any]:
+def diff_versoes(name: str, versao_a: int, versao_b: int) -> dict[str, Any]:
     with db.session() as sessao:
-        return repo.diff_prompt(sessao, nome, versao_a, versao_b)
+        return repo.diff_prompt(sessao, name, versao_a, versao_b)

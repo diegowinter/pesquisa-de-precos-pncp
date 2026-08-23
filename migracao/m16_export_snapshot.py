@@ -8,7 +8,7 @@ partir do último export **oficial**, que é exatamente o que este script faz
 (docs/05_MIGRACAO.md §6.3, docs/02_SCHEMA.md §8).
 
 O CSV tem BOM (`utf-8-sig`) e três colunas: `codigo, numeroControlePNCP, numeroItem`. Falta o
-`tipo`, que a PK do destino exige — resolvido pelo catálogo, com a mesma validação de
+`tipo`, que a PK do destino exige — resolved pelo catálogo, com a mesma validação de
 ambiguidade do m12.
 
 Uso: python -m migracao.m16_export_snapshot
@@ -26,7 +26,7 @@ def migrar() -> Relatorio:
     if not existe(paths.E8_SNAPSHOT):
         rel.aviso(f"{paths.E8_SNAPSHOT.name} ausente — sem baseline, o primeiro `--novos` do "
                   f"sistema novo vai marcar TODAS as linhas como novidade. Gere o snapshot "
-                  f"a partir do último export oficial antes de rodar a etapa 8 com --novos.")
+                  f"a partir do último export oficial antes de rodar a step 8 com --novos.")
         return rel
 
     with db.session() as s:

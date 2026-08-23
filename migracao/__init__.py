@@ -11,7 +11,7 @@ Cada passo é um script independente e resumível, na ordem das dependências de
 
 `python -m migracao` lista os passos e o que já foi feito.
 
-**Nenhum CSV é apagado ou alterado.** A origem é somente-leitura durante toda a fase; o
+**Nenhum CSV é apagado ou alterado.** A source é somente-leitura durante toda a fase; o
 roteiro de rollback (§7) depende disso.
 
 Este pacote NÃO faz parte do pacote instalável (`pyproject.toml` inclui só `pesquisa_precos*`):
@@ -19,19 +19,19 @@ Este pacote NÃO faz parte do pacote instalável (`pyproject.toml` inclui só `p
 """
 
 PASSOS = (
-    ("m01_config_inicial", ".env → config_versao, config_valor, provedor"),
-    ("m02_prompts", "core/prompts.py → prompt, prompt_versao (v1 ativa)"),
+    ("m01_config_inicial", ".env → config_version, config_value, provider"),
+    ("m02_prompts", "core/prompts.py → prompt, prompt_version (v1 active)"),
     ("m03_run_historico", "run sintético 'acervo migrado v2/v3'"),
     ("m04_catalogo", "0a_catalogo_filtrado + 1_categoria_por_codigo → catalogo_item"),
     ("m05_termos", "1_conceitos_termos → termo, termo_codigo"),
-    ("m06_watermark", "checkpoints/2_watermark → coleta_watermark"),
+    ("m06_watermark", "checkpoints/2_watermark → collection_watermark"),
     ("m07_documentos_itens", "2_itens_coletados → documento, documento_termo, item"),
     ("m08_classificacao", "3_itens_classificados → texto_classificacao, item_categoria"),
     ("m09_sobreviventes", "4_itens_sobreviventes → item.sobrevivente"),
     ("m10_texto_pdf", "5_pdf_texto → documento_pagina"),
     ("m11_enriquecidos", "5_itens_enriquecidos + destino → item_enriquecido, documento_extracao"),
     ("m12_pares", "6a + 6b + 6c → par"),
-    ("m13_rotulos", "6_rotulos_acumulados → rotulo"),
+    ("m13_rotulos", "6_rotulos_acumulados → label"),
     ("m14_embeddings", "checkpoints/6a_emb_cache.parquet → embedding_cache"),
     ("m15_grupos", "7_itens_agrupados → grupo_item"),
     ("m16_export_snapshot", "8_export_snapshot → export_snapshot"),

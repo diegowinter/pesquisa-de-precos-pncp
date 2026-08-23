@@ -6,10 +6,10 @@
   <p class="tag">Compara o ranking (<code>grupo_item</code>) de dois runs: item novo, item sumiu, preço mudou (Fase 9). Os dois runs precisam ter passado pela etapa 7 com <code>--fonte banco</code>.</p>
   <form method="get" action="/diff" class="linha">
     <label style="display:inline-block;">Run "de" (mais antigo)
-      <select name="run_a">{% for r in runs %}<option value="{{ r.id }}" {% if run_a == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.rotulo or "" }}</option>{% endfor %}</select>
+      <select name="run_a">{% for r in runs %}<option value="{{ r.id }}" {% if run_a == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.label or "" }}</option>{% endfor %}</select>
     </label>
     <label style="display:inline-block;">Run "para" (mais novo)
-      <select name="run_b">{% for r in runs %}<option value="{{ r.id }}" {% if run_b == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.rotulo or "" }}</option>{% endfor %}</select>
+      <select name="run_b">{% for r in runs %}<option value="{{ r.id }}" {% if run_b == r.id %}selected{% endif %}>#{{ r.id }} · {{ r.label or "" }}</option>{% endfor %}</select>
     </label>
     <button type="submit">Comparar</button>
   </form>

@@ -1,5 +1,5 @@
 """
-Adapters concretos das capacidades (Fase 7) — cada um embrulha um cliente já validado atrás
+Adapters concretos das capabilities (Fase 7) — cada um embrulha um cliente já validado atrás
 dos `Protocol` de `protocolos.py`, sem reescrever a lógica de chamada.
 
 **Todo adapter aqui é CLIENTE DE UM SERVIÇO.** Desde a ADR-021 não existe mais versão "em
@@ -23,7 +23,7 @@ import time
 
 import numpy as np
 
-from pesquisa_precos.providers.protocolos import InfoProvedor
+from pesquisa_precos.providers.protocolos import ProviderInfo
 
 _RETRY_TENTATIVAS = 3
 _RETRY_BACKOFF_S = 2.0
@@ -44,9 +44,9 @@ def _com_retry(fn, *args, **kwargs):
 
 class ChatAdapter:
     """`lm_studio` / `openrouter` / `openai_compat` — os três são o mesmo protocolo HTTP
-    (OpenAI-compatible); o que muda é só base_url/modelo/key, já resolvidos em `info`."""
+    (OpenAI-compatible); o que muda é só base_url/model/key, já resolvidos em `info`."""
 
-    def __init__(self, info: InfoProvedor, *, api_key: str, curador_kwargs: dict | None = None):
+    def __init__(self, info: ProviderInfo, *, api_key: str, curador_kwargs: dict | None = None):
         from pesquisa_precos.providers.llm_curador import Curador
 
         self.info = info
@@ -55,7 +55,7 @@ class ChatAdapter:
         # `setdefault` porque quem chama (ex.: etapa 3, concorrência alta) pode querer um
         # valor diferente sem colidir com o default daqui.
         kwargs.setdefault("max_retries", 6)
-        self.curador = Curador(model=info.modelo, base_url=info.base_url, api_key=api_key,
+        self.curador = Curador(model=info.model, base_url=info.base_url, api_key=api_key,
                                **kwargs)
 
     def invocar(self, prompt: str) -> str:
@@ -67,18 +67,18 @@ class ChatAdapter:
         return self.curador._invocar_json(prompt)  # noqa: SLF001 — mesmo pacote, uso interno
 
     def custo_estimado(self, tokens_in: int, tokens_out: int) -> float:
-        if self.info.custo_in_por_mtok is None or self.info.custo_out_por_mtok is None:
+        if self.info.cost_in_per_mtok is None or self.info.cost_out_per_mtok is None:
             return 0.0
-        return (tokens_in / 1_000_000) * self.info.custo_in_por_mtok + \
-               (tokens_out / 1_000_000) * self.info.custo_out_por_mtok
+        return (tokens_in / 1_000_000) * self.info.cost_in_per_mtok + \
+               (tokens_out / 1_000_000) * self.info.cost_out_per_mtok
 
 
 class EmbedGpuCaseiraAdapter:
     """`gpu_caseira` (embed) — cliente HTTP do servidor de GPU (`gpu_remoto.EmbedderRemoto`),
     com retry curto por lote. FALLBACK PROIBIDO (ADR-006): se isto falhar após as tentativas,
-    a exceção sobe e a etapa para — nunca cair para outro provedor de embedding."""
+    a exceção sobe e a etapa para — nunca cair para outro provider de embedding."""
 
-    def __init__(self, info: InfoProvedor, *, api_key: str):
+    def __init__(self, info: ProviderInfo, *, api_key: str):
         from pesquisa_precos.providers.gpu_remoto import EmbedderRemoto
 
         self.info = info
@@ -96,7 +96,7 @@ class RerankGpuCaseiraAdapter:
     com retry curto por lote. Fallback é PERMITIDO em `rerank` (ADR-006) — quem decide se usa
     é `resolver.py`/a etapa, não este adapter."""
 
-    def __init__(self, info: InfoProvedor, *, api_key: str):
+    def __init__(self, info: ProviderInfo, *, api_key: str):
         from pesquisa_precos.providers.gpu_remoto import RerankerRemoto
 
         self.info = info
@@ -117,7 +117,7 @@ class PdfRemotoAdapter:
     do PNCP para lá (ADR-021).
     """
 
-    def __init__(self, info: InfoProvedor, *, api_key: str, timeout_s: int = 600):
+    def __init__(self, info: ProviderInfo, *, api_key: str, timeout_s: int = 600):
         self.info = info
         self._api_key = api_key
         self._timeout = timeout_s
@@ -199,7 +199,7 @@ class PdfRemotoAdapter:
 class PareamentoRemotoAdapter:
     """`pareamento` remoto — BM25 + cosseno + corte, do outro lado de um HTTP."""
 
-    def __init__(self, info: InfoProvedor, *, api_key: str, timeout_s: int = 1800):
+    def __init__(self, info: ProviderInfo, *, api_key: str, timeout_s: int = 1800):
         self.info = info
         self._api_key = api_key
         self._timeout = timeout_s
@@ -218,10 +218,11 @@ class PareamentoRemotoAdapter:
         return resp.json()["pares"]
 
 
-def custo_estimado_generico(info: InfoProvedor, tokens_in: int, tokens_out: int) -> float:
+def custo_estimado_generico(info: ProviderInfo, tokens_in: int, tokens_out: int) -> float:
     """Mesma fórmula de `ChatAdapter.custo_estimado`, exposta solta p/ `estimar()` de etapas
     que não têm (e não precisam) instanciar o adapter de verdade (docs/03_ETAPAS.md §1.1
-    regra 5: `estimar()` nunca gasta nem chama provedor pago)."""
-    if info.custo_in_por_mtok is None or info.custo_out_por_mtok is None:
+    regra 5: `estimar()` nunca gasta nem chama provider pago)."""
+    if info.cost_in_per_mtok is None or info.cost_out_per_mtok is None:
         return 0.0
-    return (tokens_in / 1_000_000) * info.custo_in_por_mtok +            (tokens_out / 1_000_000) * info.custo_out_por_mtok
+    return ((tokens_in / 1_000_000) * info.cost_in_per_mtok
+            + (tokens_out / 1_000_000) * info.cost_out_per_mtok)

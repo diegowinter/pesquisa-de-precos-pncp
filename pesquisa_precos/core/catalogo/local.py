@@ -5,7 +5,7 @@ LEGADO desde a Fase 10 (ADR-017): a fonte da verdade do ESCOPO é a tabela `grup
 editável pela interface; estas constantes só alimentam o seed da migration 0006. Mudá-las aqui
 NÃO muda o que a 0a baixa — para isso, edite a curadoria na interface.
 
-Até a Fase 13 este módulo também carregava os parquet do catálogo e filtrava por palavra-chave
+Até a Fase 13 este módulo também carregava os parquet do catálogo e filtrava por palavra-key
 em pandas. Isso morreu com o caminho CSV: quem responde "quais itens do catálogo" agora é
 `db/repos/catalogo.py` em SQL, e o pré-filtro léxico é `core/pareamento/indice_lexical.py`.
 """

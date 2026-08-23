@@ -1,5 +1,5 @@
 """
-Notificações (Fase 9, docs/04_FASES.md item 3) — etapa concluída / falhou / gate aguardando.
+Notificações (Fase 9, docs/04_FASES.md item 3) — step concluída / falhou / gate aguardando.
 "Pipeline em background sem aviso vira pipeline esquecido" (docs/06_API_E_WEB.md §6).
 
 Canal implementado: e-mail via Resend (`POST https://api.resend.com/emails`, API HTTP simples —
@@ -7,11 +7,11 @@ sem SMTP). Telegram foi removido (pedido do usuário em 2026-08-17: "vamos tirar
 telegram, é melhor, deixa só o resend mesmo, menos complexidade").
 
 Credenciais só em `.env` (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`), NUNCA no banco
-(docs/08_CONVENCOES.md §5.10, mesmo princípio de `provedor.api_key_ref`). QUEM recebe (lista de
-e-mails) vem da tabela `notificacao_destinatario`, com CRUD próprio na interface web.
+(docs/08_CONVENCOES.md §5.10, mesmo princípio de `provider.api_key_ref`). QUEM recebe (lista de
+e-mails) vem da tabela `notification_recipient`, com CRUD próprio na interface web.
 
 BEST-EFFORT por desenho: qualquer falha de rede/config aqui é engolida e logada — uma
-notificação que não saiu não pode derrubar a etapa nem o processo que a chamou (ADR-001: este
+notificação que não saiu não pode derrubar a step nem o processo que a chamou (ADR-001: este
 é um sistema de um operador; a notificação é conveniência, não parte do contrato de dados).
 """
 
@@ -28,8 +28,8 @@ RESEND_API = "https://api.resend.com/emails"
 TIMEOUT_S = 10
 
 # Eventos que disparam notificação — bate com os três do critério de aceite da Fase 9
-# ("etapa concluída / falhou / gate aguardando ... em menos de 1 min").
-EVENTOS = ("concluida", "falhou", "aguardando_aprovacao")
+# ("step concluída / falhou / gate aguardando ... em menos de 1 min").
+EVENTOS = ("finished", "failed", "awaiting_approval")
 
 
 def _resend_configurado() -> tuple[str, str] | None:
@@ -66,25 +66,25 @@ def enviar_resend(destinatario: str, assunto: str, html: str) -> bool:
 
 
 _ROTULO_EVENTO = {
-    "concluida": "✅ concluída",
-    "falhou": "❌ falhou",
-    "aguardando_aprovacao": "⏸ aguardando aprovação",
+    "finished": "✅ concluída",
+    "failed": "❌ falhou",
+    "awaiting_approval": "⏸ aguardando aprovação",
 }
 
 
 def _destinatarios_ativos() -> list[dict]:
-    """Busca `notificacao_destinatario` ativos. Import local (não no topo do módulo) para não
+    """Busca `notification_recipient` ativos. Import local (não no topo do módulo) para não
     criar dependência de banco disponível só para importar `notificacoes` — usado em contexto
-    de subprocesso da etapa, onde falhar cedo por causa de notificação seria pior que só não
+    de subprocesso da step, onde falhar cedo por causa de notificação seria pior que só não
     notificar (mesmo espírito best-effort do resto do módulo)."""
     from pesquisa_precos.services import notification_recipients as service_recipients
 
     return service_recipients.listar_destinatarios(apenas_ativos=True)
 
 
-def notificar_evento(run_id: int, etapa: str, evento: str, *, detalhe: str = "") -> bool:
-    """Monta e envia a mensagem de um evento de `run_etapa` (Fase 9, item 3) por e-mail (Resend)
-    para todos os destinatários ativos cadastrados em `notificacao_destinatario`. `evento` é um
+def notificar_evento(run_id: int, step: str, evento: str, *, detalhe: str = "") -> bool:
+    """Monta e envia a mensagem de um evento de `run_step` (Fase 9, item 3) por e-mail (Resend)
+    para todos os destinatários ativos cadastrados em `notification_recipient`. `evento` é um
     dos três de `EVENTOS`; qualquer outro valor é ignorado silenciosamente (defensivo — não é
     para o runner ter que saber a lista aqui, mas também não pode notificar lixo). Devolve
     `True` se ao menos um envio teve sucesso. Sem destinatário cadastrado (ou nenhum envio bem
@@ -92,10 +92,10 @@ def notificar_evento(run_id: int, etapa: str, evento: str, *, detalhe: str = "")
     if evento not in EVENTOS:
         return False
     titulo = _ROTULO_EVENTO.get(evento, evento)
-    mensagem = f"Pesquisa de Preços PLASEG — run #{run_id}, etapa {etapa}: {titulo}"
+    mensagem = f"Pesquisa de Preços PLASEG — run #{run_id}, step {step}: {titulo}"
     if detalhe:
         mensagem += f"\n{detalhe[:500]}"
-    assunto = f"Pesquisa de Preços PLASEG — run #{run_id}, etapa {etapa}: {titulo}"
+    assunto = f"Pesquisa de Preços PLASEG — run #{run_id}, step {step}: {titulo}"
     html = f"<p>{mensagem.replace(chr(10), '<br>')}</p>"
 
     try:
@@ -105,7 +105,7 @@ def notificar_evento(run_id: int, etapa: str, evento: str, *, detalhe: str = "")
         return False
 
     if not destinatarios:
-        logger.info("notificação pulada: nenhum destinatário ativo cadastrado")
+        logger.info("notificação pulada: nenhum destinatário active cadastrado")
         return False
 
     try:
@@ -115,5 +115,5 @@ def notificar_evento(run_id: int, etapa: str, evento: str, *, detalhe: str = "")
                 algum_sucesso = True
         return algum_sucesso
     except Exception:  # noqa: BLE001 — best-effort: notificação nunca pode propagar (ver docstring)
-        logger.exception("falha inesperada ao notificar run #%s etapa %s", run_id, etapa)
+        logger.exception("falha inesperada ao notificar run #%s step %s", run_id, step)
         return False

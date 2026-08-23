@@ -1,7 +1,7 @@
 """
 m05 — Termos: `1_conceitos_termos.csv` → `termo` + `termo_codigo`.
 
-Colunas do CSV: `conceito, categoria, termos, codigos_catalogo, origem`.
+Colunas do CSV: `conceito, categoria, termos, codigos_catalogo, source`.
 
 **`conceito` é hoje idêntico a `termos`** — o conceito como entidade separada não existe mais e
 não deve ser recriado (docs/02_SCHEMA.md §3, docs/05_MIGRACAO.md §m05). Usamos `termos` como o
@@ -14,7 +14,7 @@ mais no catálogo filtrado são contados e descartados, não migrados com FK que
 `termo_norm` é `core.text.normalizar_termo`: minúsculo e espaços colapsados, **com acento
 preservado**. Isso diverge de docs/05_MIGRACAO.md §m05, que manda dobrar o acento aqui também —
 e a divergência é deliberada: medido no acervo, dobrar acento colapsa os 499 termos em 338,
-porque a etapa 1 gera de propósito o par com/sem acento de TODO termo
+porque a step 1 gera de propósito o par com/sem acento de TODO termo
 (`core/classificacao/variacoes.py`). A busca do PNCP é sensível a acento, então "ambulancia" e
 "ambulância" são duas buscas com resultados diferentes. Seguir o documento apagaria 161 termos
 em silêncio, e o sintoma — coleta trazendo menos documentos — só apareceria meses depois.
@@ -29,18 +29,18 @@ from pesquisa_precos.db.repos import termo as repo
 from migracao._comum import Relatorio, cabecalho, console, existe, ler_csv
 
 
-def separar_codigos(valor: str) -> list[str]:
+def separar_codigos(value: str) -> list[str]:
     """O separador real do arquivo é '|'. A vírgula é aceita como tolerância porque o campo
     já foi gravado de duas formas ao longo da v1/v2, e um separador errado não daria erro —
     daria um código gigante que simplesmente não casaria com o catálogo."""
-    bruto = (valor or "").replace(",", "|")
+    bruto = (value or "").replace(",", "|")
     return [c.strip() for c in bruto.split("|") if c.strip()]
 
 
 def migrar() -> Relatorio:
     rel = Relatorio("m05 — termos")
     if not existe(paths.E1_TERMOS):
-        raise SystemExit(f"{paths.E1_TERMOS} ausente. Rode a etapa 1 antes.")
+        raise SystemExit(f"{paths.E1_TERMOS} ausente. Rode a step 1 antes.")
 
     with db.session() as s:
         tipo_de, ambiguos = repo_cat.tipo_do_codigo(s)
@@ -56,7 +56,7 @@ def migrar() -> Relatorio:
             rel.mais("linhas lidas")
 
             termo_id = repo.upsert(s, termo_txt, (r.get("categoria") or "").strip(),
-                                   (r.get("origem") or "").strip())
+                                   (r.get("source") or "").strip())
             if termo_id is None:
                 rel.mais("termos vazios após normalizar")
                 continue

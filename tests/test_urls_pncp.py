@@ -11,12 +11,12 @@ from pesquisa_precos.core.collection.urls import partes_controle, url_documento
 class TestPartes:
     def test_contrato(self):
         p = partes_controle("01664910000131-2-000068/2026")
-        assert p == {"cnpj": "01664910000131", "tipo": "2", "sequencial": 68,
+        assert p == {"cnpj": "01664910000131", "tipo": "2", "sequential": 68,
                      "ano": 2026, "sequencial_ata": None}
 
     def test_ata(self):
         p = partes_controle("00000368000150-1-000009/2026-000001")
-        assert p["sequencial"] == 9 and p["sequencial_ata"] == 1 and p["ano"] == 2026
+        assert p["sequential"] == 9 and p["sequencial_ata"] == 1 and p["ano"] == 2026
 
     def test_formato_desconhecido(self):
         assert partes_controle("lixo") is None

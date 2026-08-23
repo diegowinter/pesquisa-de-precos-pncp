@@ -1,7 +1,7 @@
 """
 Etapa 4 — Filtro de classificados: quem tem ≥1 categoria de conteúdo sobrevive. Sem LLM.
 
-A etapa inteira é um UPDATE. "Sobrevivente" é ATRIBUTO do item (`item.sobrevivente`), não um
+A step inteira é um UPDATE. "Sobrevivente" é ATRIBUTO do item (`item.sobrevivente`), não um
 conjunto à parte: não existe tabela de sobreviventes para sair de sincronia com `item`. Mantém
 TODAS as caixas — a antiga regra dos 5 (descartar categoria com < MIN_ITENS) foi removida; a
 contagem por caixa é só diagnóstico.
@@ -62,8 +62,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                     f"{n_docs} documentos recontados")
 
     return StepResult(
-        processados=final["item_sobrevivente"], erros=0,
-        metricas={"categorias_mantidas": len(relatorio),
+        processed=final["item_sobrevivente"], erros=0,
+        metrics={"categorias_mantidas": len(relatorio),
                   "itens_sobreviventes": final["item_sobrevivente"],
                   "documentos_recontados": n_docs, **resultado},
         preview=relatorio[:50],

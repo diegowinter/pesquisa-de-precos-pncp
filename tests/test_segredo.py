@@ -1,8 +1,8 @@
 """
 Cifra dos segredos no banco (Fase 14, ADR-022) — `db/segredo.py`.
 
-Sem banco: tudo aqui é in-process. O que estes testes protegem é a razão de a chave poder sair
-do `.env`: se qualquer uma destas propriedades cair, guardar a chave no banco vira risco em vez
+Sem banco: tudo aqui é in-process. O que estes testes protegem é a razão de a key poder sair
+do `.env`: se qualquer uma destas propriedades cair, guardar a key no banco vira risco em vez
 de conveniência.
 """
 
@@ -17,84 +17,84 @@ from pesquisa_precos.db import secret as seg
 
 
 @pytest.fixture
-def chave(monkeypatch):
+def key(monkeypatch):
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     monkeypatch.delenv(seg.VAR_CHAVE_ANTIGA, raising=False)
 
 
-def test_roundtrip(chave):
-    blob = seg.cifrar("sk-or-v1-segredo", contexto="openrouter")
-    assert seg.decifrar(blob, contexto="openrouter") == "sk-or-v1-segredo"
+def test_roundtrip(key):
+    blob = seg.cifrar("sk-or-v1-segredo", context="openrouter")
+    assert seg.decifrar(blob, context="openrouter") == "sk-or-v1-segredo"
 
 
-def test_criptograma_nao_contem_o_segredo_em_claro(chave):
-    """O motivo de existir: um `pg_dump` do `bytea` não pode conter a chave legível."""
-    blob = seg.cifrar("sk-or-v1-segredo", contexto="openrouter")
+def test_criptograma_nao_contem_o_segredo_em_claro(key):
+    """O reason de existir: um `pg_dump` do `bytea` não pode conter a key legível."""
+    blob = seg.cifrar("sk-or-v1-segredo", context="openrouter")
     assert b"sk-or" not in blob and b"segredo" not in blob
 
 
-def test_nonce_novo_a_cada_cifra(chave):
+def test_nonce_novo_a_cada_cifra(key):
     """Reusar nonce em GCM quebra a cifra inteira — dois criptogramas do mesmo texto têm de
     diferir."""
-    a = seg.cifrar("mesma-chave", contexto="p")
-    b = seg.cifrar("mesma-chave", contexto="p")
+    a = seg.cifrar("mesma-key", context="p")
+    b = seg.cifrar("mesma-key", context="p")
     assert a != b
-    assert seg.decifrar(a, contexto="p") == seg.decifrar(b, contexto="p")
+    assert seg.decifrar(a, context="p") == seg.decifrar(b, context="p")
 
 
-def test_aad_amarra_o_blob_ao_provedor(chave):
-    """Copiar `api_key_cifrada` do provedor A para o B tem de FALHAR, não fazer o B usar a
-    chave do A em silêncio."""
-    blob = seg.cifrar("chave-do-a", contexto="provedor_a")
+def test_aad_amarra_o_blob_ao_provedor(key):
+    """Copiar `api_key_encrypted` do provider A para o B tem de FALHAR, não fazer o B usar a
+    key do A em silêncio."""
+    blob = seg.cifrar("key-do-a", context="provedor_a")
     with pytest.raises(seg.SegredoInvalido):
-        seg.decifrar(blob, contexto="provedor_b")
+        seg.decifrar(blob, context="provedor_b")
 
 
-def test_blob_adulterado_falha(chave):
+def test_blob_adulterado_falha(key):
     """GCM autentica: byte trocado no banco levanta erro em vez de devolver lixo."""
-    blob = bytearray(seg.cifrar("chave", contexto="p"))
+    blob = bytearray(seg.cifrar("key", context="p"))
     blob[-1] ^= 0x01
     with pytest.raises(seg.SegredoInvalido):
-        seg.decifrar(bytes(blob), contexto="p")
+        seg.decifrar(bytes(blob), context="p")
 
 
-def test_chave_mestra_errada_falha(chave, monkeypatch):
-    blob = seg.cifrar("chave", contexto="p")
+def test_chave_mestra_errada_falha(key, monkeypatch):
+    blob = seg.cifrar("key", context="p")
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     with pytest.raises(seg.SegredoInvalido):
-        seg.decifrar(blob, contexto="p")
+        seg.decifrar(blob, context="p")
 
 
 def test_sem_chave_mestra_falha_alto(monkeypatch):
-    """Sem `APP_SECRET_KEY` não há modo degradado (mesma dureza do `DATABASE_URL`, ADR-020)."""
+    """Sem `APP_SECRET_KEY` não há mode degradado (mesma dureza do `DATABASE_URL`, ADR-020)."""
     monkeypatch.delenv(seg.VAR_CHAVE, raising=False)
     assert not seg.configurada()
     with pytest.raises(seg.ChaveMestraAusente):
-        seg.cifrar("x", contexto="p")
+        seg.cifrar("x", context="p")
 
 
-def test_rotacao_aceita_a_chave_antiga(chave, monkeypatch):
+def test_rotacao_aceita_a_chave_antiga(key, monkeypatch):
     """Trocar a `APP_SECRET_KEY` não pode derrubar o que já está gravado: durante a janela, a
     anterior continua decifrando, e `recifrar` migra a linha."""
     antiga = seg.gerar_chave_mestra()
     monkeypatch.setenv(seg.VAR_CHAVE, antiga)
-    blob = seg.cifrar("chave", contexto="p")
+    blob = seg.cifrar("key", context="p")
     kid_antigo = seg.key_id_do_blob(blob)
 
     monkeypatch.setenv(seg.VAR_CHAVE, seg.gerar_chave_mestra())
     monkeypatch.setenv(seg.VAR_CHAVE_ANTIGA, antiga)
-    assert seg.decifrar(blob, contexto="p") == "chave"
+    assert seg.decifrar(blob, context="p") == "key"
 
-    novo = seg.recifrar(blob, contexto="p")
+    novo = seg.recifrar(blob, context="p")
     assert seg.key_id_do_blob(novo) == seg.key_id_atual() != kid_antigo
     monkeypatch.delenv(seg.VAR_CHAVE_ANTIGA)
-    assert seg.decifrar(novo, contexto="p") == "chave"   # já não depende da antiga
+    assert seg.decifrar(novo, context="p") == "key"   # já não depende da antiga
 
 
 def test_chave_mestra_aceita_texto_livre(monkeypatch):
-    """Operador colando uma senha à mão deriva 32 bytes por SHA-256 em vez de ser recusado."""
-    monkeypatch.setenv(seg.VAR_CHAVE, "uma senha qualquer digitada à mão")
-    assert seg.decifrar(seg.cifrar("k", contexto="p"), contexto="p") == "k"
+    """Operador colando uma password à mão deriva 32 bytes por SHA-256 em vez de ser recusado."""
+    monkeypatch.setenv(seg.VAR_CHAVE, "uma password qualquer digitada à mão")
+    assert seg.decifrar(seg.cifrar("k", context="p"), context="p") == "k"
 
 
 def test_gerar_chave_mestra_tem_32_bytes():
@@ -107,7 +107,7 @@ def test_ultimos4_nao_vaza_segredo_curto():
 
 
 def test_so_o_resolver_decifra():
-    """Guarda estrutural: a chave em claro existe em UM ponto do código. Se um service, uma
+    """Guarda estrutural: a key em claro existe em UM ponto do código. Se um service, uma
     rota ou um template chamar `decifrar`, o segredo passa a poder subir para o HTTP."""
     import pesquisa_precos
 

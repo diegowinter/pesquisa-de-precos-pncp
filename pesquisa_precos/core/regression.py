@@ -4,7 +4,7 @@ Núcleo puro da suite de regressão de qualidade (Fase 9, docs/04_FASES.md).
 Decide, para um rótulo com `score_rerank` conhecido, o que a 6b decidiria HOJE com os
 thresholds candidatos — sem chamar LLM nenhum (a faixa ambígua da 6c fica de fora do cálculo
 de precisão/recall, porque decidi-la exige o modelo; aqui só se mede o que os thresholds da 6b
-sozinhos resolvem). Comparado contra `rotulo.decisao_final`, dá precisão/recall — "trocar de
+sozinhos resolvem). Comparado contra `rotulo.final_decision`, dá precisão/recall — "trocar de
 threshold/modelo/prompt é no escuro" deixa de ser verdade (docs/08_CONVENCOES.md §6, suite de
 regressão da Fase 9).
 
@@ -22,14 +22,14 @@ Decisao = Literal["confirmado", "rejeitado", "ambiguo"]
 
 
 @dataclass
-class Rotulo:
+class Label:
     par_key: str
     score_rerank: float | None
-    decisao_final: str  # 'confirmado' | 'rejeitado' | 'pendente' (docs/02_SCHEMA.md §2)
+    final_decision: str  # 'confirmado' | 'rejeitado' | 'pendente' (docs/02_SCHEMA.md §2)
 
 
 @dataclass
-class ResultadoRegressao:
+class RegressionResult:
     n_amostra: int
     n_decididos: int          # exclui os que caíram na faixa ambígua (não é erro, é escopo da 6b)
     n_ambiguos: int
@@ -60,8 +60,8 @@ def decidir(score: float | None, t_aceita: float, t_rejeita: float) -> Decisao:
     return "ambiguo"
 
 
-def avaliar(rotulos: list[Rotulo], *, t_aceita: float, t_rejeita: float) -> ResultadoRegressao:
-    """Precisão/recall dos thresholds candidatos contra `decisao_final` já rotulada.
+def avaliar(rotulos: list[Label], *, t_aceita: float, t_rejeita: float) -> RegressionResult:
+    """Precisão/recall dos thresholds candidatos contra `final_decision` já rotulada.
 
     `pendente` é descartado da amostra: não é um rótulo de verdade (ainda não convergiu),
     então não pode servir de gabarito nem para precisão nem para recall.
@@ -69,15 +69,15 @@ def avaliar(rotulos: list[Rotulo], *, t_aceita: float, t_rejeita: float) -> Resu
     vp = fp = vn = fn = 0
     ambiguos = 0
     detalhe: list[dict] = []
-    considerados = [r for r in rotulos if r.decisao_final in ("confirmado", "rejeitado")]
+    considerados = [r for r in rotulos if r.final_decision in ("confirmado", "rejeitado")]
     for r in considerados:
         predito = decidir(r.score_rerank, t_aceita, t_rejeita)
         if predito == "ambiguo":
             ambiguos += 1
             detalhe.append({"par_key": r.par_key, "score": r.score_rerank,
-                            "esperado": r.decisao_final, "predito": predito, "acerto": None})
+                            "esperado": r.final_decision, "predito": predito, "acerto": None})
             continue
-        real_positivo = r.decisao_final == "confirmado"
+        real_positivo = r.final_decision == "confirmado"
         pred_positivo = predito == "confirmado"
         if pred_positivo and real_positivo:
             vp += 1
@@ -88,13 +88,13 @@ def avaliar(rotulos: list[Rotulo], *, t_aceita: float, t_rejeita: float) -> Resu
         else:
             fn += 1
         detalhe.append({"par_key": r.par_key, "score": r.score_rerank,
-                        "esperado": r.decisao_final, "predito": predito,
+                        "esperado": r.final_decision, "predito": predito,
                         "acerto": pred_positivo == real_positivo})
 
     n_decididos = vp + fp + vn + fn
     precisao = vp / (vp + fp) if (vp + fp) > 0 else None
     recall = vp / (vp + fn) if (vp + fn) > 0 else None
-    return ResultadoRegressao(
+    return RegressionResult(
         n_amostra=len(considerados), n_decididos=n_decididos, n_ambiguos=ambiguos,
         verdadeiros_positivos=vp, falsos_positivos=fp, verdadeiros_negativos=vn,
         falsos_negativos=fn, precisao=precisao, recall=recall, detalhe=detalhe,

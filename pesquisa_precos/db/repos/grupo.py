@@ -1,7 +1,7 @@
 """
 Repositório do resultado (`grupo_item`, `faixa_preco`, `export`, `export_snapshot`).
 
-`grupo_item` é append-only por `run_id` (ADR-015): cada execução da etapa 7 grava o seu
+`grupo_item` é append-only por `run_id` (ADR-015): cada execução da step 7 grava o seu
 ranking, e nada apaga o da execução anterior. É o que sustenta o diff entre runs da Fase 9 —
 e é, segundo o próprio ADR, a decisão de modelagem mais cara de mudar depois.
 
@@ -34,7 +34,7 @@ def gravar(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
 
 
 def limpar_run(sessao: Session, run_id: int) -> int:
-    """Apaga o ranking DESTE run — usado quando a etapa 7 é reexecutada dentro do mesmo run.
+    """Apaga o ranking DESTE run — usado quando a step 7 é reexecutada dentro do mesmo run.
 
     Não é violação do append-only: o que é imutável é o resultado de runs anteriores. Refazer
     a 7 no run corrente sem limpar deixaria posições órfãs de um corte que não existe mais.
@@ -44,7 +44,7 @@ def limpar_run(sessao: Session, run_id: int) -> int:
 
 
 def linhas_do_run(sessao: Session, run_id: int) -> list[dict]:
-    """Ranking do run, já com tudo que a etapa 8 escreve no XLSX.
+    """Ranking do run, já com tudo que a step 8 escreve no XLSX.
 
     Um SELECT só, com os mesmos joins da consulta de auditoria de docs/02_SCHEMA.md §12 —
     o que na prática é o teste de fogo do schema rodando em produção.
@@ -57,7 +57,7 @@ def linhas_do_run(sessao: Session, run_id: int) -> list[dict]:
                d.numero_controle_pncp, d.tipo_doc::text AS tipo_doc, d.orgao, d.orgao_cnpj,
                d.uf, d.data, d.ano, d.data_fim_vigencia, d.data_assinatura, d.url_pncp,
                COALESCE(NULLIF(e.descricao_final, ''), i.descricao_api) AS descricao_final,
-               c.nome_pdm, c.descricao AS descricao_catalogo, c.nome_classe, c.ativo
+               c.nome_pdm, c.description AS descricao_catalogo, c.nome_classe, c.active
           FROM grupo_item g
           JOIN item i      ON i.item_key = g.item_key
           JOIN documento d ON d.numero_controle_pncp = i.numero_controle_pncp
@@ -70,7 +70,7 @@ def linhas_do_run(sessao: Session, run_id: int) -> list[dict]:
 
 
 def ultimo_run_com_grupos(sessao: Session) -> int | None:
-    """Run mais recente que produziu ranking — o default da etapa 8 quando não se passa um."""
+    """Run mais recente que produziu ranking — o default da step 8 quando não se passa um."""
     return sessao.execute(
         text("SELECT max(run_id) FROM grupo_item")).scalar()
 

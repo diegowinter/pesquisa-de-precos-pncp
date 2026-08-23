@@ -9,7 +9,7 @@ Entrada: data/6a_pares_candidatos.csv (sobreviveu=true) + textos das saídas ant
 Saída: data/6b_pares_rerankeados.csv (par_key, score_rerank, decisao). Chave de resumo: par_key.
 GPU: o reranker roda sozinho.
 
-NÃO fazer: trocar o modelo do reranker sem recalibrar os thresholds — a base para isso é
+NÃO fazer: trocar o model do reranker sem recalibrar os thresholds — a base para isso é
 data/6_rotulos_acumulados.csv (ver tools/calibrate_thresholds.py).
 
 Uso: python -m pesquisa_precos.steps.e6b_rerank [--limite N] [--remoto]
@@ -30,8 +30,8 @@ from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 
 KEY = "6b"
 # 2.1.0 — Fase 14 (ADR-022): `t_aceita`/`t_rejeita` deixaram de vir do `.env` e viraram
-# `Params`. O valor efetivo passa a sair de `config_versao` (versionado e imutável), então o
-# fingerprint TEM de enxergar a mudança de origem — daí o bump.
+# `Params`. O valor efetivo passa a sair de `config_version` (versionado e imutável), então o
+# fingerprint TEM de enxergar a mudança de source — daí o bump.
 CODE_VERSION = "2.1.0"
 
 
@@ -52,7 +52,7 @@ class Params(BaseModel):
 # ── Rerank no banco (Fase 10) ───────────────────────────────────────────────────────
 #
 # Os pares e os textos vêm do banco; a decisão volta para as MESMAS linhas de `par` (ADR-013:
-# uma tabela, não três). A chave de resumo deixa de ser "par_key já no CSV" e passa a ser
+# uma tabela, não três). A key de resumo deixa de ser "par_key já no CSV" e passa a ser
 # `par.score_rerank IS NULL` — derivada do próprio dado, como manda o ADR-018.
 
 def _exigir_banco():
@@ -72,7 +72,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     with db.session() as s:
         linhas = s.execute(sa_text(f"""
             SELECT p.par_key,
-                   trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.descricao, '')),
+                   trim(coalesce(c.nome_pdm, '') || ' ' || coalesce(c.description, '')),
                    coalesce(NULLIF(e.descricao_final, ''), i.descricao_api)
               FROM par p
               JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
@@ -90,7 +90,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     pares_txt = [(l[1] or "", l[2] or "") for l in linhas]
     ctx.log("info", f"[6b] Rerankeando {len(pares_txt)} pares do banco"
                     "...")
-    rer = ctx.provedores.novo_rerank(batch=params.batch)
+    rer = ctx.providers.novo_rerank(batch=params.batch)
 
     passo = max(params.batch, 256)
     decisoes: dict[str, int] = {"aceito": 0, "rejeitado": 0, "ambiguo": 0}
@@ -118,8 +118,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     with db.session() as s:
         contagens = repo_par.contar(s)
     ctx.log("info", f"[bold green][6b] Concluído.[/] {decisoes} → tabela `par`")
-    return StepResult(processados=sum(decisoes.values()), erros=0,
-                          metricas={**decisoes, **contagens})
+    return StepResult(processed=sum(decisoes.values()), erros=0,
+                          metrics={**decisoes, **contagens})
 
 
 def decidir(score: float, t_aceita: float, t_rejeita: float) -> str:
@@ -142,6 +142,6 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
             "SELECT count(*) FROM par WHERE sobreviveu AND score_rerank IS NULL")
         ).scalar_one()
     return Estimate(
-        unidades=n, chamadas_llm=0, custo_usd=0.0,
+        unidades=n, chamadas_llm=0, cost_usd=0.0,
         detalhes={"lotes": -(-n // max(params.batch, 1))},
     )

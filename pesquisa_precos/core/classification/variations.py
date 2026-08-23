@@ -141,7 +141,7 @@ _REGRAS_GRUPO = [
 def categoria_por_grupo(nome_grupo: str) -> str:
     """Categoria grosseira a partir do nome_grupo do PNCP. '' se não houver match seguro."""
     g = _norm(nome_grupo)
-    for chave, cat in _REGRAS_GRUPO:
-        if chave in g:
+    for key, cat in _REGRAS_GRUPO:
+        if key in g:
             return cat
     return ""
