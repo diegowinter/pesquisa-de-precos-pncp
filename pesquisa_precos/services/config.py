@@ -50,7 +50,7 @@ def diff_config_versoes(id_a: int, id_b: int) -> dict[str, Any]:
 
 
 def schema_parametros() -> dict[str, Any]:
-    """Um bloco por step com os campos do `Params` Pydantic (name, tipo, default, descrição) —
+    """Um bloco por etapa com os campos do `Params` Pydantic (name, tipo, default, descrição) —
     é o que a tela de configuração usa para gerar o formulário (docs/06_API_E_WEB.md §4.5:
     "formulário por step, gerado do Pydantic"). Desde a Fase 13 é a ÚNICA superfície de
     configuração — mudar um `Params` chega aqui sozinho, sem formulário à parte para lembrar."""

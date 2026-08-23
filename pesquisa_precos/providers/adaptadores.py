@@ -76,7 +76,7 @@ class ChatAdapter:
 class EmbedGpuCaseiraAdapter:
     """`gpu_caseira` (embed) — cliente HTTP do servidor de GPU (`gpu_remoto.EmbedderRemoto`),
     com retry curto por lote. FALLBACK PROIBIDO (ADR-006): se isto falhar após as tentativas,
-    a exceção sobe e a etapa para — nunca cair para outro provider de embedding."""
+    a exceção sobe e a etapa para — nunca cair para outro provedor de embedding."""
 
     def __init__(self, info: ProviderInfo, *, api_key: str):
         from pesquisa_precos.providers.gpu_remoto import EmbedderRemoto

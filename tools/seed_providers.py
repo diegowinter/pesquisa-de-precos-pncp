@@ -6,7 +6,7 @@ Roda UMA vez, na virada. Depois dela, quem configura provider é a tela `/proved
 `.env` fica só com `DATABASE_URL` e `APP_SECRET_KEY`.
 
 Por que aqui e não numa migração Alembic (como a ADR-022 previa): semear depende de duas coisas
-que uma migração não deveria exigir — o `.env` de source e a chave-mestra no ambiente. Migração
+que uma migração não deveria exigir — o `.env` de origem e a chave-mestra no ambiente. Migração
 que precisa de segredo para rodar quebra em qualquer máquina que não seja a do operador, e o
 `downgrade` dela não teria como desfazer a cifra. `tools/` é exatamente o lugar de script
 de apoio pontual (ver CLAUDE.md), e este é pontual por definição.
@@ -15,7 +15,7 @@ de apoio pontual (ver CLAUDE.md), e este é pontual por definição.
     uv run python -m tools.seed_providers              # grava
 
 É IDEMPOTENTE: reexecutar atualiza as mesmas linhas (o `upsert` é por name) e não duplica nada.
-Só toca no que o `.env` descreve; provider que você já cadastrou pela tela e não existe no
+Só toca no que o `.env` descreve; provedor que você já cadastrou pela tela e não existe no
 `.env` fica intacto.
 """
 
@@ -80,7 +80,7 @@ def plano() -> tuple[list[dict], list[dict], list[str]]:
             "cost_usd_per_call": 0.0,
             "api_key": _env("LOCAL_API_KEY") or None})
         # NÃO aponta `chat` para cá: quem atende `chat` é decisão do operador, e apontar dois
-        # provedores para a mesma capability em sequência faria o último vencer em silêncio.
+        # provedores para a mesma capacidade em sequência faria o último vencer em silêncio.
 
     # ── embed + rerank: serviço de GPU ──────────────────────────────────────────────
     if _env("GPU_BASE_URL"):

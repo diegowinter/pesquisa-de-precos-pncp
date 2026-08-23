@@ -168,7 +168,7 @@ def _exigir_banco():
 
 
 def carregar_catalogo_do_banco() -> pd.DataFrame:
-    """`catalogo_item` active com as colunas que o resto da etapa espera do CSV."""
+    """`catalogo_item` ativo com as colunas que o resto da etapa espera do CSV."""
     db = _exigir_banco()
     with db.session() as s:
         linhas = s.execute(sa_text(

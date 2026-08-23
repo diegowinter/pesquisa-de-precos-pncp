@@ -22,7 +22,7 @@ from migracao._comum import Relatorio, cabecalho, console
 
 ROTULO = "migrada do .env"
 
-# Chave de config → key do dict de `carregar_config()`. Só o que a interface poderá editar
+# Chave de config → chave do dict de `carregar_config()`. Só o que a interface poderá editar
 # depois (Fase 6); credencial e caminho de arquivo ficam de fora de propósito.
 CHAVES = (
     "rejeitor_threshold", "rerank_t_aceita", "rerank_t_rejeita", "min_itens", "top_n",

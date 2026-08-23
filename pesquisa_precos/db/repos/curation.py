@@ -116,7 +116,7 @@ SQL_REVOGAR = """
 
 def revogar(sessao: Session, tipo: str, codigo: str, *, reason: str | None = None) -> int:
     """Tira um código do escopo. DESATIVA, nunca apaga — mesmo princípio de
-    `catalogo.marcar_inativos`: o código já foi source de linhas de export entregues, e o
+    `catalogo.marcar_inativos`: o código já foi origem de linhas de export entregues, e o
     reason da exclusão é justamente o que se perde primeiro."""
     return sessao.execute(
         text(SQL_REVOGAR),
@@ -306,7 +306,7 @@ SQL_GRAVAR_SNAPSHOT = """
 
 
 def delta_catalogo(sessao: Session) -> dict[str, int]:
-    """Compara `catalogo_item` active com o último snapshot e captura um novo. Substitui
+    """Compara `catalogo_item` ativo com o último snapshot e captura um novo. Substitui
     `gerar_delta_catalogo()` — mesma semântica, sem CSV.
 
     Primeira execução (sem snapshot anterior): estabelece a linha de base e devolve delta

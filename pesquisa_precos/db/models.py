@@ -116,9 +116,9 @@ class Provedor(Base):
     name: Mapped[str] = mapped_column(Text, primary_key=True)
     capabilities: Mapped[list[str]] = mapped_column(ARRAY(_enum("capability")), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
-    # A key de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
+    # A chave de API mora aqui, CIFRADA (Fase 14, ADR-022 — ver `db/segredo.py`). O
     # criptograma é amarrado ao `name` do provedor pelo AAD, então copiá-lo de uma linha para
-    # outra falha ao decifrar em vez de trocar de key em silêncio. `last4` é o que a tela
+    # outra falha ao decifrar em vez de trocar de chave em silêncio. `last4` é o que a tela
     # exibe; a chave em claro nunca sobe para API ou HTML.
     api_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     api_key_last4: Mapped[str | None] = mapped_column(Text)
@@ -150,7 +150,7 @@ class CapacidadeProvedor(Base):
         Text, ForeignKey("provider.name"), nullable=False)
     model: Mapped[str | None] = mapped_column(Text)
     # Proibido em 'embed' — ADR-006. A regra é aplicada em código, não por constraint:
-    # o banco não sabe que trocar de provider de embedding corrompe o espaço vetorial.
+    # o banco não sabe que trocar de provedor de embedding corrompe o espaço vetorial.
     fallback: Mapped[str | None] = mapped_column(Text, ForeignKey("provider.name"))
 
 
@@ -399,7 +399,7 @@ class TermoGeracao(Base):
 
     Não é derivável de `termo`/`termo_codigo`: aquelas guardam o termo já expandido (variações
     de grafia + cópia sem acento) e já agregado por termo. `resolver_categorias()` usa o
-    conjunto CRU como key de desempate — com o expandido, a categoria de alguns códigos
+    conjunto CRU como chave de desempate — com o expandido, a categoria de alguns códigos
     mudaria em silêncio.
 
     `categoria_llm` é a SUGESTÃO do modelo; a categoria final (pós-cascata) vive em

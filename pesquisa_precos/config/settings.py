@@ -5,7 +5,7 @@ Só duas variáveis, e nenhuma delas se troca pela tela:
   - `DATABASE_URL` — lida em `db/sessao.py`, não aqui;
   - `APP_SECRET_KEY` — a chave-mestra que cifra os segredos do banco (`db/segredo.py`).
 
-Todo o resto (modelo, base_url, key de API, thresholds) vive no banco e se edita em
+Todo o resto (modelo, base_url, chave de API, thresholds) vive no banco e se edita em
 `/providers` ou no formulário da etapa. Ver ADR-022.
 """
 

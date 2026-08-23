@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 
 KEY = "7"
-# 2.0.0 (Fase 13): o caminho CSV saiu — o banco é a única source e o único destino
+# 2.0.0 (Fase 13): o caminho CSV saiu — o banco é a única origem e o único destino
 # (ADR-020). A regra de agrupamento em si nunca mudou.
 # 2.1.0 — Fase 14 (ADR-022): `min_itens`/`top_n` deixaram de cair para `ctx.config` (o `.env`)
 # e passam a sair só de `Params`/`config_version`. Mesma razão do bump da 6b.

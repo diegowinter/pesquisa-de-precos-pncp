@@ -33,7 +33,7 @@ class InvalidProvider(ValueError):
 
 class FallbackProibido(ValueError):
     """Tentativa de apontar fallback em `embed` (ADR-006 §2). A trava existe em três camadas
-    — aqui, no repo e no resolver — porque trocar de provider de embedding no meio mistura
+    — aqui, no repo e no resolver — porque trocar de provedor de embedding no meio mistura
     espaços vetoriais sem levantar exceção nenhuma: é o tipo de bug que só aparece meses
     depois, como resultado ruim."""
 
@@ -53,7 +53,7 @@ def _validar(name: str, base_url: str, capabilities: list[str]) -> None:
 
 
 def listar() -> list[dict[str, Any]]:
-    """Providers cadastrados + as capacidades que cada um atende. Sem key em claro e sem
+    """Providers cadastrados + as capacidades que cada um atende. Sem chave em claro e sem
     sondagem ao vivo (para o probe, ver `saude_provedores` em `services.execution`)."""
     with db.session() as sessao:
         return repo.listar_provedores(sessao)
@@ -157,7 +157,7 @@ def testar(name: str) -> dict[str, Any]:
 
 def diagnostico_chave_mestra() -> dict[str, Any]:
     """Para a tela dizer, em vez de explodir, que `APP_SECRET_KEY` não está no ambiente — sem
-    ela não é possível gravar nem ler key de provider (ADR-022)."""
+    ela não é possível gravar nem ler chave de provider (ADR-022)."""
     if not seg.configurada():
         return {"configurada": False, "key_id": None, "variavel": seg.VAR_CHAVE}
     return {"configurada": True, "key_id": seg.key_id_atual(), "variavel": seg.VAR_CHAVE}

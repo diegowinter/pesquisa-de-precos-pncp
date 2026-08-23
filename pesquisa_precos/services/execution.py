@@ -5,7 +5,7 @@ consomem os mesmos serviços"). Nada de SQL solto aqui — o que falta em `db/re
 foi acrescentado lá, não reescrito à mão neste módulo.
 
 Gate (docs/06_API_E_WEB.md §4.3, ADR-005): aprovação é um `UPDATE`, não um processo à espera.
-Uma step com `precisa_gate=True` e ainda sem `approved_at` neste `run_step` fica
+Uma etapa com `precisa_gate=True` e ainda sem `approved_at` neste `run_step` fica
 `aguardando_aprovacao` em vez de subir subprocesso; `aprovar_etapa()` grava a aprovação (e,
 se houver, o `params_override` editado) e volta o status a `nao_iniciada` — só a PRÓXIMA
 chamada a `executar_etapa()` é que efetivamente sobe o subprocesso (ADR-005: "gate não segura
@@ -66,7 +66,7 @@ def criar_run(label: str, *, mode: str = "assisted", config_rotulo: str = "defau
 
 
 def obter_run(run_id: int) -> dict[str, Any] | None:
-    """Run + uma linha por step do registry (docs/06_API_E_WEB.md §4.1, o "grafo"). Etapas
+    """Run + uma linha por etapa do registry (docs/06_API_E_WEB.md §4.1, o "grafo"). Etapas
     ainda não tocadas neste run aparecem como `nao_iniciada` sem precisar de uma linha em
     `run_step` — só `obter_ou_criar_run_etapa` cria a linha de verdade, e isso só deve
     acontecer quando algo de fato age sobre a etapa (executar/approve/cancel)."""
@@ -257,7 +257,7 @@ def saude_provedores() -> list[dict[str, Any]]:
     capabilities = ["chat", "embed", "rerank", "pdf", "matching"]
 
     def uma(capability: str, sessao) -> dict[str, Any]:
-        # Uma capability que nem dá para resolver (schema do banco atrás do código, provider
+        # Uma capacidade que nem dá para resolver (schema do banco atrás do código, provider
         # ausente) vira uma LINHA reprovada, não uma tela em branco: a tela de diagnóstico
         # precisa ser a última coisa a cair.
         try:

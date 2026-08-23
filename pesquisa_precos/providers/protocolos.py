@@ -61,7 +61,7 @@ class EmbedProvider(Protocol):
     """Capacidade `embed` — vetores para o score semântico da etapa 6a.
 
     FALLBACK PROIBIDO (ADR-006 §2): se este provedor falhar, a etapa deve parar, nunca cair
-    para outro — trocar de provider no meio mistura espaços vetoriais em silêncio.
+    para outro — trocar de provedor no meio mistura espaços vetoriais em silêncio.
     """
 
     info: ProviderInfo

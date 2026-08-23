@@ -1,5 +1,5 @@
 """
-Resolução de provider por capability — de onde vem "quem atende chat/embed/rerank/pdf/
+Resolução de provedor por capability — de onde vem "quem atende chat/embed/rerank/pdf/
 pareamento agora".
 
 **Uma fonte só: o banco** (`provider` + `provider_capability`, docs/02_SCHEMA.md §10),
@@ -34,19 +34,19 @@ CAPACIDADES = ("chat", "embed", "rerank", "pdf", "matching")
 
 
 class CapabilityNotConfigured(RuntimeError):
-    """Nenhum provider aponta para esta capacidade (Fase 14, ADR-022). Antes isso caía para o
+    """Nenhum provedor aponta para esta capacidade (Fase 14, ADR-022). Antes isso caía para o
     `.env`; hoje é erro de configuração, resolvido na tela `/providers`."""
 
 
 class FallbackProibidoEmbedError(ValueError):
     """`provider_capability.embed` tem `fallback` preenchido (ADR-006 §2) — bug de
-    configuração: trocar de provider de embedding no meio mistura espaços vetoriais em
+    configuração: trocar de provedor de embedding no meio mistura espaços vetoriais em
     silêncio. `db.repos.execution.apontar_capacidade` já recusa gravar isto; esta é a segunda
     trava, para o caso de a linha ter sido editada direto no banco."""
 
 
 def _api_key_de(linha: dict, default: str = "") -> str:
-    """A key de API de um provedor cadastrado, em claro — só para montar o adapter.
+    """A chave de API de um provedor cadastrado, em claro — só para montar o adapter.
 
     Este é o ÚNICO ponto do código que devolve segredo em claro. Nada acima daqui — service,
     API, template — pode chamar `db.secret.decifrar`, e
@@ -81,7 +81,7 @@ def resolver_capacidade(capability: str, *,
     """Resolve UMA capability pelo banco. Levanta `CapabilityNotConfigured` se ninguém a
     atende.
 
-    Qual model e qual endereço atendem cada capability é decisão do banco (ADR-014) — é o
+    Qual modelo e qual endereço atendem cada capability é decisão do banco (ADR-014) — é o
     que permite trocar de provider pela tela sem mudar código.
     """
     if capability not in CAPACIDADES:

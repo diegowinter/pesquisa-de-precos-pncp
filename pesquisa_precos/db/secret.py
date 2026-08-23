@@ -2,7 +2,7 @@
 Cifra dos segredos que moram no banco (Fase 14, ADR-022).
 
 Até a Fase 13, `provider.api_key_ref` guardava o *name* de uma variável de ambiente e o value
-ficava no `.env`. A intenção era não vazar key em `pg_dump` — mas o efeito colateral era que
+ficava no `.env`. A intenção era não vazar chave em `pg_dump` — mas o efeito colateral era que
 cadastrar um provedor pela tela continuava impossível sem editar arquivo e reiniciar o
 servidor, ou seja, a tela de provedores nunca virava a superfície de configuração que a ADR-014
 prometeu. A key passa a morar no banco, **cifrada**.
@@ -51,8 +51,8 @@ VAR_CHAVE_ANTIGA = "APP_SECRET_KEY_ANTIGA"
 
 
 class ChaveMestraAusente(RuntimeError):
-    """`APP_SECRET_KEY` não está no ambiente. Sem ela não há como cifrar nem decifrar key de
-    provider — e, desde a ADR-022, não há provider sem key. Falha alta e clara, na mesma
+    """`APP_SECRET_KEY` não está no ambiente. Sem ela não há como cifrar nem decifrar chave de
+    provider — e, desde a ADR-022, não há provedor sem key. Falha alta e clara, na mesma
     linha do que a ADR-020 fez com `DATABASE_URL`: um caminho só, sem mode degradado."""
 
 
@@ -82,7 +82,7 @@ def gerar_chave_mestra() -> str:
 
 def _key_id(material: bytes) -> str:
     """Identificador público da chave-mestra: 8 bytes do SHA-256 dela, em hex. Não revela a
-    key e permite saber qual delas cifrou cada linha durante uma rotação."""
+    chave e permite saber qual delas cifrou cada linha durante uma rotação."""
     return hashlib.sha256(material).hexdigest()[:16]
 
 

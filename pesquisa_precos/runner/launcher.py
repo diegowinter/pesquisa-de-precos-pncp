@@ -77,7 +77,7 @@ def preparar(run_id: int, key: str, *,
 
 def checar_saude_previa(key: str) -> list[dict]:
     """Sonda as capacidades que a etapa declara no registry (Fase 7) ANTES do play. Só sonda
-    capabilities que têm linha em `provider_capability` — enquanto o banco de provedores está
+    capacidades que têm linha em `provider_capability` — enquanto o banco de provedores está
     vazio (estado de hoje, ver CLAUDE.md), a etapa resolve pelo `.env` como sempre resolveu, e
     esta checagem fica muda: ela é uma feature de quem já configurou provider pela interface,
     não um bloqueio novo para quem nunca usou.

@@ -46,7 +46,7 @@ class Params(BaseModel):
 # ── Rerank no banco (Fase 10) ───────────────────────────────────────────────────────
 #
 # Os pares e os textos vêm do banco; a decisão volta para as MESMAS linhas de `par` (ADR-013:
-# uma tabela, não três). A key de resumo deixa de ser "par_key já no CSV" e passa a ser
+# uma tabela, não três). A chave de resumo deixa de ser "par_key já no CSV" e passa a ser
 # `par.score_rerank IS NULL` — derivada do próprio dado, como manda o ADR-018.
 
 def _exigir_banco():

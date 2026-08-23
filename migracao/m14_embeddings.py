@@ -1,7 +1,7 @@
 """
 m14 — Cache de embeddings: `checkpoints/6a_emb_cache.parquet` → `embedding_cache`.
 
-O parquet é chaveado só por `sha1(texto)`. A key nova inclui **provider, model e dimensão**
+O parquet é chaveado só por `sha1(texto)`. A chave nova inclui **provider, modelo e dimensão**
 (ADR-006 §1) — sem isso, trocar de provider mistura espaços vetoriais em silêncio, e o sintoma
 seria um cosseno que parou de fazer sentido, sem nenhum erro.
 

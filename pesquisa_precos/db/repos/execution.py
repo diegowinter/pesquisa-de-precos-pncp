@@ -261,7 +261,7 @@ def upsert_provedor(sessao: Session, name: str, capabilities: Sequence[str], bas
                     active: bool = True) -> None:
     """Cadastro/edição de provider. NÃO toca na chave de API — para isso existe
     `gravar_api_key`, que cifra (ADR-022). Separados de propósito: salvar o formulário sem
-    preencher o campo de key não pode apagar a chave que já está lá."""
+    preencher o campo de chave não pode apagar a chave que já está lá."""
     sessao.execute(
         text("INSERT INTO provider (name, capabilities, base_url, api_key_ref, default_model, "
              "                      allows_fallback, batch_size, rpm_limit, "
@@ -299,7 +299,7 @@ def gravar_api_key(sessao: Session, provider: str, api_key: str) -> None:
 
 
 def limpar_api_key(sessao: Session, provider: str) -> None:
-    """Remove a chave gravada (provider que deixou de exigir autenticação, ou limpeza antes de
+    """Remove a chave gravada (provedor que deixou de exigir autenticação, ou limpeza antes de
     recadastrar)."""
     sessao.execute(
         text("UPDATE provider SET api_key_encrypted = NULL, api_key_last4 = NULL, "
@@ -310,7 +310,7 @@ def limpar_api_key(sessao: Session, provider: str) -> None:
 def apontar_capacidade(sessao: Session, capability: str, provider: str,
                        model: str | None = None, fallback: str | None = None) -> None:
     """Quem atende cada capability. Fallback em `embed` é PROIBIDO (ADR-006 §2): cair para
-    outro provider no meio corrompe o espaço vetorial em silêncio."""
+    outro provedor no meio corrompe o espaço vetorial em silêncio."""
     if capability == "embed" and fallback:
         raise ValueError(
             "fallback é proibido na capability 'embed' (ADR-006): trocar de provider no meio "
@@ -327,7 +327,7 @@ def apontar_capacidade(sessao: Session, capability: str, provider: str,
 
 # ── run_step: ciclo de vida de uma execução (Fase 3, docs/04_FASES.md) ──────────────
 #
-# Tudo aqui é chamado pelo `runner/` (processo.py, contexto_banco.py), nunca pela step em
+# Tudo aqui é chamado pelo `runner/` (processo.py, contexto_banco.py), nunca pela etapa em
 # si — a etapa só enxerga `RunContext` (docs/03_ETAPAS.md §1). `run.cost_cap_usd` é
 # lido por `runner.launcher`, não por aqui.
 
@@ -644,7 +644,7 @@ def registrar_llm_chamada(sessao: Session, *, run_id: int | None, step: str | No
     """Toda chamada o provedor pago (docs/02_SCHEMA.md §9). É o que sustenta estimativa, teto
     e dashboard de custo — sem isto não há teto que funcione (ADR-004).
 
-    Quem chama isto na prática são os adapters de provider da Fase 7 (`providers/`); nesta
+    Quem chama isto na prática são os adapters de provedor da Fase 7 (`providers/`); nesta
     fase o mecanismo de contabilidade e teto que a etapa já enxerga é `ctx.gastar(usd)`, que
     incrementa `run_step.cost_usd`/`run.cost_usd` sem o detalhe por chamada.
     """
@@ -676,7 +676,7 @@ def custo_run(sessao: Session, run_id: int) -> Decimal:
 
 
 def custo_resumo(sessao: Session, *, de: str | None = None, ate: str | None = None) -> dict[str, Any]:
-    """Dashboard de custo (docs/06_API_E_WEB.md §4.4): por run, por step e acumulado no mês.
+    """Dashboard de custo (docs/06_API_E_WEB.md §4.4): por run, por etapa e acumulado no mês.
     `de`/`ate` filtram por `run_step.finished_at`; sem eles, olha o histórico inteiro."""
     condicoes = "run_step.cost_usd > 0"
     parametros: dict[str, Any] = {}

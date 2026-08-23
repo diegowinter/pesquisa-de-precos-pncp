@@ -339,10 +339,10 @@ def baixar_export(export_id: int, user: str = Depends(auth.exigir_login)):
 # ── Providers: saúde + CRUD (Fase 13 / Fase 14 bloco 2, ADR-022) ────────────────────
 #
 # A tela era só leitura: sondava as capacidades e mostrava o resultado. Com a Fase 14 ela vira
-# a superfície onde se CONFIGURA quem atende cada capability — model, base_url e key de API
+# a superfície onde se CONFIGURA quem atende cada capability — model, base_url e chave de API
 # deixam de exigir editar `.env` e reiniciar o servidor.
 #
-# A key de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
+# A chave de API é write-only em todo este bloco: entra por `Form`, sai cifrada para o banco, e
 # o que volta para o template é `has_api_key`/`api_key_last4`. Nenhuma rota daqui devolve
 # segredo em claro, e `tests/test_segredo.py::test_so_o_resolver_decifra` guarda a regra.
 
