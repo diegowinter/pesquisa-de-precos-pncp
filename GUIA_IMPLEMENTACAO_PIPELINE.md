@@ -17,8 +17,12 @@
 > | O guia diz | Hoje é |
 > |---|---|
 > | `data/{N}_*.csv` como saída de etapa | uma tabela no Postgres (ver [docs/02_SCHEMA.md](docs/02_SCHEMA.md)) |
-> | `python -m pesquisa_precos.steps.eN_*` | dar play na etapa pela web |
+> | `python -m pesquisa_precos.etapas.eN_*` | executar a etapa pela web |
 > | caminhos em `config/paths.py` | `paths.py` é só do importador `migracao/` |
+> | `pesquisa_precos/etapas/` | `pesquisa_precos/steps/` |
+> | `executar()` / `estimar()` / `CHAVE` / `VERSAO_CODIGO` | `run()` / `estimate()` / `KEY` / `CODE_VERSION` |
+> | `ferramentas/` | `tools/` |
+> | tabelas `provedor`, `run_etapa`, `llm_chamada`... | `provider`, `run_step`, `llm_call` (ver a migration 0011) |
 > | checkpoint em `data/checkpoints/` | derivado do próprio dado (`par.score_rerank IS NULL`) |
 > | erros em `data/erros/{N}_erros.csv` | tabela `erro_item` |
 > | `data/erros`, `--dry-run`, `--limite N` como flags | campos do `Params`, no formulário |
@@ -50,10 +54,10 @@ Guia para implementação completa da nova pipeline de pesquisa de preços de it
 > segue usando os nomes antigos dos scripts nas seções históricas (§5); nas seções normativas
 > abaixo, o nome do módulo novo vem entre parênteses.
 
-- Etapas ficam em `pesquisa_precos/etapas/`, nomeadas `e{N}{letra?}_{acao}.py` (ex.: `e0a_catalogo.py`, `e6a_pairs.py`), e rodam como `python -m pesquisa_precos.steps.e6a_pairs`.
+- Etapas ficam em `pesquisa_precos/steps/`, nomeadas `e{N}{letra?}_{acao}.py` (ex.: `e0a_catalogo.py`, `e6a_pairs.py`), e são executadas pela web — não há entrypoint de linha de comando.
 - **Toda saída de dados leva o prefixo da etapa que a produziu**: `data/{N}{letra?}_{descricao}.{csv|parquet|xlsx}`. Ex.: `e2_collect` → `data/2_itens_coletados.csv`. Isso é regra dura: olhar o nome do arquivo deve dizer imediatamente quem o gerou e quem o consome (a etapa seguinte).
 - Checkpoints/caches internos (não são saída de etapa) ficam em `data/checkpoints/{N}_...`.
-- Logs de erro ficam em `data/erros/{N}_erros.csv`, sempre via `pesquisa_precos/core/erros_log.py`.
+- Erro por item vai para a tabela `item_error`, via `ctx.erro_item(...)`.
 - **Nenhum caminho de `data/` é escrito à mão**: todos vivem em `pesquisa_precos/config/paths.py`. Um caminho divergente não levanta erro — a etapa só perde o checkpoint e repaga o LLM.
 - Módulos auxiliares (bibliotecas, sem `__main__` de pipeline) ficam em `pesquisa_precos/core/` (regras, io, coleta, prompts) ou `pesquisa_precos/providers/` (LLM, embedder, reranker, OCR). **Nenhum módulo de etapa pode ser importado por outro** — se duas etapas precisam da mesma função, ela vai para `core/`.
 

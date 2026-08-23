@@ -18,28 +18,39 @@ desta pipeline em aplicação (banco, API, web). Se você vai implementar uma fa
 pesquisa_precos/
   __main__.py  ← `python -m pesquisa_precos` sobe TUDO (HTML + /api) numa porta só
   config/    settings.py (só bootstrap, ver ADR-022) · paths.py (só do importador)
-  etapas/    e0a_catalogo · e1_termos · e2_collect · e3_classify · e4_cut
+  steps/     e0a_catalogo · e1_termos · e2_collect · e3_classify · e4_cut
              e5_extract · e6a_pairs · e6b_rerank · e6c_validate · e7_group · e8_export
-  core/      regras, paralelo, prompts, coleta PNCP, catálogo, classificação, pareamento
-  providers/ chat · embed · rerank · pdf · pareamento (resolver + adapters — TODOS clientes
+  core/      regras, parallel, prompts, collection (PNCP), catálogo, classification
+  providers/ chat · embed · rerank · pdf · matching (resolver + adapters — TODOS clientes
              de serviço; nada roda em processo desde a ADR-021)
-  estrategias/ janela · completa · visao (implementações plugáveis da etapa 5)
-  db/        modelos, repos, sessão (SQLAlchemy 2.x; migrations em alembic/)
-  runner/    executor, lock, fingerprint, processo, ContextoBanco, ContextoNulo
+  strategies/ window · full · vision (implementações plugáveis da etapa 5)
+  db/        models, repos, session (SQLAlchemy 2.x; migrations em alembic/)
+  runner/    launcher, lock, fingerprint, worker, DbContext, NullContext
   services/  a camada que web e api compartilham — nenhuma rota fala com o banco direto
   api/       routers JSON, montados sob /api na app da web
   web/       app FastAPI + templates Jinja2 + static (HTMX/Alpine, sem bundler)
 ```
 
-Cada etapa expõe `Params` (Pydantic) + `executar(params, ctx)` + `estimar(params, ctx)`. A
-ordem e as dependências vêm de `pesquisa_precos/etapas/registry.py`; os `Params` geram o
-formulário de configuração da web. Ao mudar a lógica de uma etapa, **bumpe o `VERSAO_CODIGO`
-do módulo** — é o que alimenta o fingerprint que marca as dependentes como desatualizadas.
+Cada etapa expõe `Params` (Pydantic) + `run(params, ctx)` + `estimate(params, ctx)`. A ordem e
+as dependências vêm de `pesquisa_precos/steps/registry.py`; os `Params` geram o formulário de
+configuração da web. Ao mudar a lógica de uma etapa, **bumpe o `CODE_VERSION` do módulo** — é o
+que alimenta o fingerprint que marca as dependentes como desatualizadas.
+
+### Idioma: identificador em inglês, texto em português
+
+Desde 2026-08-22 os identificadores do código estão em inglês — pastas, módulos, funções,
+classes, rotas HTTP e nomes de tabela e coluna. Ficam em português o vocabulário de nascença do
+PNCP e da licitação (`item`, `termo`, `documento`, `catalogo`, `par`, `grupo`, `faixa_preco`) e
+**todo texto que o operador lê**: labels do formulário, `description` dos `Field`, mensagens de
+`ctx.log`, templates, comentários e docstrings.
+
+A migration `0011` fez o rename no banco. Ela é reversível (`alembic downgrade`), e o mapa
+completo do que mudou está no corpo dela.
 
 ### O pesado não roda aqui (ADR-021)
 
 Desde 2026-08-22 existe `../pncp-servicos-locais/` — quatro serviços HTTP (`gpu`, `ocr`,
-`pdf`, `pareamento`) com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
+`pdf`, `pareamento`) — a capacidade aqui se chama `matching` com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
 200 DPI, OCR, embedder, reranker, BM25 e o corte do produto catálogo × itens.
 
 Aqui só ficaram **clientes**. Não existe mais `…EmProcessoAdapter`: `base_url` vazio é erro de
@@ -53,7 +64,7 @@ manda os bytes por upload, o serviço devolve texto.
 
 O companion **não importa `pesquisa_precos`** — é independente e tem `pyproject`, testes e
 `.env` próprios. Consequências práticas: `OCR_*` saiu do `.env` daqui, a etapa 5 declara
-`("pdf", "chat")` e a 6a declara `("pareamento",)`. Rodar o pipeline localmente é subir os
+`("pdf", "chat")` e a 6a declara `("matching",)`. Rodar o pipeline localmente é subir os
 serviços também.
 
 ### Configuração não mora mais no `.env` (Fase 14, ADR-022)
@@ -64,24 +75,25 @@ tela:
 
 | O quê | Onde se configura |
 |---|---|
-| modelo, base_url, chave de API, batch, custo | `/provedores` (tabela `provedor`) |
-| quem atende `chat`/`embed`/`rerank`/`pdf`/`pareamento` | `/provedores` (`capacidade_provedor`) |
+| modelo, base_url, chave de API, batch, custo | `/providers` (tabela `provider`) |
+| quem atende `chat`/`embed`/`rerank`/`pdf`/`matching` | `/providers` (`provider_capability`) |
 | thresholds da 6b, `min_itens`/`top_n` da 7, todo `Params` | formulário da etapa (`config_versao`) |
 
 Consequências para quem for mexer:
 
-- **`carregar_config()` devolve `{}`.** `ctx.config` ainda existe no contrato de etapa, mas
-  está vazio. Ler configuração de lá é bug.
-- **Não existe fallback para o `.env`.** `_resolver_via_env` saiu; capacidade sem provedor
-  apontado levanta `CapacidadeNaoConfigurada` e a etapa para antes de começar. Se uma etapa
-  reprovar por isso, o conserto é cadastrar o provedor em `/provedores`, não recriar a variável.
-- **`APP_SECRET_KEY` é a chave-mestra** que cifra as chaves de API em `provedor.api_key_cifrada`
-  (AES-GCM, `db/segredo.py`). Sem ela, nenhuma etapa que use LLM/GPU roda. O único ponto do
+- **`carregar_config()` e `ctx.config` não existem mais.** Foram removidos em 2026-08-22: só
+  transportavam um dict vazio. Configuração vem do banco, pelo `Params` da etapa ou pelo
+  resolver de provedores.
+- **Não existe fallback para o `.env`.** Capacidade sem provedor apontado levanta
+  `CapabilityNotConfigured` e a etapa para antes de começar. Se uma etapa reprovar por isso, o
+  conserto é cadastrar o provedor em `/providers`, não recriar a variável.
+- **`APP_SECRET_KEY` é a chave-mestra** que cifra as chaves de API em
+  `provider.api_key_encrypted` (AES-GCM, `db/secret.py`). Sem ela, nenhuma etapa que use LLM/GPU roda. O único ponto do
   código que decifra é `providers/resolver.py` — um teste estrutural guarda isso.
 - **`tools/seed_providers.py`** foi a ponte de mão única do `.env` para o banco. Já
   rodou; não precisa rodar de novo.
 - **Estado hoje:** `chat → openrouter`, `embed`/`rerank → gpu_caseira`, `lm_studio` cadastrado
-  mas não apontado. **`pdf` e `pareamento` estão SEM provedor** — as etapas 5 e 6a não rodam
+  mas não apontado. **`pdf` e `matching` estão SEM provedor** — as etapas 5 e 6a não rodam
   até serem cadastradas.
 
 ### Não existe CLI (Fase 13, ADR-020)
@@ -255,10 +267,9 @@ O caminho de banco (`--fonte banco`, hoje o único) foi validado ponta a ponta n
 descartável com amostra de 60 mil itens, com o export saindo idêntico pelos dois caminhos —
 mas nunca sobre os 1,6 milhão reais.
 
-**Falhas conhecidas de `pytest` neste momento (6 failed, 28 errors):** todas do banco local
-com o schema atrás do código — falta `alembic upgrade head` (o enum `capacidade` não tem
-`pdf`/`pareamento`, `documento` não tem `numero_sequencial`). Não são regressão da Fase 13;
-estavam iguais antes dela.
+**`pytest` está verde** (375 passed, 3 skipped em 2026-08-22), assim como
+`ruff check pesquisa_precos migracao tools`. Se aparecerem erros de coluna ou tabela
+inexistente, falta `alembic upgrade head`.
 
 ## Onde ficam as coisas úteis para debugar
 
@@ -269,7 +280,7 @@ estavam iguais antes dela.
 - **Estado de execução vive no banco**, não em `data/`: `run`/`run_etapa` (progresso, custo,
   status), `run_log` (log estruturado) e `erro_item` (falha por item, que não derruba a etapa).
   `data/checkpoints/` e `data/erros/` são do pipeline antigo.
-- **A tela `/provedores`** é o primeiro lugar a olhar quando uma etapa reprova antes de
+- **A tela `/providers`** é o primeiro lugar a olhar quando uma etapa reprova antes de
   começar — e desde a Fase 14 é também onde se conserta. Ela sonda cada capacidade e faz o CRUD
   de provedor. Linha vermelha costuma ser um serviço de `pncp-servicos-locais` fora do ar, ou
   a URL do túnel ngrok da GPU que mudou (agora se troca ali, sem editar arquivo nem reiniciar).

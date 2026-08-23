@@ -25,7 +25,7 @@ armadilhas de cada etapa) estão em
 
 ## Fluxo
 
-Onze etapas, na ordem que `pesquisa_precos/etapas/registry.py` declara. Cada uma lê e escreve
+Onze etapas, na ordem que `pesquisa_precos/steps/registry.py` declara. Cada uma lê e escreve
 no banco; a coluna "produz" é a tabela onde o resultado fica.
 
 | Etapa | O que faz | Produz | Custo |
@@ -111,9 +111,10 @@ uv sync --extra pdf                # ou gpu / ocr / pareamento
 python -m servicos pdf --host 0.0.0.0 --port 8200
 ```
 
-E aqui, no `.env`: `PDF_BASE_URL`, `PAREAMENTO_BASE_URL`, `GPU_BASE_URL`. **Vazio não é "roda
-aqui"** — a etapa para antes de começar, dizendo qual variável falta. `OCR_*` não mora neste
-`.env`: quem chama o OCR é o serviço de `pdf`, na máquina dele.
+E aqui, o endereço de cada serviço se cadastra em `/provedores` e vive na tabela
+`provider_capability` (ADR-022) — não no `.env`. Capacidade sem provedor apontado não é "roda
+aqui": a etapa para antes de começar, dizendo qual falta. O OCR não aparece nesta lista porque
+quem o chama é o serviço de `pdf`, na máquina dele.
 
 O companion é independente: não importa nada deste pacote, e os dois repositórios não
 precisam ficar no mesmo disco. Rodar tudo na própria máquina é rodar os dois.

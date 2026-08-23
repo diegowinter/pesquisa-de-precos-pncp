@@ -114,7 +114,9 @@ templates.env.globals["icone_step"] = ICONE_STEP
 templates.env.globals["classe_step"] = CLASSE_STEP
 
 
-def _render(request: Request, name: str, contexto: dict[str, Any] | None = None, status_code: int = 200):
+def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,
+            status_code: int = 200):
+    """Renderiza um template com o que toda tela precisa: usuário logado e erro na query."""
     ctx = {"usuario": request.session.get("usuario"), "erro": request.query_params.get("erro")}
     ctx.update(contexto or {})
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
@@ -136,10 +138,7 @@ def raiz():
 def tela_login(request: Request):
     if auth.autenticado(request):
         return RedirectResponse("/runs", status_code=303)
-    return templates.TemplateResponse(
-        request, "login.html",
-        {"usuario": None, "erro": request.query_params.get("erro"),
-         "senha_exigida": auth.senha_exigida()})
+    return _render(request, "login.html", {"senha_exigida": auth.senha_exigida()})
 
 
 @app.post("/login")
