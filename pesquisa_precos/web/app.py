@@ -248,7 +248,7 @@ def log_stream_etapa(run_id: int, key: str, request: Request, user: str = Depend
     async def eventos():
         ultimo_id = 0
         while True:
-            recentes = sorted(service.logs(run_id, step=key, limite=50), key=lambda l: l["id"])
+            recentes = sorted(service.logs(run_id, step=key, limite=50), key=lambda r: r["id"])
             for linha in recentes:
                 if linha["id"] > ultimo_id:
                     ultimo_id = linha["id"]
