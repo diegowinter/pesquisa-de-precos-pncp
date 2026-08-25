@@ -179,7 +179,7 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
     acumulador = _Acumulador(db, repo)
 
     def classificar(grupo):
-        return curador().classificar_categoria(grupo["descricao"], grupo.get("unidade") or "")
+        return curador().classificar_categoria(grupo["description"], grupo.get("unidade") or "")
 
     def ao_classificar(grupo, res):
         conf = res.get("confianca", "")
@@ -187,18 +187,18 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
             # Texto com erro não entra na tabela: entrar o marcaria como pago sem ter sido
             # classificado, e o retry nunca mais o encontraria.
             acumulador.registra_erro()
-            ctx.item_error(grupo["texto_hash"], res.get("_erro"), name=grupo["descricao"])
+            ctx.item_error(grupo["texto_hash"], res.get("_erro"), name=grupo["description"])
             return
         # `confianca` é `real` no banco e palavra no LLM; a escala ordinal é declarada em
         # `repo.CONFIANCA_ORDINAL`, a mesma que a migração usa.
         acumulador.registra_ok((
-            grupo["texto_hash"], grupo["descricao"], grupo.get("unidade"),
+            grupo["texto_hash"], grupo["description"], grupo.get("unidade"),
             res["categorias"], repo.confianca_para_real(conf),
             res.get("_prompt_versao_id"), model, nome_provedor, None))
 
     def ao_falhar(grupo, exc):
         acumulador.registra_erro()
-        ctx.item_error(grupo["texto_hash"], exc, name=grupo["descricao"])
+        ctx.item_error(grupo["texto_hash"], exc, name=grupo["description"])
 
     ctx.progresso(0, len(tarefas), descricao="classificando")
     try:
@@ -223,6 +223,6 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
         metrics={"textos_unicos": len(tarefas), "itens_afetados": n_itens,
                  "item_categoria_recomputadas": n_recomputadas,
                  "dedup": f"{n_itens_pend / max(n_textos, 1):.1f}x"},
-        preview=[{"descricao": g["descricao"][:200], "itens": g["n_itens"]}
+        preview=[{"descricao": g["description"][:200], "itens": g["n_itens"]}
                  for g in tarefas[:30]],
     )
