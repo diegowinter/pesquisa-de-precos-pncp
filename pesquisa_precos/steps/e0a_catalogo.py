@@ -25,6 +25,8 @@ import time
 
 import requests
 
+from pesquisa_precos.core.collection import http
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
@@ -92,7 +94,7 @@ def fetch_page(base_url: str, params: dict, ctx: RunContext) -> dict:
     while True:
         attempt += 1
         try:
-            resp = requests.get(base_url, params=params, headers=HEADERS, timeout=(30, 300))
+            resp = http.get(base_url, params=params, headers=HEADERS)
             if 400 <= resp.status_code < 500 and resp.status_code != 429:
                 corpo = (resp.text or "").lower()
                 if any(m in corpo for m in MARCAS_400_TRANSITORIO):

@@ -47,6 +47,9 @@
 
 <div class="painel">
   <h3>Erros pendentes ({{ erros | length }})</h3>
+  {% if erros and detalhe.status == 'running' %}
+  <p class="dim">Reprocessando — some da lista o que passar nesta execução.</p>
+  {% endif %}
   {% if erros %}
   <table>
     <thead><tr><th>chave</th><th>tipo</th><th>mensagem</th><th>tentativas</th></tr></thead>

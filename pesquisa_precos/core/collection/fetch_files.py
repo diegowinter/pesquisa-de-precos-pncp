@@ -19,6 +19,8 @@ import time
 
 import requests
 
+from pesquisa_precos.core.collection import http
+
 PNCP_BASE = "https://pncp.gov.br/api/pncp/v1/orgaos"
 
 # tipoDocumentoNome alvo por fonte
@@ -48,7 +50,7 @@ def listar_arquivos(tipo: str, cnpj: str, ano, seq, seq_ata=None, silent: bool =
     while True:
         attempt += 1
         try:
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=(30, 300))
+            resp = http.get(url, params=params, headers=HEADERS)
             if resp.status_code in (204, 404) or not resp.content:
                 return []
             resp.raise_for_status()
@@ -106,7 +108,7 @@ def baixar_arquivo(uri: str, destino_dir: str, nome_base: str, silent: bool = Fa
     while attempt < 5:
         attempt += 1
         try:
-            resp = requests.get(uri, headers=HEADERS, timeout=(30, 300), stream=True)
+            resp = http.get(uri, headers=HEADERS, stream=True)
             resp.raise_for_status()
             ext = _extensao_resposta(resp)
             caminho = os.path.join(destino_dir, f"{nome_base}{ext}")

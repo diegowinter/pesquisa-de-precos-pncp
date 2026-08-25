@@ -381,9 +381,15 @@ def gravar_params(sessao: Session, run_etapa_id: int, *,
 
 
 def marcar_executando(sessao: Session, run_etapa_id: int, *, action: str, pid: int) -> None:
+    """`processed`/`errors` são da execução CORRENTE, não do histórico: começar uma nova
+    tentativa carregando "erros: 40" da anterior faz a tela mentir justamente quando o
+    operador está olhando para ver se o reprocessamento resolveu. O histórico continua em
+    `item_error` (que só sai da lista quando de fato reprocessa sem falhar) e em `run_log`."""
     sessao.execute(
         text("UPDATE run_step SET status = 'running', action = CAST(:a AS run_action), "
              "                     pid = :pid, heartbeat_at = now(), started_at = now(), "
+             "                     processed = 0, errors = 0, "
+             "                     metrics = COALESCE(metrics, '{}'::jsonb) - 'sub', "
              "                     error_message = NULL, finished_at = NULL "
              "WHERE id = :id"), {"a": action, "pid": pid, "id": run_etapa_id})
 

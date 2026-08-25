@@ -46,13 +46,16 @@ def run(run_etapa_id: int) -> int:
     sessao_execucao = db.create_session()
 
     if not lock.advisory_tentar(sessao_execucao):
-        # A linha `run_lock` já foi reservada por `executor` antes de este processo
-        # subir; chegar aqui sem conseguir o advisory lock significa outro processo (mesmo
-        # host Postgres) disputando a MESMA chave — não deveria acontecer sob uso normal, mas
-        # falhar alto e claro é melhor que rodar sem a segunda trava.
-        repo.marcar_falhou(sessao_execucao, run_etapa_id,
-                           "não foi possível adquirir o pg_advisory_lock — outra execução "
-                           "parece estar em andamento no mesmo Postgres")
+        # Não conseguir o advisory lock significa que OUTRO processo ainda está executando
+        # esta etapa — ele é o dono legítimo da linha. Este processo apenas desiste: marcar
+        # `failed` aqui carimbaria de fracassada uma execução VIVA, que foi o que aconteceu em
+        # 2026-08-24 (o worker antigo seguia coletando e a tela passou a mostrar "falhou").
+        linha = repo.run_etapa_por_id(sessao_execucao, run_etapa_id)
+        repo.registrar_log(
+            sessao_execucao, linha["run_id"] if linha else 0,
+            linha["step"] if linha else None, "aviso",
+            "[yellow]Já existe um processo executando esta step (advisory lock ocupado) — "
+            "esta tentativa foi descartada e a execução em andamento segue.[/]")
         sessao_execucao.commit()
         sessao_execucao.close()
         return 1

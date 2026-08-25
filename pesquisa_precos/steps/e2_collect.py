@@ -21,6 +21,8 @@ Não reprocessar documento já visto: o dedup é o que segura o custo das etapas
 """
 
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -46,7 +48,9 @@ KEY = "2"
 # 2.0.0 (Fase 13): sobrou só o banco. A coleta é a mesma (dedup por documento,
 # parada por watermark); muda o destino — documento/item/documento_termo e os três
 # checkpoints viram tabelas.
-CODE_VERSION = "2.0.0"  # Fase 8/ADR-011: parou de baixar PDF (ver docstring do módulo)
+# 3.1.0: paralelismo por documento (`concurrency`) + documento visto sem linha em
+# `documento` deixou de ser confundido com documento coletado (FK de documento_termo).
+CODE_VERSION = "3.1.0"  # Fase 8/ADR-011: parou de baixar PDF (ver docstring do módulo)
 
 
 class Params(BaseModel):
@@ -57,6 +61,9 @@ class Params(BaseModel):
                            "paginar ao cruzar o watermark. Coleta só o novo.")
     limite_termos: int | None = Field(None, description="Máx. de termos por conceito (teste)")
     tam_pagina: int | None = Field(None, description="Tamanho da página da busca do PNCP")
+    concurrency: int = Field(
+        3, ge=1, le=16,
+        description="Documentos processados em paralelo dentro de cada busca")
 
 
 # ── Coleta gravando no banco (Fase 10) ──────────────────────────────────────────────
@@ -212,13 +219,25 @@ class _Busca(NamedTuple):
 
 
 class _Totais:
-    """Contadores da execução inteira, compartilhados entre as fases."""
+    """Contadores da execução inteira, compartilhados entre as fases.
+
+    Com a coleta paralela (3 documentos por vez), `+=` de várias threads deixou de ser
+    seguro: o lock protege os quatro contadores."""
 
     def __init__(self) -> None:
         self.itens = 0
         self.documentos = 0
         self.erros = 0
         self.resolvidos = 0
+        self.lock = threading.Lock()
+
+    def somar(self, *, itens: int = 0, documentos: int = 0, erros: int = 0,
+              resolvidos: int = 0) -> None:
+        with self.lock:
+            self.itens += itens
+            self.documentos += documentos
+            self.erros += erros
+            self.resolvidos += resolvidos
 
 
 def _revisitar_pendentes(db, repo, pendentes_docs: dict, conhecidos: set,
@@ -243,13 +262,13 @@ def _revisitar_pendentes(db, repo, pendentes_docs: dict, conhecidos: set,
             ctx.progresso(feitos)
             continue
         if status == "ok":
-            totais.itens += gravar_documento_no_banco(
-                db, linhas, rec["base"].get("data_atualizacao_pncp"), rec.get("termo_id"))
+            totais.somar(itens=gravar_documento_no_banco(
+                db, linhas, rec["base"].get("data_atualizacao_pncp"), rec.get("termo_id")))
             with db.session() as s:
                 repo.remover_pendente(s, ctrl)
                 s.commit()
             conhecidos.add(ctrl)
-            totais.resolvidos += 1
+            totais.somar(resolvidos=1)
             del pendentes_docs[ctrl]
         feitos += 1
         ctx.progresso(feitos, descricao=f"pendentes · [green]{totais.resolvidos} resolvidos[/]")
@@ -257,70 +276,129 @@ def _revisitar_pendentes(db, repo, pendentes_docs: dict, conhecidos: set,
                     f"ainda pendentes: {len(pendentes_docs)}")
 
 
+def _processar_documento(r: dict, busca: _Busca, db, repo, *, conhecidos: set,
+                         sem_documento: set, pendentes_docs: dict, totais: _Totais,
+                         trava: threading.Lock, ctx: RunContext) -> int:
+    """Todo o trabalho de UM documento: consulta à API e gravação. É o que roda em paralelo.
+
+    Cada chamada abre a própria sessão/conexão para gravar — o commit continua sendo por
+    documento, que é o que faz o resume ser exato mesmo se o processo morrer no meio.
+    """
+    ctrl = r["numero_controle_pncp"]
+    linhas, status = collect_pncp.coletar_documento(r, busca.fonte, busca.termo)
+    if status != "ok":
+        if status == "erro":
+            totais.somar(erros=1)
+            ctx.item_error(ctrl, status, tipo=busca.fonte, name=busca.termo)
+        elif status == "sem_homologado":
+            base = collect_pncp.identificar(r, busca.fonte)
+            with db.session() as s:
+                repo.gravar_pendente(s, ctrl, busca.fonte, base,
+                                     termo_id=busca.termo_id, data=base.get("data", ""))
+                s.commit()
+            with trava:
+                pendentes_docs[ctrl] = {"tipo_doc": busca.fonte, "base": base}
+        # VISTO, mas sem linha em `documento`: entra num conjunto à parte. Misturá-lo com
+        # `conhecidos` fazia a próxima busca que reencontrasse o documento tentar
+        # `ligar_termos` para um `numero_controle_pncp` inexistente — violação de chave
+        # estrangeira que abortava a busca INTEIRA (40 das 67 em 2026-08-23).
+        with trava:
+            sem_documento.add(ctrl)
+        return 0
+
+    n = gravar_documento_no_banco(db, linhas, r.get("data_atualizacao_pncp") or "",
+                                  busca.termo_id)
+    with trava:
+        conhecidos.add(ctrl)
+    totais.somar(documentos=1, itens=n)
+    return n
+
+
 def _coletar_busca(busca: _Busca, params: Params, db, repo, repo_termo, *,
-                   conhecidos: set, pendentes_docs: dict, watermark: dict,
-                   totais: _Totais, tam_pagina_kw: dict, ctx: RunContext) -> None:
+                   conhecidos: set, sem_documento: set, pendentes_docs: dict,
+                   watermark: dict, totais: _Totais, tam_pagina_kw: dict,
+                   ctx: RunContext) -> None:
     """Percorre uma busca (termo x fonte) e grava o que for novo.
+
+    A PAGINAÇÃO é sequencial (o generator da busca decide quando parar, e a parada por
+    watermark depende da ordem); o PROCESSAMENTO de cada documento vai para um pool de
+    `params.concurrency` threads. Um documento custa 3+ chamadas à API do PNCP e passa quase
+    todo o tempo esperando rede — em 2026-08-23 media 26,7 s cada, um de cada vez.
 
     Numa rodada de atualização, para de paginar assim que cruza o watermark daquela busca —
     é isso que evita revarrer o acervo inteiro.
     """
     subprogresso(ctx, processed=0, total=None,
                  descricao=f"[cyan]{busca.termo[:24]}[/] ({busca.fonte})")
-    n_docs = n_itens = 0
+    n_docs = 0
+    n_itens = [0]
     wm = watermark.get((busca.termo_id, busca.fonte))
     max_atu = wm or ""
+    trava = threading.Lock()
 
-    for r in collect_pncp.iter_resultados(
-            busca.termo, busca.fonte, on_total=lambda n: subprogresso(ctx, total=n),
-            **tam_pagina_kw):
-        n_docs += 1
-        subprogresso(ctx, processed=n_docs)
-        # Uma busca do PNCP tem centenas de documentos e leva muitos minutos; checar o
-        # cancelamento só entre buscas faria o operador esperar a busca inteira depois de
-        # clicar em Cancelar — com o lock preso o tempo todo.
-        if ctx.cancelado():
-            break
-        atu = r.get("data_atualizacao_pncp") or ""
-        if atu > max_atu:
-            max_atu = atu
-        if params.atualizar and wm and atu and atu < wm:
-            break
-        ctrl = r.get("numero_controle_pncp")
-        if not ctrl:
-            continue
-        if ctrl in conhecidos:
-            # Documento já coletado: só registra que este termo também o encontrou.
-            with db.raw_connection() as conn:
-                repo.ligar_termos(conn, [(ctrl, busca.termo_id)])
-                conn.commit()
-            continue
+    with ThreadPoolExecutor(max_workers=params.concurrency,
+                            thread_name_prefix="coleta") as pool:
+        pendentes_futuros: list = []
 
-        linhas, status = collect_pncp.coletar_documento(r, busca.fonte, busca.termo)
-        if status != "ok":
-            if status == "erro":
-                totais.erros += 1
-                ctx.item_error(ctrl, status, tipo=busca.fonte, name=busca.termo)
-            elif status == "sem_homologado":
-                base = collect_pncp.identificar(r, busca.fonte)
-                with db.session() as s:
-                    repo.gravar_pendente(s, ctrl, busca.fonte, base,
-                                         termo_id=busca.termo_id, data=base.get("data", ""))
-                    s.commit()
-                pendentes_docs[ctrl] = {"tipo_doc": busca.fonte, "base": base}
-            conhecidos.add(ctrl)   # visto: não reprocessa
-            continue
+        def drenar(limite: int) -> None:
+            """Segura a esteira: sem isto, uma busca de 3 mil documentos enfileiraria 3 mil
+            tarefas de uma vez e o cancelamento levaria uma eternidade para ser sentido."""
+            while len(pendentes_futuros) > limite:
+                for f in list(pendentes_futuros):
+                    if f.done():
+                        pendentes_futuros.remove(f)
+                        n_itens[0] += f.result()
+                if len(pendentes_futuros) > limite:
+                    pendentes_futuros[0].result()
 
-        n = gravar_documento_no_banco(db, linhas, atu, busca.termo_id)
-        conhecidos.add(ctrl)
-        totais.documentos += 1
-        totais.itens += n
-        n_itens += n
+        for r in collect_pncp.iter_resultados(
+                busca.termo, busca.fonte, on_total=lambda n: subprogresso(ctx, total=n),
+                **tam_pagina_kw):
+            n_docs += 1
+            subprogresso(ctx, processed=n_docs)
+            # Uma busca do PNCP tem centenas de documentos e leva muitos minutos; checar o
+            # cancelamento só entre buscas faria o operador esperar a busca inteira depois de
+            # clicar em Cancelar — com o lock preso o tempo todo.
+            if ctx.cancelado():
+                break
+            atu = r.get("data_atualizacao_pncp") or ""
+            if atu > max_atu:
+                max_atu = atu
+            if params.atualizar and wm and atu and atu < wm:
+                break
+            ctrl = r.get("numero_controle_pncp")
+            if not ctrl:
+                continue
+            with trava:
+                ja_conhecido = ctrl in conhecidos
+                ja_visto_sem_doc = ctrl in sem_documento
+            if ja_visto_sem_doc:
+                continue   # visto e sem linha em `documento`: não há a que ligar o termo
+            if ja_conhecido:
+                # Documento já coletado: só registra que este termo também o encontrou.
+                try:
+                    with db.raw_connection() as conn:
+                        repo.ligar_termos(conn, [(ctrl, busca.termo_id)])
+                        conn.commit()
+                except Exception as exc:  # noqa: BLE001
+                    # Uma ligação que falha é um documento a menos no vínculo N:N, não motivo
+                    # para perder a busca inteira e as horas de coleta que vieram com ela.
+                    totais.somar(erros=1)
+                    ctx.item_error(ctrl, exc, tipo=busca.fonte, name=busca.termo)
+                continue
+
+            pendentes_futuros.append(pool.submit(
+                _processar_documento, r, busca, db, repo, conhecidos=conhecidos,
+                sem_documento=sem_documento, pendentes_docs=pendentes_docs,
+                totais=totais, trava=trava, ctx=ctx))
+            drenar(params.concurrency * 2)
+
+        drenar(0)
 
     # Progresso e watermark fecham JUNTOS, na mesma transação: marcar a busca como concluída
     # sem gravar o watermark faria a próxima atualização varrer do zero.
     with db.session() as s:
-        repo.marcar_busca(s, busca.termo_id, busca.fonte, n_docs, n_itens)
+        repo.marcar_busca(s, busca.termo_id, busca.fonte, n_docs, n_itens[0])
         if max_atu:
             repo_termo.gravar_watermark(s, busca.termo_id, busca.fonte, max_atu)
         s.commit()
@@ -348,6 +426,9 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         conhecidos = set() if params.ignorar_cache else repo.controles_conhecidos(s)
         watermark = repo_termo.watermarks(s)
         pendentes_docs = {} if params.ignorar_cache else repo.pendentes(s)
+    # Os pendentes já nascem "vistos sem documento": eles são exatamente os documentos que a
+    # API trouxe sem item homologado, e para os quais não há linha em `documento`.
+    sem_documento: set[str] = set(pendentes_docs)
 
     pendentes = [t for t in tarefas if (t.termo_id, t.fonte) not in feitas]
     modo = "[yellow]atualização (para no watermark)[/]" if params.atualizar else "full"
@@ -368,10 +449,11 @@ def run(params: Params, ctx: RunContext) -> StepResult:
             break
         try:
             _coletar_busca(busca, params, db, repo, repo_termo, conhecidos=conhecidos,
-                           pendentes_docs=pendentes_docs, watermark=watermark,
-                           totais=totais, tam_pagina_kw=tam_pagina_kw, ctx=ctx)
+                           sem_documento=sem_documento, pendentes_docs=pendentes_docs,
+                           watermark=watermark, totais=totais,
+                           tam_pagina_kw=tam_pagina_kw, ctx=ctx)
         except Exception as exc:  # noqa: BLE001
-            totais.erros += 1
+            totais.somar(erros=1)
             ctx.log("erro", f"[red]erro[/] {busca.termo} ({busca.fonte}): {str(exc)[:80]}")
             ctx.item_error(busca.termo, exc, tipo=busca.fonte, name=busca.termo)
         finally:

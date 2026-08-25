@@ -16,6 +16,8 @@ import time
 
 import requests
 
+from pesquisa_precos.core.collection import http
+
 PNCP_BASE = "https://pncp.gov.br/api/pncp/v1/orgaos"
 TAM_PAGINA_MAX = 1000
 SITUACAO_ALVO = "Homologado"
@@ -34,7 +36,7 @@ def _get(url: str, params: dict | None, silent: bool, max_tentativas: int = 6):
     while True:
         attempt += 1
         try:
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=(30, 120))
+            resp = http.get(url, params=params, headers=HEADERS)
             sc = resp.status_code
             if sc == 429:  # rate-limit: espera e tenta de novo
                 if attempt >= max_tentativas:

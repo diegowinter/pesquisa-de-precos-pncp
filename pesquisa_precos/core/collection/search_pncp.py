@@ -16,6 +16,8 @@ import time
 
 import requests
 
+from pesquisa_precos.core.collection import http
+
 BASE_URL = "https://pncp.gov.br/api/search/"
 TAM_PAGINA_DEFAULT = 500
 SLEEP_ENTRE_PAGINAS = 1.5  # segundos — evitar bloqueio por WAF do PNCP
@@ -41,7 +43,7 @@ def fetch_page(termo: str, tipo: str, pagina: int, tam_pagina: int) -> dict:
     }
     for attempt in range(1, MAX_TENTATIVAS + 1):
         try:
-            resp = requests.get(BASE_URL, params=params, headers=HEADERS, timeout=(30, 300))
+            resp = http.get(BASE_URL, params=params, headers=HEADERS)
             if resp.status_code == 204 or not resp.content:
                 return {"items": [], "total": 0}
             resp.raise_for_status()
