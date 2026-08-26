@@ -26,7 +26,8 @@ from pydantic import BaseModel, Field
 from pesquisa_precos.core.parallel import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import session as db
-from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
+from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
+                                        avanco_cancelavel)
 
 KEY = "6c"
 CODE_VERSION = "2.0.0"
@@ -126,7 +127,10 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
         ctx.progresso(0, len(pend), descricao="validando ambíguos")
         try:
             executar_paralelo(pend, fn, concurrency=params.concurrency, on_result=ok,
-                              on_error=err, on_progress=lambda f, t: ctx.progresso(f, t))
+                              on_error=err, on_progress=avanco_cancelavel(ctx))
+        except Cancelada:
+            ctx.log("aviso", "[yellow][6c] Cancelado pelo operador — os vereditos já pagos "
+                             "estão gravados.[/]")
         finally:
             descarregar()   # o que já foi pago ao LLM é gravado mesmo se a etapa cair
 

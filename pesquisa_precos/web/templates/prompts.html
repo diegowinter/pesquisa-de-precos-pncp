@@ -5,7 +5,7 @@
   <h2>Prompts</h2>
   <p class="tag">Editar sempre cria uma versão nova, inativa (ADR-007/ADR-014). "Ativar" é quem promove — <code>llm_chamada.prompt_version_id</code> grava qual versão respondeu por cada chamada.</p>
   {% for p in prompts %}
-  <details {% if p.name == aberto %}open{% endif %} style="margin-top:1rem;">
+  <details {% if p.name == open %}open{% endif %} style="margin-top:1rem;">
     <summary style="cursor:pointer;font-weight:600;">{{ p.name }} <span class="tag">{{ p.capability }}</span></summary>
     <p class="tag">{{ p.description or "" }}</p>
     <table>

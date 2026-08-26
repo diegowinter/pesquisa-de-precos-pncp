@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 from pesquisa_precos.core.parallel import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import session as db
-from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
+from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
+                                        avanco_cancelavel)
 
 KEY = "3"
 # 1.1.0 (Fase 2): o dedup passa a agrupar pelo `texto_hash` canônico de core.text, que
@@ -98,6 +99,18 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 # execução sobre 1,6 milhão de linhas em memória; aqui o `texto_hash` já veio calculado da
 # ingestão da etapa 2 e o agrupamento é do banco.
 
+# Se as primeiras N unidades falharem TODAS, o problema não é do item — é do provedor
+# (modelo aposentado, chave vencida, serviço fora). Em 2026-08-25 o OpenRouter aposentou o
+# `ling-2.6-flash` e a etapa seguiu tentando, texto a texto, rumo às 32 mil falhas. Desistir
+# cedo é mais barato que qualquer retry.
+LIMITE_FALHA_TOTAL = 20
+
+
+class _FalhaTotal(SystemExit):
+    """Aborta a etapa: nada foi classificado e o provedor recusou tudo."""
+
+
+
 class _Acumulador:
     """Contadores e lote pendente da classificação, compartilhados entre as threads.
 
@@ -115,9 +128,16 @@ class _Acumulador:
         self.erros = 0
         self.lote: list[tuple] = []
 
-    def registra_erro(self) -> None:
+    def registra_erro(self, causa: object = "") -> None:
+        """Conta o erro e, se NADA deu certo até aqui, corta a etapa (`LIMITE_FALHA_TOTAL`)."""
         with self._lock:
             self.erros += 1
+            desistir = self.ok == 0 and self.erros >= LIMITE_FALHA_TOTAL
+        if desistir:
+            raise _FalhaTotal(
+                f"As primeiras {self.erros} classificações falharam e nenhuma deu certo — "
+                f"o problema é do provedor de chat, não dos itens. Última causa: {causa}. "
+                f"Confira o modelo e a chave em /providers e rode a etapa de novo.")
 
     def registra_ok(self, linha: tuple) -> None:
         """Guarda a linha classificada; grava quando o lote enche."""
@@ -186,8 +206,10 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
         if conf == "erro":
             # Texto com erro não entra na tabela: entrar o marcaria como pago sem ter sido
             # classificado, e o retry nunca mais o encontraria.
-            acumulador.registra_erro()
-            ctx.item_error(grupo["texto_hash"], res.get("_erro"), name=grupo["description"])
+            causa = res.get("_erro") or "sem detalhe"
+            ctx.item_error(grupo["texto_hash"], causa, tipo="llm",
+                           name=grupo["description"][:120])
+            acumulador.registra_erro(causa)
             return
         # `confianca` é `real` no banco e palavra no LLM; a escala ordinal é declarada em
         # `repo.CONFIANCA_ORDINAL`, a mesma que a migração usa.
@@ -197,14 +219,17 @@ def _rodar(params: Params, ctx: RunContext, resolucao_chat,
             res.get("_prompt_versao_id"), model, nome_provedor, None))
 
     def ao_falhar(grupo, exc):
-        acumulador.registra_erro()
-        ctx.item_error(grupo["texto_hash"], exc, name=grupo["description"])
+        ctx.item_error(grupo["texto_hash"], exc, name=grupo["description"][:120])
+        acumulador.registra_erro(exc)
 
     ctx.progresso(0, len(tarefas), descricao="classificando")
     try:
         executar_paralelo(tarefas, classificar, concurrency=params.concurrency,
                           on_result=ao_classificar, on_error=ao_falhar,
-                          on_progress=lambda f, t: ctx.progresso(f, t))
+                          on_progress=avanco_cancelavel(ctx))
+    except Cancelada:
+        ctx.log("aviso", "[yellow][3] Cancelado pelo operador — o que já foi classificado "
+                         "está gravado e não volta ao modelo.[/]")
     finally:
         acumulador.flush()   # o que já foi pago é gravado mesmo se a etapa cair no meio
 

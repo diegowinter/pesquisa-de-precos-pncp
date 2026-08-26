@@ -91,9 +91,19 @@ class DbContext:
         self._sessao_execucao.commit()
 
     def item_error(self, key: str, exc: object, *, tipo: str = "", name: str = "") -> None:
+        """Guarda NOME e CAUSA na mesma mensagem, nesta ordem.
+
+        Até 2026-08-25 a mensagem era `name or str(exc)`: quando a etapa passava um rótulo
+        humano — e quase todas passam — a causa do erro era descartada. A etapa 3 falhou 1.909
+        vezes seguidas contra um modelo que o OpenRouter tinha aposentado e o banco só guardou
+        descrições de botina, sem uma linha dizendo o porquê.
+        """
+        causa = str(exc).strip()
         repo.registrar_erro_item(
             self._sessao_execucao, self.run_id, self.step, key,
-            tipo or type(exc).__name__, name or str(exc))
+            tipo or (type(exc).__name__ if isinstance(exc, BaseException) else "erro"),
+            f"{name} — {causa}" if name and causa and name != causa else (name or causa),
+            run_etapa_id=self.run_etapa_id)
         self._sessao_execucao.commit()
 
     def subprogresso(self, processed: int | None = None, total: Any = MANTER,

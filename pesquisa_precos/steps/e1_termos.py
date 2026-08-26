@@ -40,7 +40,8 @@ from pesquisa_precos.core.classification.variations import (
     expandir_variacoes,
 )
 from pesquisa_precos.core.parallel import executar_paralelo
-from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
+from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
+                                        avanco_cancelavel)
 
 KEY = "1"
 # 2.0.0 (Fase 13): sobrou só o banco. A regra (cascata de categoria, expansão de
@@ -236,8 +237,12 @@ def gerar_por_item_no_banco(df, criar_curador, concurrency, params,
                       name=str(row.get("nome_pdm")))
 
     ctx.progresso(0, len(pendentes), descricao="itens")
-    executar_paralelo(pendentes, fn, concurrency=concurrency, on_result=ok,
-                      on_error=err, on_progress=lambda f, t: ctx.progresso(f, t))
+    try:
+        executar_paralelo(pendentes, fn, concurrency=concurrency, on_result=ok,
+                          on_error=err, on_progress=avanco_cancelavel(ctx))
+    except Cancelada:
+        ctx.log("aviso", "[yellow][1] Cancelado pelo operador — os itens já processados "
+                         "ficam em `termo_geracao` e a próxima execução retoma daí.[/]")
     if n_erros[0]:
         ctx.log("aviso", f"[yellow][1] {n_erros[0]} itens falharam — ver item_error[/]")
     return n_ok[0], n_erros[0]

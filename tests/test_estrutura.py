@@ -137,3 +137,38 @@ def test_curador_nao_tem_mais_from_provedor():
     from pesquisa_precos.providers.llm_curador import Curador
 
     assert not hasattr(Curador, "from_provedor")
+
+
+def test_template_nao_usa_variavel_que_a_rota_nao_fornece():
+    """Variável indefinida no Jinja não levanta: renderiza vazio, em silêncio.
+
+    Foi assim que `{% for c in capacidades %}` sobreviveu ao rename para `capabilities`
+    (2026-08-25): a tela `/providers` desenhava ZERO checkboxes de capacidade e o formulário
+    reprovava com "selecione ao menos uma capability" sem ter o que selecionar. O mesmo
+    aconteceu com `aberto`/`open` em `prompts.html`.
+
+    A checagem é frouxa de propósito — basta o nome aparecer em `app.py`, não importa como.
+    Ela não prova que a rota certa fornece a variável certa; só pega o nome órfão.
+    """
+    import re
+
+    from jinja2 import Environment, FileSystemLoader, meta
+
+    import pesquisa_precos.web.app as web_app
+
+    raiz = Path(__file__).resolve().parents[1]
+    pasta = raiz / "pesquisa_precos" / "web" / "templates"
+    fonte_app = (raiz / "pesquisa_precos" / "web" / "app.py").read_text(encoding="utf-8")
+    conhecidas = (set(re.findall(r'"(\w+)"', fonte_app))
+                  | set(re.findall(r"(\w+)=", fonte_app))
+                  | set(web_app.templates.env.globals))
+
+    env = Environment(loader=FileSystemLoader(str(pasta)))
+    orfas = {}
+    for arquivo in sorted(pasta.glob("*.html")):
+        usadas = meta.find_undeclared_variables(
+            env.parse(arquivo.read_text(encoding="utf-8")))
+        faltando = sorted(nome for nome in usadas if nome not in conhecidas)
+        if faltando:
+            orfas[arquivo.name] = faltando
+    assert not orfas, f"variáveis que nenhuma rota fornece: {orfas}"

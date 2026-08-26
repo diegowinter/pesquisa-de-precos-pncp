@@ -74,7 +74,7 @@
   <form method="post" action="/providers/capabilities">
     <label>Capacidade
       <select name="capability" required>
-        {% for c in capacidades %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        {% for c in capabilities %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
       </select>
     </label>
     <label>Provedor
@@ -160,7 +160,7 @@
     </label>
     <fieldset>
       <legend>Capacidades</legend>
-      {% for c in capacidades %}
+      {% for c in capabilities %}
       <label>
         <input type="checkbox" name="capabilities" value="{{ c }}"
                {% if editando and c in editando.capabilities %}checked{% endif %}> {{ c }}

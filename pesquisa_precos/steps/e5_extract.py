@@ -60,7 +60,8 @@ from pesquisa_precos.strategies import full as estr_full
 from pesquisa_precos.strategies import window as estr_window
 from pesquisa_precos.strategies import routing
 from pesquisa_precos.strategies import vision as estr_vision
-from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
+from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
+                                        avanco_cancelavel)
 
 KEY = "5"
 CODE_VERSION = "2.0.0"
@@ -520,7 +521,10 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         ctx.progresso(0, len(pend), descricao="extraindo (PDF+LLM)")
         executar_paralelo(pend, fn_doc, concurrency=params.concurrency_docs,
                           on_result=ok_banco, on_error=err_doc,
-                          on_progress=lambda f, t: ctx.progresso(f, t))
+                          on_progress=avanco_cancelavel(ctx))
+    except Cancelada:
+        ctx.log("aviso", "[yellow][5] Cancelado pelo operador — os documentos já extraídos "
+                         "estão gravados e não voltam ao PDF nem ao modelo.[/]")
     finally:
         _escritor_paginas = None
 

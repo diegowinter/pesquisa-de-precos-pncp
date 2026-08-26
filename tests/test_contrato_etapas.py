@@ -138,3 +138,25 @@ def test_etapa_so_usa_o_que_o_runcontext_oferece(key):
                for linha, attr in _atributos_lidos(modulo, "ctx")
                if attr not in permitidos]
     assert not erradas, f"step {key} usa algo fora do RunContext: {erradas}"
+
+
+@pytest.mark.parametrize("key", CHAVES)
+def test_etapa_paralela_obedece_ao_cancelar(key):
+    """Quem usa `executar_paralelo` tem de passar `avanco_cancelavel` como `on_progress`.
+
+    O `on_progress` é o único ponto por onde toda unidade concluída passa; era ali que faltava
+    checar o cancelamento. Sem isso, clicar em Cancelar mudava o status no banco e mais nada:
+    a etapa 3 seguiu com o pool até o fim, com o advisory lock preso, e em 2026-08-25 deixou
+    dois workers órfãos vivos queimando LLM depois do Cancelar.
+
+    A checagem é textual porque o alvo é textual: o que se quer proibir é voltar a escrever
+    `on_progress=lambda f, t: ctx.progresso(f, t)`.
+    """
+    import inspect
+
+    fonte = inspect.getsource(registry.obter(key).carregar())
+    if "executar_paralelo(" not in fonte:
+        pytest.skip("step sem pool paralelo")
+    assert "avanco_cancelavel(ctx)" in fonte, (
+        f"step {key} roda em paralelo sem obedecer ao Cancelar — use "
+        f"`on_progress=avanco_cancelavel(ctx)` e trate `Cancelada`")

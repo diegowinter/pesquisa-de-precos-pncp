@@ -384,7 +384,12 @@ def marcar_executando(sessao: Session, run_etapa_id: int, *, action: str, pid: i
     """`processed`/`errors` são da execução CORRENTE, não do histórico: começar uma nova
     tentativa carregando "erros: 40" da anterior faz a tela mentir justamente quando o
     operador está olhando para ver se o reprocessamento resolveu. O histórico continua em
-    `item_error` (que só sai da lista quando de fato reprocessa sem falhar) e em `run_log`."""
+    `item_error` (que só sai da lista quando de fato reprocessa sem falhar) e em `run_log`.
+
+    Em `redo` os erros pendentes também saem da lista AGORA, e não no fim: refazer do zero
+    não reprocessa "os que falharam", reprocessa tudo, então a lista da tentativa anterior não
+    é uma pauta de trabalho — é ruído. Em `update`/`resume` ela continua sendo a pauta, e só
+    se resolve no fim, pela comparação de `attempts` (ver `resolver_erros`)."""
     sessao.execute(
         text("UPDATE run_step SET status = 'running', action = CAST(:a AS run_action), "
              "                     pid = :pid, heartbeat_at = now(), started_at = now(), "
@@ -392,6 +397,11 @@ def marcar_executando(sessao: Session, run_etapa_id: int, *, action: str, pid: i
              "                     metrics = COALESCE(metrics, '{}'::jsonb) - 'sub', "
              "                     error_message = NULL, finished_at = NULL "
              "WHERE id = :id"), {"a": action, "pid": pid, "id": run_etapa_id})
+    if action == "redo":
+        sessao.execute(
+            text("UPDATE item_error SET resolved = true WHERE NOT resolved "
+                 "  AND (run_id, step) = (SELECT run_id, step FROM run_step WHERE id = :id)"),
+            {"id": run_etapa_id})
 
 
 def marcar_concluida(sessao: Session, run_etapa_id: int, *, processed: int, errors: int,
@@ -674,9 +684,15 @@ def resolver_erros(sessao: Session, run_id: int, step: str, keys: Sequence[str])
 
 
 def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
-                        error_type: str, message: str) -> None:
+                        error_type: str, message: str,
+                        run_etapa_id: int | None = None) -> None:
     """Erro de UMA unidade de trabalho — não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4).
-    Reaproveita a linha em nova tentativa em vez de acumular duplicata por `key`."""
+    Reaproveita a linha em nova tentativa em vez de acumular duplicata por `key`.
+
+    Com `run_etapa_id`, também incrementa `run_step.errors` — a coluna que a tela mostra.
+    Sem isso a etapa 3 chegou a falhar em 100% dos textos com a tela marcando "erros: 0"
+    (2026-08-25): os erros estavam todos em `item_error`, invisíveis até alguém ir ao banco.
+    """
     existente = sessao.execute(
         text("SELECT id, attempts FROM item_error "
              "WHERE run_id = :r AND step = :e AND key = :c AND NOT resolved"),
@@ -691,6 +707,10 @@ def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
             text("INSERT INTO item_error (run_id, step, key, error_type, message) "
                  "VALUES (:r, :e, :c, :t, :m)"),
             {"r": run_id, "e": step, "c": key, "t": error_type, "m": message[:4000]})
+    if run_etapa_id is not None:
+        sessao.execute(
+            text("UPDATE run_step SET errors = coalesce(errors, 0) + 1 WHERE id = :id"),
+            {"id": run_etapa_id})
 
 
 def registrar_llm_chamada(sessao: Session, *, run_id: int | None, step: str | None,

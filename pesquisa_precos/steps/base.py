@@ -88,13 +88,43 @@ class RunContext(Protocol):
         """Mensagem para o operador. `msg` pode conter markup do rich."""
 
     def item_error(self, key: str, exc: object, *, tipo: str = "", name: str = "") -> None:
-        """Falha de UMA unidade. Não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4)."""
+        """Falha de UMA unidade. Não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4).
+
+        `name` é o rótulo humano do item (a descrição, o termo); `exc` é a causa. Os dois são
+        gravados — passar `name` NÃO substitui a causa."""
 
     def cancelado(self) -> bool:
         """Checar em todo laço externo."""
 
     def gastar(self, usd: float) -> None:
         """Contabiliza gasto; levanta `TetoDeCustoExcedido` quando houver teto (Fase 3)."""
+
+
+class Cancelada(Exception):
+    """O operador clicou em Cancelar. Não é falha: a etapa grava o que já fez e retorna.
+
+    Quem levanta é `avanco_cancelavel`; quem trata é a própria etapa, com um `except` em volta
+    do laço. O `worker` decide o status final olhando `ctx.cancelado()`, não esta exceção.
+    """
+
+
+def avanco_cancelavel(ctx: RunContext):
+    """`on_progress` que também obedece ao Cancelar — para passar a `executar_paralelo`.
+
+    Existe porque "avançou uma unidade" é o único ponto por onde toda etapa paralela passa, e
+    era exatamente onde ninguém checava o cancelamento. Cancelar a etapa 3 pela tela mudava o
+    status no banco e mais nada: o pool seguia até o último dos 32 mil textos com o lock
+    preso, e em 2026-08-25 deixou dois workers órfãos vivos, queimando LLM depois do Cancelar.
+
+    O pool ainda espera as unidades em voo terminarem — é o `with ThreadPoolExecutor`. Com
+    `concurrency` baixa isso é questão de segundos; o que não acontece mais é varrer a fila
+    inteira.
+    """
+    def ao_avancar(feitos: int, total: int | None = None) -> None:
+        ctx.progresso(feitos, total)
+        if ctx.cancelado():
+            raise Cancelada
+    return ao_avancar
 
 
 def subprogresso(ctx: RunContext, processed: int | None = None,
