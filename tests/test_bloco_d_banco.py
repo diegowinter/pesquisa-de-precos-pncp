@@ -196,14 +196,20 @@ def test_nenhum_adapter_em_processo_sobreviveu():
     assert not [n for n in nomes if "Processo" in n], nomes
 
 
-def test_health_check_reprova_capacidade_sem_servico(monkeypatch):
+def test_health_check_reprova_capacidade_sem_servico():
     """Sem `base_url` a step não pode começar: o health check pré-play é onde isso aparece,
-    antes de gastar. Era o inverso enquanto existia caminho em processo."""
+    antes de gastar. Era o inverso enquanto existia caminho em processo.
+
+    A checagem é sobre as funções puras de sondagem, NÃO sobre `checar_capacidade("pdf")`: a
+    versão anterior mexia em `PDF_BASE_URL` e afirmava que `pdf` reprova — o que era verdade
+    só enquanto ninguém tivesse cadastrado um provedor de PDF. Desde a ADR-022 não há mais
+    fallback para o `.env`, e no dia em que `pdf_local` foi cadastrado o teste passou a falhar
+    contra o banco real do usuário, sem nada ter quebrado.
+    """
     from pesquisa_precos.providers import health
 
-    monkeypatch.setenv("PDF_BASE_URL", "")
-    resultado = health.checar_capacidade("pdf")
-    assert resultado["healthy"] is False
+    assert health.sondar_url("")["healthy"] is False
+    assert health.sondar_health("http://127.0.0.1:1")["healthy"] is False
 
 
 # ── Export no banco (ADR-018 §2) ─────────────────────────────────────────────────────

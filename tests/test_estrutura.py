@@ -172,3 +172,32 @@ def test_template_nao_usa_variavel_que_a_rota_nao_fornece():
         if faltando:
             orfas[arquivo.name] = faltando
     assert not orfas, f"variáveis que nenhuma rota fornece: {orfas}"
+
+
+def test_nenhum_codigo_inalcancavel_depois_de_return():
+    """Código depois de `return`/`raise` no mesmo bloco é sempre erro, e o `ruff` não o vê.
+
+    Em 2026-08-29 a etapa 5 tinha 50 linhas — a extração inteira — indentadas para dentro do
+    `if not linhas_paginas:`, logo depois do `return` dele. O caminho normal caía no fim da
+    função e devolvia `None`; quem chamava fazia `linhas_item, linhas_doc = resultado` e
+    estourava com "cannot unpack non-iterable NoneType". Foram 1.146 documentos perdidos, cada
+    um com o download do PNCP e o upload ao serviço de PDF já pagos.
+
+    Sintaticamente é código válido, e por isso nenhuma ferramenta reclamou.
+    """
+    import ast
+
+    raiz = Path(__file__).resolve().parents[1]
+    achados = []
+    for arquivo in (raiz / "pesquisa_precos").rglob("*.py"):
+        arvore = ast.parse(arquivo.read_text(encoding="utf-8"), str(arquivo))
+        for no in ast.walk(arvore):
+            corpo = getattr(no, "body", None)
+            if not isinstance(corpo, list):
+                continue
+            for i, cmd in enumerate(corpo[:-1]):
+                if isinstance(cmd, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+                    achados.append(
+                        f"{arquivo.relative_to(raiz)}:{corpo[i + 1].lineno} "
+                        f"depois de {type(cmd).__name__.lower()} na linha {cmd.lineno}")
+    assert not achados, "código inalcançável:\n  " + "\n  ".join(achados)

@@ -99,6 +99,18 @@ class Params(BaseModel):
 # caminhos. Sem isso, `_processar_documento` precisaria saber onde está gravando — e ele é a
 # função que concentra a regra de negócio, justamente a que não pode ganhar `if fonte ==`.
 
+def _estado_documento(doc_status: str | None) -> str:
+    """`doc_status` da regra de negócio → rótulo do enum `estado_documento` do banco.
+
+    Os dois vocabulários coincidem em `suspeito` e `ilegivel` e divergem no caso bom: a regra
+    chama de `ok`, o enum chama de `extraido`. `_marcar_documento_extraido` já fazia essa
+    tradução ao gravar `documento.estado`; aqui faltava, e o efeito era perverso — documento
+    ILEGÍVEL gravava normalmente, e todo documento em que a extração DEU CERTO era recusado
+    pelo COPY com "valor de entrada é inválido para enum estado_documento: ok".
+    """
+    return "extraido" if (doc_status or "ok") == "ok" else doc_status
+
+
 class DestinoBanco:
     """Escreve em `documento_pagina`, `item_enriquecido` e `documento_extracao`.
 
@@ -134,7 +146,8 @@ class DestinoBanco:
             _num(linha.get("preco_api")), _num(linha.get("preco_pdf")), _num(linha.get("divergencia_preco")),
             linha.get("fornecedor") or None, _num(linha.get("quantidade_pdf")),
             linha.get("status") or "", linha.get("destino") or "revisar",
-            linha.get("estrategia") or "window", linha.get("doc_status") or "ok", self.run_id,
+            linha.get("estrategia") or "window", _estado_documento(linha.get("doc_status")),
+            self.run_id,
         ) for linha in linhas]
         with db.raw_connection() as conn:
             repo.gravar_enriquecidos(conn, lote)
@@ -153,7 +166,11 @@ class DestinoBanco:
                         "chamadas_llm": linha.get("chamadas_llm", 0),
                         "doc_status": linha.get("doc_status", "")}, ensure_ascii=False),
             linha.get("n_paginas", 0), linha.get("n_paginas_ocr", 0),
-            None, None, None, None, None, None, self.run_id,
+            # tokens_in/tokens_out/cost_usd são NOT NULL com DEFAULT 0 — e `DEFAULT` não vale
+            # para NULL enviado explicitamente, que é o que um COPY faz. Zero é o valor certo:
+            # a etapa ainda não contabiliza tokens por documento. duration_ms/model/provider
+            # continuam NULL porque a coluna aceita e "não medido" não é "zero".
+            0, 0, 0, None, None, None, self.run_id,
         ) for linha in linhas]
         with db.raw_connection() as conn:
             repo.gravar_extracoes(conn, lote)
@@ -352,56 +369,56 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
                              "chamadas_llm": 0, "doc_status": "ilegivel"})
         return linhas, doc_extracao
 
-        _grava_paginas(linhas_paginas)
+    _grava_paginas(linhas_paginas)
 
-        if not texto_doc.strip():
-            linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "window"),
-                      "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
-                     for it in itens_doc]
-            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "window",
-                                 "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
-                                 "n_itens_tabela": 0, "chamadas_llm": 0, "doc_status": "ilegivel"})
-            return linhas, doc_extracao
-
-        estrategia = params.estrategia
-        if estrategia == "auto":
-            estrategia = routing.escolher_estrategia(
-                n_itens=len(itens_doc), tamanho_texto_chars=len(texto_doc),
-                janela_max=params.janela_max, tamanho_tabela=params.tamanho_tabela)
-
-        extraidos = _processar_estrategia(estrategia, curador_factory, texto_doc, imagens_fn,
-                                        itens_doc, params)
-        status_por_item = {ik: estr_base.validar_extracao(ex, next(
-            it for it in itens_doc if it["item_key"] == ik))[0] for ik, ex in extraidos.items()}
-        doc_status = estr_base.doc_status_de_motivos(status_por_item)
-        doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": estrategia,
+    if not texto_doc.strip():
+        linhas = [{**_linha_enriquecido(it, {"encontrado": False}, "window"),
+                  "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
+                 for it in itens_doc]
+        doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "window",
                              "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
-                             "n_itens_tabela": len(extraidos), "chamadas_llm": len(itens_doc),
-                             "doc_status": doc_status})
-
-        # Escalonamento (docs/03_ETAPAS.md §5.3): auto/visao explícito, doc ficou
-        # suspeito/ilegível, e itens suficientes para amortizar o custo por página.
-        if (estrategia != "vision" and params.estrategia in ("auto", "vision")
-                and doc_status in ("suspeito", "ilegivel") and len(itens_doc) >= params.limiar_visao):
-            extraidos_v = _processar_estrategia("vision", curador_factory, texto_doc, imagens_fn,
-                                            itens_doc, params)
-            doc_status_v = estr_base.doc_status_de_motivos({
-                ik: estr_base.validar_extracao(ex, next(
-                    it for it in itens_doc if it["item_key"] == ik))[0]
-                for ik, ex in extraidos_v.items()})
-            doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "vision",
-                                 "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
-                                 "n_itens_tabela": len(extraidos_v), "chamadas_llm": len(itens_doc),
-                                 "doc_status": doc_status_v})
-            if doc_status_v == "ok" or doc_status == "ilegivel":
-                extraidos, estrategia, doc_status = extraidos_v, "vision", doc_status_v
-
-        linhas = [_linha_enriquecido(it, extraidos.get(it["item_key"], {"encontrado": False}),
-                                     estrategia) for it in itens_doc]
-        for linha in linhas:
-            linha["doc_status"] = doc_status
-            linha["destino"] = estr_base.destino_de(linha["status"], doc_status)
+                             "n_itens_tabela": 0, "chamadas_llm": 0, "doc_status": "ilegivel"})
         return linhas, doc_extracao
+
+    estrategia = params.estrategia
+    if estrategia == "auto":
+        estrategia = routing.escolher_estrategia(
+            n_itens=len(itens_doc), tamanho_texto_chars=len(texto_doc),
+            janela_max=params.janela_max, tamanho_tabela=params.tamanho_tabela)
+
+    extraidos = _processar_estrategia(estrategia, curador_factory, texto_doc, imagens_fn,
+                                    itens_doc, params)
+    status_por_item = {ik: estr_base.validar_extracao(ex, next(
+        it for it in itens_doc if it["item_key"] == ik))[0] for ik, ex in extraidos.items()}
+    doc_status = estr_base.doc_status_de_motivos(status_por_item)
+    doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": estrategia,
+                         "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
+                         "n_itens_tabela": len(extraidos), "chamadas_llm": len(itens_doc),
+                         "doc_status": doc_status})
+
+    # Escalonamento (docs/03_ETAPAS.md §5.3): auto/visao explícito, doc ficou
+    # suspeito/ilegível, e itens suficientes para amortizar o custo por página.
+    if (estrategia != "vision" and params.estrategia in ("auto", "vision")
+            and doc_status in ("suspeito", "ilegivel") and len(itens_doc) >= params.limiar_visao):
+        extraidos_v = _processar_estrategia("vision", curador_factory, texto_doc, imagens_fn,
+                                        itens_doc, params)
+        doc_status_v = estr_base.doc_status_de_motivos({
+            ik: estr_base.validar_extracao(ex, next(
+                it for it in itens_doc if it["item_key"] == ik))[0]
+            for ik, ex in extraidos_v.items()})
+        doc_extracao.append({"numeroControlePNCP": doc_ctrl, "estrategia": "vision",
+                             "n_paginas": len(linhas_paginas), "n_paginas_ocr": n_ocr,
+                             "n_itens_tabela": len(extraidos_v), "chamadas_llm": len(itens_doc),
+                             "doc_status": doc_status_v})
+        if doc_status_v == "ok" or doc_status == "ilegivel":
+            extraidos, estrategia, doc_status = extraidos_v, "vision", doc_status_v
+
+    linhas = [_linha_enriquecido(it, extraidos.get(it["item_key"], {"encontrado": False}),
+                                 estrategia) for it in itens_doc]
+    for linha in linhas:
+        linha["doc_status"] = doc_status
+        linha["destino"] = estr_base.destino_de(linha["status"], doc_status)
+    return linhas, doc_extracao
 
 
 _escritor_paginas: "DestinoBanco | None" = None

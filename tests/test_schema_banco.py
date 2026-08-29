@@ -87,3 +87,33 @@ def test_coluna_gerada_de_documento_pagina(inspetor):
     exigir o value e a política de retenção perde o número que usa para medir o ganho."""
     colunas = {c["name"]: c for c in inspetor.get_columns("documento_pagina")}
     assert colunas["n_chars"].get("computed"), "n_chars deixou de ser coluna gerada"
+
+
+def test_doc_status_da_regra_cabe_no_enum_do_banco():
+    """Todo `doc_status` que a etapa 5 produz tem de ser um rótulo de `estado_documento`.
+
+    Os dois vocabulários quase coincidem, e foi o quase que doeu (2026-08-29): a regra chama
+    o caso bom de `ok`, o enum chama de `extraido`. `suspeito` e `ilegivel` gravavam sem
+    reclamar, então SÓ os documentos em que a extração deu certo eram recusados pelo COPY —
+    o inverso do que qualquer um investigaria primeiro.
+    """
+    from sqlalchemy import text
+
+    from pesquisa_precos.steps.e5_extract import _estado_documento
+    from pesquisa_precos.strategies.base import doc_status_de_motivos
+
+    with db.session() as sessao:
+        rotulos = {r[0] for r in sessao.execute(text(
+            "SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
+            "WHERE t.typname = 'estado_documento'")).all()}
+
+    # Os três casos que `doc_status_de_motivos` sabe devolver, pelos seus caminhos reais.
+    produzidos = {
+        doc_status_de_motivos({}),                          # ilegivel
+        doc_status_de_motivos({"a": "sem_texto"}),          # ilegivel
+        doc_status_de_motivos({"a": "nao_encontrado"}),     # suspeito
+        doc_status_de_motivos({"a": "pdf_ok"}),             # ok
+    }
+    fora = {s: _estado_documento(s) for s in produzidos
+            if _estado_documento(s) not in rotulos}
+    assert not fora, f"doc_status sem rótulo correspondente no enum: {fora}"

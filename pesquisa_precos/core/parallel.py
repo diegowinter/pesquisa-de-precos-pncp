@@ -39,6 +39,18 @@ def executar_paralelo(itens, fn, concurrency=8, on_result=None, on_error=None,
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         pendentes = {}
 
+        def _cancelar_fila():
+            """Descarta o que ainda não começou. Sem isto, sair do laço por exceção — um
+            Cancelar do operador, um teto de custo estourado — ainda esperava a fila inteira:
+            o `with` faz `shutdown(wait=True)`, e há até `concurrency * 4` futures ENFILEIRADOS
+            além dos que estão rodando. Na etapa 5 isso se via do outro lado: o serviço de PDF
+            seguia recebendo uploads muito depois de a tela dizer "cancelada".
+
+            Só o que não começou é cancelável; quem já está em voo termina.
+            """
+            for fut in pendentes:
+                fut.cancel()
+
         def _submeter_ate_encher():
             while len(pendentes) < teto:
                 try:
@@ -47,21 +59,27 @@ def executar_paralelo(itens, fn, concurrency=8, on_result=None, on_error=None,
                     break
                 pendentes[ex.submit(fn, item)] = item
 
-        _submeter_ate_encher()
-        while pendentes:
-            concluidos, _ = wait(pendentes, return_when=FIRST_COMPLETED)
-            for fut in concluidos:
-                item = pendentes.pop(fut)
-                try:
-                    resultado = fut.result()
-                    if on_result is not None:
-                        on_result(item, resultado)
-                except Exception as exc:  # noqa: BLE001
-                    if on_error is None:
-                        raise
-                    on_error(item, exc)
-                feitos += 1
-                if on_progress is not None:
-                    on_progress(feitos, total)
+        try:
             _submeter_ate_encher()
+            while pendentes:
+                concluidos, _ = wait(pendentes, return_when=FIRST_COMPLETED)
+                for fut in concluidos:
+                    item = pendentes.pop(fut)
+                    try:
+                        resultado = fut.result()
+                        if on_result is not None:
+                            on_result(item, resultado)
+                    except Exception as exc:  # noqa: BLE001
+                        if on_error is None:
+                            raise
+                        on_error(item, exc)
+                    feitos += 1
+                    if on_progress is not None:
+                        on_progress(feitos, total)
+                _submeter_ate_encher()
+        except BaseException:
+            # BaseException e não Exception: `Cancelada` é Exception, mas o teto de custo e um
+            # KeyboardInterrupt não precisam ser, e nenhum deles quer a fila inteira.
+            _cancelar_fila()
+            raise
     return feitos
