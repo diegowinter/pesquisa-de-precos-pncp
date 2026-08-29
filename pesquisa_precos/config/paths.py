@@ -39,7 +39,6 @@ E3_CLASSIFICADOS = DATA / "3_itens_classificados.csv"
 E4_SOBREVIVENTES = DATA / "4_itens_sobreviventes.csv"
 
 # ── Etapa 5 — extração e enriquecimento ──────────────────────────────────────────
-E5_PDF_TEXTO = DATA / "5_pdf_texto.csv"          # documento_pagina (texto por página)
 E5_ENRIQUECIDOS = DATA / "5_itens_enriquecidos.csv"
 E5_DESTINO = DATA / "5_itens_destino.csv"        # manter/revisar/descartar por item
 

@@ -82,13 +82,6 @@ def test_indices_que_sao_comportamento_existem(inspetor):
         assert indice in nomes, f"{tabela}: índice {indice} ausente (tem {sorted(nomes)})"
 
 
-def test_coluna_gerada_de_documento_pagina(inspetor):
-    """`n_chars` é GENERATED ALWAYS: se virar coluna comum, o `COPY` da migração passa a
-    exigir o value e a política de retenção perde o número que usa para medir o ganho."""
-    colunas = {c["name"]: c for c in inspetor.get_columns("documento_pagina")}
-    assert colunas["n_chars"].get("computed"), "n_chars deixou de ser coluna gerada"
-
-
 def test_doc_status_da_regra_cabe_no_enum_do_banco():
     """Todo `doc_status` que a etapa 5 produz tem de ser um rótulo de `estado_documento`.
 
@@ -99,8 +92,7 @@ def test_doc_status_da_regra_cabe_no_enum_do_banco():
     """
     from sqlalchemy import text
 
-    from pesquisa_precos.steps.e5_extract import _estado_documento
-    from pesquisa_precos.strategies.base import doc_status_de_motivos
+    from pesquisa_precos.core.extraction import doc_status_de_motivos, estado_documento
 
     with db.session() as sessao:
         rotulos = {r[0] for r in sessao.execute(text(
@@ -114,6 +106,6 @@ def test_doc_status_da_regra_cabe_no_enum_do_banco():
         doc_status_de_motivos({"a": "nao_encontrado"}),     # suspeito
         doc_status_de_motivos({"a": "pdf_ok"}),             # ok
     }
-    fora = {s: _estado_documento(s) for s in produzidos
-            if _estado_documento(s) not in rotulos}
+    fora = {s: estado_documento(s) for s in produzidos
+            if estado_documento(s) not in rotulos}
     assert not fora, f"doc_status sem rótulo correspondente no enum: {fora}"

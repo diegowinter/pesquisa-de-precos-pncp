@@ -33,7 +33,6 @@ CONTAGENS = (
     ("item_sobrevivente", 302_514,    "SELECT count(*) FROM item WHERE sobrevivente"),
     ("texto_classificacao", 320_000,  "SELECT count(*) FROM texto_classificacao"),
     ("item_categoria",    400_000,    "SELECT count(*) FROM item_categoria"),
-    ("documento_pagina",  888_656,    "SELECT count(*) FROM documento_pagina"),
     ("item_enriquecido",  302_514,    "SELECT count(*) FROM item_enriquecido"),
     ("par",               250_114,    "SELECT count(*) FROM par"),
     ("label",            250_085,    "SELECT count(*) FROM label"),
@@ -60,9 +59,6 @@ ORFAOS = (
      "SELECT count(*) FROM grupo_item g LEFT JOIN item i USING (item_key) WHERE i IS NULL"),
     ("item sem texto_hash",
      "SELECT count(*) FROM item WHERE texto_hash IS NULL OR texto_hash = ''"),
-    ("pagina sem documento",
-     "SELECT count(*) FROM documento_pagina p "
-     "LEFT JOIN documento d USING (numero_controle_pncp) WHERE d IS NULL"),
     ("item_categoria sem item",
      "SELECT count(*) FROM item_categoria ic LEFT JOIN item i USING (item_key) "
      "WHERE i IS NULL"),

@@ -26,16 +26,15 @@ exatamente como escritos.
 | `texto_classificacao` | ~320.000 | textos únicos (dedup ~5x) |
 | `item_categoria` | ~400.000 | multi-label explodido |
 | `documento_extracao` | 35.552 | docs com texto (hoje 2,6 GB de texto) |
-| `documento_pagina` | 888.656 | páginas de texto |
 | `item_enriquecido` | 302.514 | itens sobreviventes enriquecidos |
 | `par` | ~250.000 | candidatos + rerankeados |
 | `rotulo` | 250.085 | rótulos acumulados p/ calibração |
 | `grupo_item` | 118.722 | resultado final |
 | `embedding_cache` | ~305.000 | itens + códigos, bge-m3 1024d |
 
-**Alerta de tamanho:** `documento_pagina.texto` é o gigante (2,6 GB em CSV). Com TOAST +
-compressão fica em torno de 700 MB–1 GB. Definir política de retenção na Fase 2 —
-ver [§11](#11-retenção-e-limpeza).
+**Alerta de tamanho:** o gigante era `documento_pagina.texto` (888.656 linhas, 2,6 GB em CSV).
+A tabela foi dropada pela ADR-023 — a etapa 5 não transcreve mais o documento inteiro, guarda só
+a tabela de itens. Com ela saiu o único dado do schema que crescia sem limite.
 
 ## 2. Tipos enumerados
 
@@ -53,7 +52,6 @@ CREATE TYPE estado_documento   AS ENUM (
     'erro'
 );
 
-CREATE TYPE estrategia_extracao AS ENUM ('janela', 'completa', 'visao');
 
 CREATE TYPE status_enriquecimento AS ENUM (
     'pdf_ok',                 -- item confirmado, preço do PDF ≈ preço da API
@@ -256,47 +254,34 @@ ON CONFLICT DO NOTHING;
 Se um dia o prompt de classificação mudar, apagar `texto_classificacao` das versões antigas e
 reclassificar é uma operação bem delimitada, sem tocar em `item`.
 
-## 6. Extração (etapa 5) — as duas estratégias
+## 6. Extração (etapa 5)
 
-Este é o ponto onde as implementações intercambiáveis convivem. **A coluna `estrategia` é toda
-a complexidade extra.** Não criar tabela por estratégia, não usar herança.
+Uma linha por documento, com a tabela de itens em **texto livre** — a saída da 1ª chamada de
+LLM ([ADR-023](07_DECISOES.md#adr-023)). Não há coluna `estrategia`: a etapa tem um caminho só.
 
 ```sql
--- Uma linha por (documento, estratégia). Permite reprocessar o mesmo doc com outra
--- estratégia sem perder o resultado anterior — é o que sustenta a comparação de qualidade.
+-- Uma linha por documento. Reextrair sobrescreve: não existem duas rotas a comparar, e
+-- guardar a tabela anterior só deixaria dúvida sobre qual vale.
 CREATE TABLE documento_extracao (
     id            bigserial PRIMARY KEY,
     numero_controle_pncp text NOT NULL REFERENCES documento(numero_controle_pncp) ON DELETE CASCADE,
-    estrategia    estrategia_extracao NOT NULL,
-    itens_json    jsonb,          -- 'completa'/'visao': tabela de itens estruturada
+    tabela_texto  text NOT NULL DEFAULT '',   -- a tabela de itens "as it is", como o modelo devolveu
     n_paginas     int,
-    n_paginas_ocr int,
     tokens_in     bigint NOT NULL DEFAULT 0,
     tokens_out    bigint NOT NULL DEFAULT 0,
-    custo_usd     numeric(12,6) NOT NULL DEFAULT 0,
-    duracao_ms    int,
-    modelo        text,
-    provedor      text,
+    cost_usd      numeric(12,6) NOT NULL DEFAULT 0,
+    duration_ms   int,
+    model         text,
+    provider      text,
     run_id        bigint REFERENCES run(id),
-    criado_em     timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (numero_controle_pncp, estrategia)
-);
-
--- Texto por página. Separado de documento_extracao porque é o volume pesado (888k linhas)
--- e porque só a estratégia 'janela' precisa dele em texto corrido.
-CREATE TABLE documento_pagina (
-    numero_controle_pncp text NOT NULL REFERENCES documento(numero_controle_pncp) ON DELETE CASCADE,
-    arquivo   text NOT NULL,
-    pagina    int  NOT NULL,
-    fonte     text NOT NULL,       -- 'nativo' | 'ocr'
-    texto     text NOT NULL,
-    n_chars   int  GENERATED ALWAYS AS (length(texto)) STORED,
-    PRIMARY KEY (numero_controle_pncp, arquivo, pagina)
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (numero_controle_pncp)
 );
 
 -- ===================================================================
--- CONTRATO DE SAÍDA DA ETAPA 5 — estável, independente de estratégia.
--- As etapas 6, 7 e 8 leem SÓ esta tabela e ignoram a coluna 'estrategia'.
+-- CONTRATO DE SAÍDA DA ETAPA 5 — estável, independente de COMO o texto chegou.
+-- As etapas 6, 7 e 8 leem SÓ esta tabela, e dela só `descricao_final` e `destino`.
+-- Foi o que permitiu trocar a extração inteira (ADR-023) sem tocar em nenhuma delas.
 -- ===================================================================
 CREATE TABLE item_enriquecido (
     item_key          text NOT NULL PRIMARY KEY REFERENCES item(item_key) ON DELETE CASCADE,
@@ -309,51 +294,38 @@ CREATE TABLE item_enriquecido (
     quantidade_pdf    numeric(18,4),
     status            status_enriquecimento NOT NULL,
     destino           destino_item NOT NULL,
-    estrategia        estrategia_extracao NOT NULL,
     doc_status        estado_documento NOT NULL,
     run_id            bigint REFERENCES run(id),
-    criado_em         timestamptz NOT NULL DEFAULT now()
+    created_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_enriq_destino    ON item_enriquecido (destino);
-CREATE INDEX ix_enriq_estrategia ON item_enriquecido (estrategia);
+CREATE INDEX ix_enriq_destino ON item_enriquecido (destino);
 ```
 
-### 6.1 Roteamento entre estratégias
+### 6.1 Por que texto livre e não colunas
 
-A escolha é **por documento**, nunca global — o ganho medido (38% de tokens de entrada) vem
-justamente de rotear caso a caso.
+Cada documento traz as colunas que tem: um traz fornecedor e modelo, outro só
+descrição/quantidade/preço. Um esquema fixo obrigaria o modelo a preencher campo inexistente —
+convite para inventar. Quem estrutura é a **segunda** chamada, item a item, contra a âncora que
+a API já fornece (número do item, descrição, quantidade, preço estimado).
 
-```
-custo_janela   ≈ n_itens × min(tamanho_texto, janela_max)
-custo_completa ≈ tamanho_texto + n_itens × tamanho_tabela
+`tabela_texto` vazia é informação, não ausência de dado: significa "este documento foi tentado
+e não tem tabela de itens". É o que impede repagar o download na execução seguinte.
 
-→ usar 'completa' quando  n_itens × (janela_max − tamanho_tabela) > tamanho_texto
-→ com os defaults (janela_max=9000, tamanho_tabela=2500):  n_itens > tamanho_texto / 6500
-```
+### 6.2 Regras que a extração tem de cumprir
 
-Medição sobre o acervo real (35.552 docs, 291.044 itens):
+Vivem em [`core/extraction.py`](../pesquisa_precos/core/extraction.py), fora da etapa, porque
+nunca dependeram de como o texto chegou:
 
-| Estratégia | Tokens de entrada | Observação |
-|---|---:|---|
-| `janela` pura | 741,6 M | mediana de 2 itens/doc favorece a janela |
-| `completa` pura | 900,5 M | + 33 M de tokens de **saída** (mais caros) |
-| **híbrida (roteada)** | **458,3 M** | **−38% vs. janela pura** |
-
-Na híbrida, **20,7% dos documentos** vão para `completa` — e eles concentram **74% dos itens**.
-
-Os parâmetros `janela_max`, `tamanho_tabela` e o divisor ficam em `config_valor`
-(editáveis pela interface) para recalibrar com custo real medido em `llm_chamada`.
-
-### 6.2 Requisitos que a estratégia `completa` deve herdar da `janela`
-
-Não são opcionais — sem eles a economia de 38% vem com regressão de qualidade:
-
-1. **Confirmação por quantidade** como fingerprint anti-PDF-trocado (a `janela` faz isso hoje;
-   a implementação `alt_b` atual valida só por preço e **não** serve como referência).
+1. **Confirmação por quantidade** (tolerância `max(1.0, 1%)`) como fingerprint anti-PDF-trocado,
+   ou match exato de preço acima de `PRECO_FINGERPRINT = 1000.0`.
 2. **Banda de sanidade de preço** (`0,3× … 3,0×` do preço da API) para pegar misparse de milhar.
 3. **`doc_status`** derivado do documento inteiro (`ok` / `suspeito` / `ilegivel`).
-4. **Chunking por página com overlap** para documentos grandes: 5,6% dos documentos passam de
-   40k tokens. Truncar em silêncio faz item sumir sem erro.
+4. **Preço é SAÍDA, não filtro**: confirmado o item, a divergência entre estimado e homologado é
+   sinalizada, nunca descartada.
+
+> **`documento_pagina` não existe mais.** Era o gigante do banco (888 mil linhas, 2,6 GB de
+> texto por página) e nenhuma etapa a jusante a lia. Dropada pela migração 0012 junto com o
+> enum `extraction_strategy` e as colunas `estrategia`/`itens_json`/`n_paginas_ocr`.
 
 ## 7. Pareamento (etapas 6a, 6b, 6c)
 
@@ -685,14 +657,14 @@ CREATE TABLE provedor_status (
 
 ## 11. Retenção e limpeza
 
-Decidir na Fase 2, não depois. `documento_pagina` cresce sem limite.
+Desde a ADR-023 nenhuma tabela cresce sem limite: `documento_pagina`, que era o caso, não
+existe mais. Sobrou uma retenção só, a do log.
 
 | Dado | Retenção | Justificativa |
 |---|---|---|
 | `item`, `item_enriquecido`, `par`, `grupo_item` | permanente | é o produto |
 | `texto_classificacao`, `embedding_cache`, `rotulo` | permanente | ativo caro, recomprá-lo é perda |
-| `documento_pagina.texto` | 180 dias após `documento.estado='extraido'` | cobre reprocessamento realista; rebaixável do PNCP |
-| `documento_extracao.itens_json` | permanente | pequeno e é o insumo da estratégia `completa` |
+| `documento_extracao.tabela_texto` | permanente | pequeno, e é o insumo direto do enriquecimento |
 | `run_log` | 90 dias | diagnóstico, não produto |
 | `llm_chamada` | permanente | série histórica de custo |
 | PDF bruto | **minutos** | descartado assim que o texto é extraído |
@@ -706,7 +678,7 @@ Este é o requisito nº 4 do projeto. Se esta consulta não for natural, o schem
 SELECT
     g.codigo, g.posicao, g.preco_unitario, g.flag_preco,
     i.item_key, i.numero_item, i.descricao_api,
-    ie.descricao_final, ie.fonte_descricao, ie.estrategia, ie.status,
+    ie.descricao_final, ie.fonte_descricao, ie.status,
     d.numero_controle_pncp, d.orgao, d.uf, d.url_pncp, d.estado AS doc_estado,
     p.score_bm25, p.score_cosseno, p.score_rerank, p.decisao, p.veredito,
     tc.categorias, tc.modelo AS modelo_classificacao,
@@ -734,7 +706,7 @@ Há referências circulares entre `run` e as tabelas de resultado. Resolver assi
 4. `catalogo_item`, `catalogo_snapshot`, `termo`, `termo_codigo`
 5. `documento`, `documento_termo`, `item`, `coleta_watermark`
 6. `texto_classificacao`, `item_categoria`
-7. `documento_extracao`, `documento_pagina`, `item_enriquecido`
+7. `documento_extracao`, `item_enriquecido`
 8. `par`, `rotulo`, `embedding_cache`
 9. `grupo_item`, `faixa_preco`, `export`, `export_snapshot`
 

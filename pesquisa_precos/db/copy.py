@@ -23,8 +23,8 @@ from typing import Any
 
 import psycopg
 
-# Lote padrão. 5.000 é o número de docs/05_MIGRACAO.md §3 (m07); `documento_pagina` usa 1.000
-# porque cada linha carrega uma página inteira de texto.
+# Lote padrão. 5.000 é o número de docs/05_MIGRACAO.md §3 (m07). Quem copia linhas grandes
+# (texto longo por linha) passa um lote menor.
 LOTE_PADRAO = 5_000
 
 

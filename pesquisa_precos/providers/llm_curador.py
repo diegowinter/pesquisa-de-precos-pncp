@@ -36,10 +36,7 @@ from pesquisa_precos.core.prompts import (  # noqa: F401
     montar_prompt_classificar_item,
     montar_prompt_comparar_item,
     montar_prompt_comparar_par,
-    montar_prompt_extrair_item_pdf,
-    montar_prompt_extrair_itens,
-    montar_prompt_extrair_tabela_pdf,
-    montar_prompt_extrair_tabela_texto,
+    montar_prompt_extrair_tabela_documento,
     montar_prompt_material,
     montar_prompt_servico,
     montar_prompt_termos_item,
@@ -174,99 +171,60 @@ class Curador:
         return {"categorias": validas, "confianca": str(data.get("confianca", "")).lower(),
                 "_prompt_versao_id": prompt_version_id}
 
-    def extrair_item_pdf(self, janela_texto: str, item_api: dict) -> dict:
+    def extrair_tabela_documento(self, pdf_bytes: bytes, filename: str) -> str:
         """
-        Etapa 5.2 — extração guiada de UM item do texto do PDF.
-        Retorna {"descricao_completa","preco_unitario","quantidade","encontrado",
-        "_prompt_versao_id"}. Nunca levanta: em erro devolve encontrado=False + "_erro".
+        Etapa 5, 1ª chamada (ADR-023) — manda o PDF INTEIRO como anexo e recebe a TABELA DE
+        ITENS em texto, "as it is". A saída NÃO é JSON de propósito: cada documento tem as
+        colunas que tem, e um esquema fixo obrigaria o modelo a preencher campo inexistente.
+
+        Devolve "" quando o modelo não achou tabela (responde SEM_TABELA) — quem chama trata
+        isso como documento ilegível. Levanta em erro de rede/provedor: ao contrário das
+        chamadas por item, esta é o gargalo caro do documento, e engolir a falha aqui foi
+        o que produziu 4.159 documentos "processados" sem nenhum resultado.
         """
-        numero = item_api.get("numeroItem", "")
-        descricao_api = item_api.get("descricao_api", "")
+        b64 = base64.b64encode(pdf_bytes).decode("ascii")
         prompt, prompt_version_id = prompts_resolver.resolver(
-            self._prompts_ativos, "extrair_item_pdf",
-            montar_prompt_extrair_item_pdf(janela_texto, item_api),
-            numero=numero, descricao_api=descricao_api, janela_texto=janela_texto)
+            self._prompts_ativos, "extrair_tabela_documento",
+            montar_prompt_extrair_tabela_documento())
+        content = [
+            {"type": "text", "text": prompt},
+            # `file` é o content part do protocolo OpenAI para documento. O OpenRouter só
+            # parseia o PDF se o plugin `file-parser` for pedido — ele vai no `extra_body`
+            # que o `__init__` já aceita, ligado pelo Params da etapa.
+            {"type": "file",
+             "file": {"filename": filename,
+                      "file_data": f"data:application/pdf;base64,{b64}"}},
+        ]
+        resp = self.llm.invoke([HumanMessage(content=content)])
+        texto = (resp.content or "").strip()
+        if not texto or texto.strip().upper().startswith("SEM_TABELA"):
+            return ""
+        return texto
+
+    def casar_item_tabela(self, item_api: dict, tabela_texto: str) -> dict:
+        """
+        Etapa 5, 2ª chamada (ADR-023) — casa UM item da API contra a tabela já extraída.
+        Retorna {"encontrado","descricao_completa","preco_unitario","quantidade",
+        "fornecedor","_prompt_versao_id"}. Nunca levanta: em erro devolve encontrado=False.
+        """
+        prompt, prompt_version_id = prompts_resolver.resolver(
+            self._prompts_ativos, "casar_item_tabela",
+            montar_prompt_casar_item_tabela(item_api, tabela_texto),
+            numero=item_api.get("numeroItem", ""),
+            descricao_api=item_api.get("descricao_api", ""),
+            tabela_texto=tabela_texto)
         try:
             data = self._invocar_json(prompt)
         except Exception as e:  # noqa: BLE001
             return {"encontrado": False, "_erro": str(e)[:200],
                     "_prompt_versao_id": prompt_version_id}
         return {
+            "encontrado": bool(data.get("encontrado")),
             "descricao_completa": data.get("descricao_completa") or "",
             "preco_unitario": data.get("preco_unitario"),
             "quantidade": data.get("quantidade"),
-            "encontrado": bool(data.get("encontrado")),
+            "fornecedor": str(data.get("fornecedor") or "").strip(),
             "_prompt_versao_id": prompt_version_id,
-        }
-
-    def extrair_tabela_pdf(self, png_bytes: bytes) -> list[dict]:
-        """
-        Etapa 5_alt_a — envia a IMAGEM de UMA página a um modelo de VISÃO e recebe a
-        tabela de itens da página, "as it is" (lista de linhas estruturadas). Uma imagem
-        por chamada (nunca o doc inteiro). Nunca levanta: em erro devolve [].
-        """
-        b64 = base64.b64encode(png_bytes).decode("ascii")
-        content = [
-            {"type": "text", "text": montar_prompt_extrair_tabela_pdf()},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-        ]
-        try:
-            resp = self.llm.invoke([HumanMessage(content=content)])
-            data = _extrair_json((resp.content or "").strip())
-        except Exception:  # noqa: BLE001
-            return []
-        itens = data.get("itens") or []
-        out = []
-        for it in itens:
-            if not isinstance(it, dict):
-                continue
-            out.append({k: str(it.get(k, "") or "").strip() for k in
-                        ("numero_item", "descricao", "unidade", "quantidade",
-                         "preco_unitario", "preco_total", "fornecedor")})
-        return out
-
-    def extrair_tabela_texto(self, texto: str) -> list[dict]:
-        """
-        Etapa 5 — estratégia `completa` (Fase 8): extrai a tabela de itens de UM CHUNK de
-        texto (nativo/OCR) do documento inteiro. Mesmo formato de saída de
-        `extrair_tabela_pdf` (visão) — `casar_item_tabela` serve às duas. Nunca levanta: em
-        erro devolve [].
-        """
-        try:
-            data = self._invocar_json(montar_prompt_extrair_tabela_texto(texto))
-        except Exception:  # noqa: BLE001
-            return []
-        itens = data.get("itens") or []
-        out = []
-        for it in itens:
-            if not isinstance(it, dict):
-                continue
-            out.append({k: str(it.get(k, "") or "").strip() for k in
-                        ("numero_item", "descricao", "unidade", "quantidade",
-                         "preco_unitario", "preco_total", "fornecedor")})
-        return out
-
-    def casar_item_tabela(self, item_api: dict, linhas: list[dict]) -> dict:
-        """
-        Etapa 5_alt_b — casa UM item da API contra a tabela LIMPA (linhas de 5_alt_a).
-        Retorna {"encontrado","idx","descricao_completa","preco_unitario","quantidade"}.
-        Nunca levanta: em erro devolve encontrado=False, idx=-1.
-        """
-        prompt = montar_prompt_casar_item_tabela(item_api, linhas)
-        try:
-            data = self._invocar_json(prompt)
-        except Exception:  # noqa: BLE001
-            return {"encontrado": False, "idx": -1}
-        try:
-            idx = int(data.get("idx", -1))
-        except (TypeError, ValueError):
-            idx = -1
-        return {
-            "encontrado": bool(data.get("encontrado")),
-            "idx": idx,
-            "descricao_completa": data.get("descricao_completa") or "",
-            "preco_unitario": data.get("preco_unitario"),
-            "quantidade": data.get("quantidade"),
         }
 
     def comparar_par(self, texto_catalogo: str, texto_item: str) -> dict:
@@ -328,20 +286,6 @@ class Curador:
         except Exception:
             return ""
         return texto.strip(' "\'\n\t')
-
-    def extrair_itens(self, texto: str) -> str:
-        """
-        Extrai os itens de uma ata (texto corrido de `parsear_pdfs.py`) usando o modelo de
-        visão/extração (tipicamente um modelo pequeno, ex. 7B). Nunca levanta: em erro,
-        retorna "" (quem chama decide o fallback/status).
-        """
-        prompt = montar_prompt_extrair_itens(texto)
-        try:
-            resp = self.llm.invoke([HumanMessage(content=prompt)])
-            texto_resp = (resp.content or "").strip()
-        except Exception:
-            return ""
-        return texto_resp
 
     def comparar_item(self, descricao_pncp: str, objeto_compra: str, nome_catalogo: str, descricao_catalogo: str) -> str:
         """

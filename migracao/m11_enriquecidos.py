@@ -11,11 +11,11 @@ Mapeamentos que valem registrar:
   `enriquecimento` → `status`    1:1 com o enum `status_enriquecimento` (conferido no acervo:
                                  os 7 valores presentes existem todos no enum).
   `doc_status`     → `documento.estado`   ok→extraido, suspeito→suspeito, ilegivel→ilegivel.
-  `estrategia`     = 'window' para TODO o acervo — foi o único caminho usado na v2/v3. Marcar
-                     assim é o que vai permitir, na Fase 8, comparar a `completa` contra uma
-                     linha de base identificada.
-  `paginas_ocr`    → `documento_extracao.n_paginas_ocr`, agregado por documento (máximo: o
-                     valor se repete em todos os itens do mesmo documento).
+  `estrategia`     NÃO migra: a coluna saiu do schema na ADR-023, junto com as estratégias
+                     plugáveis. O mesmo vale para `paginas_ocr` — a etapa 5 não chama mais OCR.
+  `tabela_texto`   fica VAZIA para o acervo herdado. O texto por página da v2/v3 não é uma
+                     tabela de itens, e converter um no outro exigiria repagar o LLM; o campo
+                     vazio é a informação correta ("este documento nunca passou pela ADR-023").
 
 `cost_usd`/`tokens` de `documento_extracao` ficam ZERADOS e `model`/`provider` NULL: a v2/v3
 não mediu nada disso. Preencher com estimativa contaminaria a série histórica de custo que a
@@ -45,7 +45,6 @@ from migracao._comum import (
     estimar_linhas,
     dec,
     existe,
-    inteiro,
     ler_csv,
     txt,
 )
@@ -94,7 +93,6 @@ def migrar(reiniciar: bool = False) -> Relatorio:
         run_id = repo_exec.run_do_acervo_migrado(s)
 
     # Acumuladores por documento — 68 mil chaves, cabe em memória.
-    ocr_por_doc: dict[str, int] = {}
     estado_por_doc: dict[str, str] = {}
 
     def linhas():
@@ -112,8 +110,6 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             destino = destino if destino in ("manter", "revisar", "descartar") else "revisar"
 
             nc = item_key.split("::", 1)[0]
-            paginas_ocr = inteiro(r.get("paginas_ocr")) or 0
-            ocr_por_doc[nc] = max(ocr_por_doc.get(nc, 0), paginas_ocr)
             estado_por_doc[nc] = ESTADO_DO_DOC_STATUS[doc_status]
 
             rel.mais("linhas lidas")
@@ -123,7 +119,7 @@ def migrar(reiniciar: bool = False) -> Relatorio:
                    dec(r.get("divergencia_preco")),
                    txt(r.get("fornecedor")), dec(r.get("quantidade_pdf")),
                    (r.get("enriquecimento") or "erro").strip(),
-                   destino, "window", ESTADO_DO_DOC_STATUS[doc_status], run_id)
+                   destino, ESTADO_DO_DOC_STATUS[doc_status], run_id)
 
     with Progress(TextColumn("[progress.description]{task.description}"), BarColumn(),
                   TaskProgressColumn(), TimeRemainingColumn(),
@@ -137,10 +133,10 @@ def migrar(reiniciar: bool = False) -> Relatorio:
             rel.mais("gravados", len(lote))
             barra.update(tarefa, completed=retomada.linhas)
 
-    # `documento_extracao`: uma linha por documento, estratégia 'window', custo NÃO medido.
+    # `documento_extracao`: uma linha por documento, sem tabela e com custo NÃO medido.
     with db.raw_connection() as conn:
         extracoes = [
-            (nc, "window", None, None, ocr_por_doc.get(nc), 0, 0, 0, None, None, None, run_id)
+            (nc, "", None, 0, 0, 0, None, None, None, run_id)
             for nc in estado_por_doc
         ]
         for lote in em_lotes(extracoes, LOTE):

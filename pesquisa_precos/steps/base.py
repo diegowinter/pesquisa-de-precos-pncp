@@ -72,7 +72,7 @@ class RunContext(Protocol):
     """Tudo que a etapa precisa do mundo externo. Injetado por quem executa.
 
     `db` (a sessão de domínio) ainda não é injetado: as etapas abrem a própria via `db.session()`.
-    `provedores` expõe `.chat`/`.embed`/`.rerank`/`.pdf`/`.matching`, resolvidos do banco —
+    `provedores` expõe `.chat`/`.embed`/`.rerank`/`.extract`/`.matching`, resolvidos do banco —
     ver `providers/resolver.py`.
     """
 

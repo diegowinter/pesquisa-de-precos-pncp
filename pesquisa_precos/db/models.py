@@ -24,7 +24,6 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -579,14 +578,20 @@ class ItemCategoria(Base):
 # ── Extração (02_SCHEMA.md §6) ──────────────────────────────────────────────────────
 
 class DocumentoExtracao(Base):
+    """A tabela de itens que o modelo leu do documento — UMA linha por documento (ADR-023).
+
+    `tabela_texto` é a saída da 1ª chamada da etapa 5, guardada como veio: texto livre, sem
+    esquema. Cada documento traz as colunas que tem, e é isso que a 2ª chamada consome. Foi o
+    que substituiu `documento_pagina` (888 mil linhas, 2,6 GB de texto por página): o ativo
+    caro deixou de ser o documento inteiro transcrito e passou a ser só a tabela de itens.
+    """
+
     __tablename__ = "documento_extracao"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     numero_controle_pncp: Mapped[str] = mapped_column(
         Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"), nullable=False)
-    estrategia: Mapped[str] = mapped_column(_enum("extraction_strategy"), nullable=False)
-    itens_json: Mapped[Any | None] = mapped_column(JSONB)
+    tabela_texto: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     n_paginas: Mapped[int | None] = mapped_column(Integer)
-    n_paginas_ocr: Mapped[int | None] = mapped_column(Integer)
     tokens_in: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     tokens_out: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     cost_usd: Mapped[Decimal] = mapped_column(
@@ -596,27 +601,14 @@ class DocumentoExtracao(Base):
     provider: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
     created_at: Mapped[datetime] = _agora()
-    __table_args__ = (UniqueConstraint("numero_controle_pncp", "estrategia"),)
-
-
-class DocumentoPagina(Base):
-    """O volume pesado (888k linhas, 2,6 GB de texto). Ver política de retenção em §11."""
-
-    __tablename__ = "documento_pagina"
-    numero_controle_pncp: Mapped[str] = mapped_column(
-        Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"),
-        primary_key=True)
-    arquivo: Mapped[str] = mapped_column(Text, primary_key=True)
-    pagina: Mapped[int] = mapped_column(Integer, primary_key=True)
-    fonte: Mapped[str] = mapped_column(Text, nullable=False)  # 'nativo' | 'ocr'
-    texto: Mapped[str] = mapped_column(Text, nullable=False)
-    n_chars: Mapped[int] = mapped_column(Integer, Computed("length(texto)", persisted=True))
+    __table_args__ = (UniqueConstraint("numero_controle_pncp"),)
 
 
 class ItemEnriquecido(Base):
-    """CONTRATO DE SAÍDA DA ETAPA 5 — estável, independente de estratégia.
+    """CONTRATO DE SAÍDA DA ETAPA 5 — estável, independente de como o texto chegou.
 
-    As etapas 6, 7 e 8 leem SÓ esta tabela e ignoram a coluna `estrategia` (ADR-010).
+    As etapas 6, 7 e 8 leem SÓ esta tabela, e dela só `descricao_final` e `destino`. É o que
+    permitiu trocar a extração inteira (ADR-023) sem tocar em nenhuma etapa a jusante.
     """
 
     __tablename__ = "item_enriquecido"
@@ -631,7 +623,6 @@ class ItemEnriquecido(Base):
     quantidade_pdf: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     status: Mapped[str] = mapped_column(_enum("status_enriquecimento"), nullable=False)
     destino: Mapped[str] = mapped_column(_enum("destino_item"), nullable=False)
-    estrategia: Mapped[str] = mapped_column(_enum("extraction_strategy"), nullable=False)
     doc_status: Mapped[str] = mapped_column(_enum("estado_documento"), nullable=False)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
     created_at: Mapped[datetime] = _agora()

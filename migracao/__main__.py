@@ -21,7 +21,6 @@ CHECKPOINT_DO_PASSO = {
     "m07_documentos_itens": "m07_itens",
     "m08_classificacao": "m08_classificacao",
     "m09_sobreviventes": "m09_sobreviventes",
-    "m10_texto_pdf": "m10_texto_pdf",
     "m11_enriquecidos": "m11_enriquecidos",
     "m13_rotulos": "m13_rotulos",
 }

@@ -20,7 +20,7 @@ from pesquisa_precos.db import secret as seg
 from pesquisa_precos.db import session as db
 from pesquisa_precos.db.repos import execution as repo
 
-CAPACIDADES = ("chat", "embed", "rerank", "pdf", "matching")
+CAPACIDADES = ("chat", "embed", "rerank", "extract", "matching")
 
 
 class ProvedorInexistente(RuntimeError):
@@ -146,8 +146,10 @@ def testar(name: str) -> dict[str, Any]:
     if p is None:
         raise ProvedorInexistente(f"provider {name!r} não existe")
     capabilities = list(p["capabilities"])
+    # Só `matching` é serviço do companion e responde `/health`; o resto fala o
+    # `/models` da convenção OpenAI-compatible, `extract` inclusive (ADR-023).
     sondar = (health.sondar_health
-              if any(c in ("pdf", "matching") for c in capabilities) else health.sondar_url)
+              if "matching" in capabilities else health.sondar_url)
     resultado = sondar(p["base_url"])
     with db.session() as sessao:
         repo.atualizar_status_provedor(sessao, name, resultado["healthy"],

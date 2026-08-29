@@ -60,7 +60,7 @@ class _Resultado:
 
 # ── sem provider apontado, resolver LEVANTA (ADR-022) ───────────────────────────────
 
-@pytest.mark.parametrize("capability", ["chat", "embed", "rerank", "pdf", "matching"])
+@pytest.mark.parametrize("capability", ["chat", "embed", "rerank", "extract", "matching"])
 def test_capacidade_sem_provedor_levanta(capability):
     """O caminho `.env` saiu. Não existe mais "cai para o default" — que era exatamente o mode
     em que um erro de configuração virava a step rodando com o model errado."""
@@ -78,11 +78,13 @@ def test_mensagem_diz_o_que_fazer():
     assert "chat" in str(exc.value) and "/providers" in str(exc.value)
 
 
-def test_ocr_nao_e_mais_capacidade_deste_processo():
-    """Quem chama o OCR é o serviço de `pdf`, na máquina dele (ADR-021). Resolver `ocr` aqui
-    significaria que alguém voltou a rasterizar página neste processo."""
+@pytest.mark.parametrize("morta", ["ocr", "pdf"])
+def test_capacidade_de_pdf_em_processo_nao_ressuscita(morta):
+    """`ocr` saiu na ADR-021 e `pdf` na ADR-023. Resolver qualquer uma das duas significaria
+    que alguém voltou a parsear/rasterizar página neste processo — hoje o documento vai
+    inteiro para o modelo de `extract`, e nenhum byte é processado aqui."""
     with pytest.raises(ValueError, match="capability desconhecida"):
-        resolver_capacidade("ocr", sessao=_SessaoFake({}))
+        resolver_capacidade(morta, sessao=_SessaoFake({}))
 
 
 def test_resolver_capacidade_desconhecida_leva_a_erro_claro():

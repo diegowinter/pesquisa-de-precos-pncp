@@ -24,54 +24,6 @@ _MOTIVO_SEM_BANCO = f"sem PostgreSQL em {db.database_url()} — rode `alembic up
 pytestmark_db = pytest.mark.skipif(not db.is_available()[0], reason=_MOTIVO_SEM_BANCO)
 
 
-# ── Estratégia `visao` recebe imagens, não pasta (ADR-019) ───────────────────────────
-
-def test_visao_consome_imagens_prontas():
-    from pesquisa_precos.strategies import vision
-
-    class CuradorFake:
-        def __init__(self):
-            self.chamadas = []
-
-        def extrair_tabela_pdf(self, png):
-            self.chamadas.append(png)
-            return [{"description": f"item de {png.decode()}"}]
-
-    curador = CuradorFake()
-    tabela = vision.extrair_tabela(curador, [b"pagina1", b"pagina2"])
-    assert len(curador.chamadas) == 2, "uma chamada por página — nunca o documento inteiro"
-    assert len(tabela) == 2
-
-
-def test_visao_respeita_o_teto_de_paginas():
-    from pesquisa_precos.strategies import vision
-
-    class CuradorFake:
-        def __init__(self):
-            self.chamadas = 0
-
-        def extrair_tabela_pdf(self, png):
-            self.chamadas += 1
-            return []
-
-    curador = CuradorFake()
-    vision.extrair_tabela(curador, [b"1", b"2", b"3", b"4"], max_paginas=2)
-    assert curador.chamadas == 2
-
-
-def test_visao_nao_derruba_o_documento_por_uma_pagina_ruim():
-    from pesquisa_precos.strategies import vision
-
-    class CuradorFake:
-        def extrair_tabela_pdf(self, png):
-            if png == b"ruim":
-                raise RuntimeError("model recusou a imagem")
-            return [{"description": "ok"}]
-
-    tabela = vision.extrair_tabela(CuradorFake(), [b"boa", b"ruim", b"boa"])
-    assert len(tabela) == 2
-
-
 # ── Capacidades exigem provider cadastrado (Fase 11 + Fase 14) ───────────────────────
 #
 # Estes testes protegiam a ADR-021 pelo `.env` (`PDF_BASE_URL` vazio → falha). A ADR-022 tirou
@@ -117,7 +69,7 @@ def provedor_de_teste():
 
 
 @pytestmark_db
-@pytest.mark.parametrize("capability", ["pdf", "matching", "rerank", "embed", "chat"])
+@pytest.mark.parametrize("capability", ["extract", "matching", "rerank", "embed", "chat"])
 def test_capacidade_sem_provedor_falha_em_vez_de_rodar_aqui(capability):
     """ADR-021 + ADR-022: não existe adapter em processo NEM fallback para o `.env`. Sem
     provider apontado, a step PARA com uma message que diz o que configurar — em vez de
@@ -148,11 +100,28 @@ def test_capacidade_sem_provedor_falha_em_vez_de_rodar_aqui(capability):
 def test_capabilities_viram_remotas_com_provedor_apontado(provedor_de_teste):
     from pesquisa_precos.providers.resolver import Providers
 
-    provedor_de_teste("teste-d-pdf", ["pdf"], "http://gpu:8200")
     provedor_de_teste("teste-d-par", ["matching"], "http://gpu:8300")
-    p = Providers()
-    assert type(p.pdf).__name__ == "PdfRemotoAdapter"
-    assert type(p.matching).__name__ == "PareamentoRemotoAdapter"
+    assert type(Providers().matching).__name__ == "PareamentoRemotoAdapter"
+
+
+@pytestmark_db
+def test_extract_e_um_llm_e_nao_um_servico_do_companion(provedor_de_teste):
+    """ADR-023: `extract` deixou de ser o serviço `pdf` e virou um provedor de chat multimodal.
+
+    Consequências que este teste fixa: vira um `ChatAdapter`, e NÃO passa por
+    `_exigir_servico` — que exigiria `/health`, endpoint que nenhum provedor de LLM expõe.
+    """
+    from pesquisa_precos.db.repos import execution as repo
+    from pesquisa_precos.providers.resolver import Providers, criar_extract
+
+    provedor_de_teste("teste-d-extract", ["extract"], "https://exemplo.invalido/v1")
+    # O `Curador` monta o cliente OpenAI já na construção, e ele exige uma chave. Nenhuma
+    # chamada de rede acontece aqui — só o empacotamento do adapter.
+    with db.session() as sessao:
+        repo.gravar_api_key(sessao, "teste-d-extract", "chave-de-teste")
+        sessao.commit()
+        assert type(criar_extract(sessao=sessao)).__name__ == "ChatAdapter"
+    assert type(Providers().extract).__name__ == "ChatAdapter"
 
 
 @pytestmark_db
@@ -161,9 +130,9 @@ def test_provedor_sem_base_url_reprova(provedor_de_teste):
     NUNCA volta a significar "roda aqui" (ADR-021)."""
     from pesquisa_precos.providers.resolver import CapabilityNotConfigured, Providers
 
-    provedor_de_teste("teste-d-vazio", ["pdf"], "")
+    provedor_de_teste("teste-d-vazio", ["matching"], "")
     with pytest.raises(CapabilityNotConfigured, match="base_url"):
-        assert Providers().pdf
+        assert Providers().matching
 
 
 @pytestmark_db
@@ -176,9 +145,9 @@ def test_health_check_reprova_capacidade_sem_provedor():
 
     with db.session() as sessao:
         if sessao.execute(text("SELECT 1 FROM provider_capability "
-                               "WHERE capability = 'pdf'")).first():
-            pytest.skip("`pdf` está configurada nesta instalação")
-    resultado = health.checar_capacidade("pdf")
+                               "WHERE capability = 'extract'")).first():
+            pytest.skip("`extract` está configurada nesta instalação")
+    resultado = health.checar_capacidade("extract")
     assert resultado["healthy"] is False
     assert resultado["source"] == "não configurado"
 
@@ -200,11 +169,11 @@ def test_health_check_reprova_capacidade_sem_servico():
     """Sem `base_url` a step não pode começar: o health check pré-play é onde isso aparece,
     antes de gastar. Era o inverso enquanto existia caminho em processo.
 
-    A checagem é sobre as funções puras de sondagem, NÃO sobre `checar_capacidade("pdf")`: a
-    versão anterior mexia em `PDF_BASE_URL` e afirmava que `pdf` reprova — o que era verdade
-    só enquanto ninguém tivesse cadastrado um provedor de PDF. Desde a ADR-022 não há mais
-    fallback para o `.env`, e no dia em que `pdf_local` foi cadastrado o teste passou a falhar
-    contra o banco real do usuário, sem nada ter quebrado.
+    A checagem é sobre as funções puras de sondagem, NÃO sobre uma capacidade nomeada: a
+    versão anterior afirmava que `pdf` reprova — o que era verdade só enquanto ninguém tivesse
+    cadastrado um provedor. Desde a ADR-022 não há mais fallback para o `.env`, e no dia em
+    que um provedor foi cadastrado o teste passou a falhar contra o banco real do usuário,
+    sem nada ter quebrado.
     """
     from pesquisa_precos.providers import health
 

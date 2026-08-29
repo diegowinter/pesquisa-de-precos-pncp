@@ -31,15 +31,9 @@ class EstadoDocumento(_Valor):
     fora_de_escopo = "fora_de_escopo"  # nenhum item sobreviveu ao corte da etapa 4
     baixando = "baixando"
     extraido = "extraido"              # texto obtido, PDF já descartado
-    ilegivel = "ilegivel"              # nenhuma página produziu texto útil
+    ilegivel = "ilegivel"              # o modelo não achou tabela de itens no documento
     suspeito = "suspeito"              # texto obtido mas nenhum item confirmou (PDF trocado)
     erro = "erro"
-
-
-class EstrategiaExtracao(_Valor):
-    window = "window"
-    full = "full"
-    vision = "vision"
 
 
 class StatusEnriquecimento(_Valor):
@@ -109,13 +103,13 @@ class AcaoExecucao(_Valor):
 
 
 class Capacidade(_Valor):
-    chat = "chat"
+    chat = "chat"                # classificação e casamento — o modelo barato (ADR-004)
     embed = "embed"
     rerank = "rerank"
-    ocr = "ocr"
-    # Fase 11 (ADR-019): o processamento pesado que ainda rodava em processo vira serviço.
-    pdf = "pdf"                  # baixa o PDF, extrai texto por página, chama o OCR por dentro
-    matching = "matching"    # BM25 + cosseno + corte em streaming
+    # ADR-023: o modelo que recebe o PDF anexo e devolve a tabela de itens (etapa 5). Nasceu
+    # no lugar de `pdf`, que era o serviço HTTP do companion — hoje é um LLM multimodal.
+    extract = "extract"
+    matching = "matching"        # BM25 + cosseno + corte em streaming, no serviço
 
 
 # Nome do tipo no PostgreSQL → classe Python. A ordem é a de criação em 02_SCHEMA.md §2.
@@ -123,7 +117,6 @@ NOMES: dict[str, type[_Valor]] = {
     "tipo_catalogo": TipoCatalogo,
     "tipo_documento": TipoDocumento,
     "estado_documento": EstadoDocumento,
-    "extraction_strategy": EstrategiaExtracao,
     "status_enriquecimento": StatusEnriquecimento,
     "destino_item": DestinoItem,
     "decisao_rerank": DecisaoRerank,

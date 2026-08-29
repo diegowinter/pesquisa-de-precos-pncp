@@ -244,17 +244,17 @@ def conteudo_export(export_id: int):
 
 
 def saude_provedores() -> list[dict[str, Any]]:
-    """Sonda `chat`/`embed`/`rerank`/`pdf`/`pareamento` (banco → `.env`) e devolve o
+    """Sonda `chat`/`embed`/`rerank`/`extract`/`pareamento` e devolve o
     resultado. Não gasta e não dispara etapa — é a mesma sondagem HTTP leve que
     `runner.launcher` faz antes do play, exposta para diagnóstico manual.
 
     Era o comando `cli providers saude`; virou tela na Fase 13, quando a CLI saiu."""
     from pesquisa_precos.providers import health
 
-    # `ocr` NÃO entra: ele é consumido DENTRO do serviço de `pdf`, na máquina dele, e é lá
-    # que está configurado (ADR-021). Sondá-lo daqui daria uma linha vermelha permanente por
-    # um endereço que este processo nunca chama.
-    capabilities = ["chat", "embed", "rerank", "pdf", "matching"]
+    # `embed` NÃO é sondado como serviço próprio nem `ocr` aparece: ambos são consumidos
+    # DENTRO dos serviços do companion, na máquina deles (ADR-021). Sondá-los daqui daria
+    # linha vermelha permanente por um endereço que este processo nunca chama.
+    capabilities = ["chat", "embed", "rerank", "extract", "matching"]
 
     def uma(capability: str, sessao) -> dict[str, Any]:
         # Uma capacidade que nem dá para resolver (schema do banco atrás do código, provedor

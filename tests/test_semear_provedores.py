@@ -87,14 +87,14 @@ def test_gpu_atende_embed_e_rerank_com_modelos_diferentes(monkeypatch):
 
 
 def test_servicos_do_companion(monkeypatch):
-    monkeypatch.setenv("PDF_BASE_URL", "http://pdf:8200")
+    """Só `pareamento` sobrou: a capacidade `pdf` saiu na ADR-023 e não é mais semeada."""
     monkeypatch.setenv("PAREAMENTO_BASE_URL", "http://par:8300")
 
     provedores, apontamentos, avisos = plano()
     nomes = _por_nome(provedores)
-    assert nomes["service_pdf"]["base_url"] == "http://pdf:8200"
+    assert "service_pdf" not in nomes
     assert nomes["service_matching"]["base_url"] == "http://par:8300"
-    assert {a["capability"] for a in apontamentos} >= {"pdf", "matching"}
+    assert {a["capability"] for a in apontamentos} >= {"matching"}
     assert not [a for a in avisos if "BASE_URL" in a]
 
 
@@ -103,7 +103,8 @@ def test_service_sem_url_vira_aviso_nao_provedor_quebrado():
     Melhor não cadastrar e dizer o que falta."""
     provedores, _, avisos = plano()
     assert not [p for p in provedores if not p["base_url"]]
-    assert len([a for a in avisos if "BASE_URL" in a]) == 2   # pdf e pareamento
+    # Só `pareamento` sobrou como serviço do companion (ADR-023).
+    assert len([a for a in avisos if "BASE_URL" in a]) == 1
 
 
 def test_env_vazio_nao_semeia_nada():

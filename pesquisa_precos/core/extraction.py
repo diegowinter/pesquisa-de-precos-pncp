@@ -1,15 +1,16 @@
 """
-Base comum das estratégias de extração da etapa 5 (Fase 8, ADR-010).
+Regras de negócio da etapa 5 — confirmação do item, veredito do documento e destino.
 
-`janela`, `completa` e `visao` produzem o MESMO formato intermediário — um dict por item com
-`descricao_completa`/`preco_unitario`/`quantidade`/`encontrado` — e por isso compartilham a
-mesma validação. É o requisito de docs/02_SCHEMA.md §6.2: a `completa` (e a `visao`) têm que
-herdar da `janela` a confirmação por quantidade, a banda de sanidade de preço e a derivação de
-`doc_status`. Ter as três aqui, uma vez só, é o que garante que nenhuma estratégia nova
-"esquece" um desses requisitos.
+Estas três regras são o que sobrou do pacote `strategies/` (aposentado na ADR-023): elas nunca
+dependeram de COMO o texto chegou, só do par (item da API, item extraído do documento). O
+caminho de extração mudou inteiro — de quatro estratégias plugáveis para uma chamada única com
+o PDF anexo — e nenhuma linha daqui precisou mudar junto, que é a evidência de que o corte
+está no lugar certo.
+
+`validar_extracao` recebe o mesmo dict de sempre: {"descricao_completa", "preco_unitario",
+"quantidade", "encontrado"}. Hoje quem o produz é `Curador.casar_item_tabela`, lendo a tabela
+que o modelo de extração devolveu.
 """
-
-from collections import defaultdict
 
 # Match exato de preço (até os centavos) acima deste valor já é fingerprint único: confirma
 # o item mesmo sem casar a quantidade (contratos de serviço têm qtd=1 e o doc não a reafirma).
@@ -39,10 +40,6 @@ def num(v) -> float | None:
 
 def validar_extracao(extraido: dict, item: dict) -> tuple[str, float | None, float | None]:
     """Confirma que a extração achou o item CERTO e devolve (status, preco_pdf, divergencia).
-
-    Contrato de `extraido`: {"descricao_completa", "preco_unitario", "quantidade",
-    "encontrado"} — o mesmo para as três estratégias (a `janela` pede isso direto ao LLM; a
-    `completa`/`visao` chegam aqui depois de `casar_item_tabela`, que devolve o mesmo shape).
 
     O item é confirmado pela QUANTIDADE (fingerprint anti-colisão/PDF-trocado) OU por um match
     exato de preço alto. Confirmado o item, o PREÇO deixa de ser critério de aceite e vira
@@ -74,34 +71,11 @@ def validar_extracao(extraido: dict, item: dict) -> tuple[str, float | None, flo
     return "pdf_ok_diverge", pe, div
 
 
-def casar_itens_contra_tabela(curador, itens: list[dict], tabela: list[dict]) -> dict[str, dict]:
-    """Casa cada item sobrevivente do documento contra a TABELA já extraída (`completa`/`visao`),
-    via `Curador.casar_item_tabela` (mesmo método da antiga 5_alt_b). Devolve
-    `item_key -> extraido` no shape que `validar_extracao` espera."""
-    out: dict[str, dict] = {}
-    if not tabela:
-        for item in itens:
-            out[item["item_key"]] = {"encontrado": False}
-        return out
-    for item in itens:
-        match = curador.casar_item_tabela(item, tabela)
-        idx = match.get("idx", -1)
-        fornecedor = tabela[idx].get("fornecedor", "") if 0 <= idx < len(tabela) else ""
-        out[item["item_key"]] = {
-            "descricao_completa": match.get("descricao_completa") or "",
-            "preco_unitario": match.get("preco_unitario"),
-            "quantidade": match.get("quantidade"),
-            "encontrado": bool(match.get("encontrado")),
-            "_fornecedor": fornecedor,
-        }
-    return out
-
-
 def doc_status_de_motivos(status_por_item: dict[str, str]) -> str:
     """Detector de PDF trocado (docs/03_ETAPAS.md §5.1): deriva `doc_status` do documento
     INTEIRO a partir do status de todos os seus itens — nenhum item confirmou = `suspeito`
-    (o PDF provavelmente não é o documento certo); nenhuma página produziu texto útil (todos
-    `sem_texto`) = `ilegivel`; senão `ok`."""
+    (o PDF provavelmente não é o documento certo); nenhuma tabela de itens saiu do documento
+    (todos `sem_texto`) = `ilegivel`; senão `ok`."""
     motivos = list(status_por_item.values())
     if not motivos:
         return "ilegivel"
@@ -124,23 +98,11 @@ def destino_de(status: str, doc_status: str) -> str:
     return "descartar"
 
 
-def agrupar_por_doc_status(itens_por_doc: dict[str, list[str]],
-                           status_por_item: dict[str, str]) -> dict[str, str]:
-    """`numero_controle_pncp -> doc_status`, uma vez por documento (não por item)."""
-    out = {}
-    for doc, item_keys in itens_por_doc.items():
-        out[doc] = doc_status_de_motivos({ik: status_por_item.get(ik, "sem_texto") for ik in item_keys})
-    return out
+def estado_documento(doc_status: str | None) -> str:
+    """`doc_status` da regra de negócio → rótulo do enum `estado_documento` do banco.
 
-
-def contagem_destinos(linhas: list[dict]) -> dict[str, int]:
-    c: dict[str, int] = defaultdict(int)
-    for linha in linhas:
-        c[linha["destino"]] += 1
-        if linha["status"] == "pdf_ok_diverge":
-            c["preco_diverge"] += 1
-        elif linha["status"] == "pdf_ok_preco_suspeito":
-            c["preco_suspeito"] += 1
-        elif linha["status"] == "pdf_ok_sem_preco":
-            c["sem_preco"] += 1
-    return dict(c)
+    Os dois vocabulários coincidem em `suspeito` e `ilegivel` e divergem no caso bom: a regra
+    chama de `ok`, o enum chama de `extraido`. Ponto único de tradução — quando havia dois,
+    um deles esqueceu, e o COPY recusava justamente os documentos em que a extração DEU CERTO.
+    """
+    return "extraido" if (doc_status or "ok") == "ok" else doc_status

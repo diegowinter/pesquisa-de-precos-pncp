@@ -68,13 +68,14 @@ ETAPAS: tuple[StepDefinition, ...] = (
                    ("2",), "pago", True, False, ("chat",)),
     StepDefinition("4", "Cortar / definir escopo", "e4_cut",
                    ("3",), "gratis", True, True),
-    # Fase 11 (ADR-019): `pdf` e `pareamento` sãa capacidades de primeira classe — é o que faz
-    # o health check pré-play reprovar a etapa ANTES de começar quando o serviço está fora do
-    # ar. ADR-021: `ocr` NÃO é declarado pela 5 e `embed` não é declarado pela 6a — os dois
-    # rodam DENTRO dos serviços de `pdf` e `pareamento`, na máquina deles. Sondá-los daqui
-    # reprovaria a etapa por um endereço que este processo nem usa.
-    StepDefinition("5", "Extrair e enriquecer itens (download + OCR + LLM)", "e5_extract",
-                   ("4",), "pago", False, False, ("pdf", "chat")),
+    # A 5 declara DUAS capacidades porque faz duas chamadas com modelos diferentes (ADR-023):
+    # `extract` lê o PDF anexo e devolve a tabela de itens; `chat` casa cada item contra ela.
+    # Declarar as duas é o que faz o health check pré-play reprovar a etapa ANTES de começar
+    # quando falta provedor. `embed` continua não sendo declarada pela 6a (ADR-021): ela roda
+    # DENTRO do serviço de `pareamento`, e sondá-la daqui reprovaria por um endereço que este
+    # processo nem usa.
+    StepDefinition("5", "Extrair tabela do documento e enriquecer itens", "e5_extract",
+                   ("4",), "pago", False, False, ("extract", "chat")),
     StepDefinition("6a", "Gerar pares + rejeitor híbrido", "e6a_pairs",
                    ("4", "5"), "gpu", False, True, ("matching",)),
     StepDefinition("6b", "Rerankear pares", "e6b_rerank",

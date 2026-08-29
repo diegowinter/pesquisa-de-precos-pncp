@@ -21,9 +21,8 @@ pesquisa_precos/
   steps/     e0a_catalogo · e0b_curation · e1_termos · e2_collect · e3_classify · e4_cut
              e5_extract · e6a_pairs · e6b_rerank · e6c_validate · e7_group · e8_export
   core/      regras, parallel, prompts, collection (PNCP), catálogo, classification
-  providers/ chat · embed · rerank · pdf · matching (resolver + adapters — TODOS clientes
-             de serviço; nada roda em processo desde a ADR-021)
-  strategies/ window · full · vision (implementações plugáveis da etapa 5)
+  providers/ chat · embed · rerank · extract · matching (resolver + adapters; nada roda
+             em processo desde a ADR-021)
   db/        models, repos, session (SQLAlchemy 2.x; migrations em alembic/)
   runner/    launcher, lock, fingerprint, worker, DbContext, NullContext
   services/  a camada que web e api compartilham — nenhuma rota fala com o banco direto
@@ -47,12 +46,17 @@ PNCP e da licitação (`item`, `termo`, `documento`, `catalogo`, `par`, `grupo`,
 A migration `0011` fez o rename no banco. Ela é reversível (`alembic downgrade`), e o mapa
 completo do que mudou está no corpo dela.
 
-### O pesado não roda aqui (ADR-021)
+### O pesado não roda aqui (ADR-021) — e desde a ADR-023 quase nada roda lá
 
-Desde 2026-08-22 existe `../pncp-servicos-locais/` — quatro serviços HTTP (`gpu`, `ocr`,
-`pdf`, `pareamento`) com tudo que precisa de GPU ou de CPU intensiva: PyMuPDF, rasterização a
-200 DPI, OCR, embedder, reranker, BM25 e o corte do produto catálogo × itens. Do lado de cá, a
-capacidade que fala com o serviço de pareamento chama-se `matching`.
+Desde 2026-08-22 existe `../pncp-servicos-locais/` com quatro serviços HTTP (`gpu`, `ocr`,
+`pdf`, `pareamento`). Do lado de cá, a capacidade que fala com o serviço de pareamento
+chama-se `matching`.
+
+⚠ **A ADR-023 (2026-08-29) deixou os serviços `pdf` e `ocr` ÓRFÃOS.** A etapa 5 não parseia
+mais PDF: ela baixa o arquivo e o entrega inteiro, como anexo, ao modelo da capacidade
+`extract`. Nenhum código deste repositório chama esses dois serviços, e **não é preciso
+subi-los para rodar o pipeline** — só o `pareamento` (e o `gpu`, que atende `embed`/`rerank`).
+Os serviços continuam lá; apagá-los é decisão do outro repositório.
 
 Aqui só ficaram **clientes**. Não existe mais `…EmProcessoAdapter`: `base_url` vazio é erro de
 configuração, não "roda na própria máquina". A razão é a mesma da ADR-020 — dois caminhos para
@@ -60,13 +64,13 @@ o mesmo resultado divergem em silêncio — e o destino é um servidor econômic
 e escreve no banco e nada mais.
 
 A linha do corte é **"precisa de GPU ou é CPU intensiva"**, não "toca em bytes": baixar o PDF
-continua sendo daqui (é I/O, e o cliente do PNCP já existe para a etapa 2); o processo baixa e
-manda os bytes por upload, o serviço devolve texto.
+sempre foi daqui (é I/O, e o cliente do PNCP já existe para a etapa 2). Desde a ADR-023 os
+bytes vão do download direto para o modelo, sem passar por serviço nenhum.
 
 O companion **não importa `pesquisa_precos`** — é independente e tem `pyproject`, testes e
 `.env` próprios. Consequências práticas: `OCR_*` saiu do `.env` daqui, a etapa 5 declara
-`("pdf", "chat")` e a 6a declara `("matching",)`. Rodar o pipeline localmente é subir os
-serviços também.
+`("extract", "chat")` e a 6a declara `("matching",)`. Rodar o pipeline localmente é subir o
+`gpu` e o `pareamento`.
 
 ### Configuração não mora mais no `.env` (Fase 14, ADR-022)
 
@@ -77,7 +81,7 @@ tela:
 | O quê | Onde se configura |
 |---|---|
 | modelo, base_url, chave de API, batch, custo | `/providers` (tabela `provider`) |
-| quem atende `chat`/`embed`/`rerank`/`pdf`/`matching` | `/providers` (`provider_capability`) |
+| quem atende `chat`/`embed`/`rerank`/`extract`/`matching` | `/providers` (`provider_capability`) |
 | thresholds da 6b, `min_itens`/`top_n` da 7, todo `Params` | formulário da etapa (`config_versao`) |
 
 Consequências para quem for mexer:
@@ -94,8 +98,10 @@ Consequências para quem for mexer:
 - **`tools/seed_providers.py`** foi a ponte de mão única do `.env` para o banco. Já
   rodou; não precisa rodar de novo.
 - **Estado hoje:** `chat → openrouter`, `embed`/`rerank → gpu_caseira`, `lm_studio` cadastrado
-  mas não apontado. **`pdf` e `matching` estão SEM provedor** — as etapas 5 e 6a não rodam
-  até serem cadastradas.
+  mas não apontado. **`extract` e `matching` estão SEM provedor** — as etapas 5 e 6a não rodam
+  até serem cadastradas. `extract` é a capacidade nova da ADR-023: cadastre um provedor de
+  chat **multimodal, que aceite PDF anexo** (o Gemma que o operador validou na mão), e aponte-a.
+  A antiga capacidade `pdf` não existe mais.
 
 ### Não existe CLI (Fase 13, ADR-020)
 
@@ -282,7 +288,7 @@ domínio — os 1,6 milhão de itens seguem só nos CSVs.
 | 2 (`--atualizar`) | ✅ | +173k itens; progress bar do resgate de pendentes corrigida |
 | 3 (classificar) | ✅ | dedup por texto; bug do `--retry-erros` corrigido |
 | 4 (cortar) | ✅ | sem LLM; "regra dos 5" já removida (ver acima) |
-| 5a/5b (enriquecer PDF) | ✅ | caminho base (sem alt); ~30k itens, 0 erros |
+| 5 (extrair tabela) | ⚠ | **reescrita na ADR-023** — o ✅ abaixo era do desenho antigo, que produziu 0 item confirmado sobre dado real. Nunca rodou na forma nova |
 | 6a (pares+embeddings) | ✅ | bug de `MemoryError` corrigido (corte em streaming) |
 | 6b (reranker) | ✅ | GPU remota |
 | 6c (LLM ambíguos) | ✅ | modelo barato é o padrão (ADR-004); nunca marcar `forte` |

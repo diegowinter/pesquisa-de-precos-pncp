@@ -91,8 +91,8 @@ def plano() -> tuple[list[dict], list[dict], list[str]]:
         apontamentos.append({"capability": "rerank", "provider": "gpu_caseira",
                              "model": _env("RERANKER_MODEL")})
 
-    # ── pdf e pareamento: serviços do companion ─────────────────────────────────────
-    for capability, prefixo in (("pdf", "PDF"), ("matching", "PAREAMENTO")):
+    # ── pareamento: o único serviço do companion que ainda tem cliente (ADR-023) ────
+    for capability, prefixo in (("matching", "PAREAMENTO"),):
         base = _env(f"{prefixo}_BASE_URL")
         if not base:
             avisos.append(

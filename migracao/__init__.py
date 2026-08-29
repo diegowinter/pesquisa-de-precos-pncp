@@ -28,7 +28,6 @@ PASSOS = (
     ("m07_documentos_itens", "2_itens_coletados → documento, documento_termo, item"),
     ("m08_classificacao", "3_itens_classificados → texto_classificacao, item_categoria"),
     ("m09_sobreviventes", "4_itens_sobreviventes → item.sobrevivente"),
-    ("m10_texto_pdf", "5_pdf_texto → documento_pagina"),
     ("m11_enriquecidos", "5_itens_enriquecidos + destino → item_enriquecido, documento_extracao"),
     ("m12_pares", "6a + 6b + 6c → par"),
     ("m13_rotulos", "6_rotulos_acumulados → label"),

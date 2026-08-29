@@ -204,7 +204,10 @@ Comparar o gravado com o recalculado responde sozinho "esta etapa está desatual
 
 ## ADR-010 — Etapa 5 com estratégias intercambiáveis e roteamento por documento
 
-**Status:** aceita · 2026-08-16
+**Status:** ~~aceita · 2026-08-16~~ · **SUBSTITUÍDA pela [ADR-023](#adr-023) em 2026-08-29.**
+As quatro estratégias e o roteamento saíram do repositório: sobre dado real, o desenho produziu
+zero item confirmado em 4.159 documentos. O que ficou de pé é o contrato de saída
+(`item_enriquecido`), que permitiu trocar a extração inteira sem tocar nas etapas 6 a 8.
 
 **Contexto.** Duas abordagens de extração foram implementadas e medidas sobre o acervo real
 (35.552 documentos, 291.044 itens, mediana de **2 itens/doc**, média 8,4, cauda até 1.305):
@@ -576,6 +579,11 @@ a que existia antes, "todo caminho da etapa cai dentro de `data/`").
 
 ## ADR-021 — Trabalho pesado sai do repositório: só serviços, sem caminho em processo
 
+> **Revisto em parte pela [ADR-023](#adr-023) (2026-08-29):** a capacidade `pdf` deixou
+> de existir, e o serviço `pdf` do companion ficou órfão. O princípio segue valendo para
+> `matching`; o que mudou é que a etapa 5 não processa mais byte de PDF em lugar nenhum —
+> ela baixa o arquivo (I/O) e o entrega ao modelo.
+
 **Data:** 2026-08-22 · **Status:** aceito · **Substitui parcialmente:** [ADR-019](#adr-019)
 
 **Contexto**
@@ -742,3 +750,74 @@ desenvolvimento.
 - **`Curador.from_provedor` foi removido.** Era um segundo caminho, usado só pela 6c, que
   montava o cliente lendo o `.env` e contornava `capacidade_provedor` inteiro — exatamente o
   tipo de duplicação que esta ADR existe para eliminar.
+
+---
+
+## ADR-023 — Etapa 5: uma extração só, com o documento inteiro como anexo
+
+**Contexto.** A [ADR-010](#adr-010) desenhou a etapa 5 com quatro caminhos — `window`, `full`,
+`vision` e o roteamento `auto` entre eles — apostando que documentos diferentes pedem
+estratégias diferentes. O primeiro teste assistido sobre dado real (2026-08-28) mediu a aposta:
+
+- **zero itens confirmados em 4.159 documentos.** `fonte_descricao` ficou 100% `api` — ou seja,
+  nenhuma descrição do PDF chegou ao produto, que é a única coisa que a etapa existe para fazer;
+- `nao_encontrado` 196, `qtd_nao_confere` 52, `sem_texto` 62, `doc_status` 248 suspeito e 62
+  ilegível, **0 extraído**;
+- o `auto` escalava para `vision` em ~57% dos documentos, contra um modelo de chat cujo
+  `input_modalities` é `['text']`. Falha garantida, no ponto mais caro do fluxo;
+- ~7 documentos/minuto — 10 horas para a fila, para não produzir nada.
+
+Ao lado disso, três bugs sérios corrigidos na mesma semana (código morto depois de um `return`
+que devolvia `None` para 1.146 documentos; `NOT NULL` violado em `tokens_in`; `ok` vs
+`extraido` no enum `estado_documento`) tinham a mesma origem: **um fluxo com chaveamento demais
+para o que entrega**. Cada caminho tinha o seu jeito de gravar, e o caminho bom era o menos
+exercitado.
+
+O que resolveu o problema não foi um quinto caminho. Foi anexar o PDF inteiro num chat e pedir
+"retorne a tabela de itens" — que devolveu a tabela correta, com marca e modelo, em 2,9 s e
+US$ 0,0025.
+
+**Decisão.** Um caminho só, sem estratégia, sem roteamento, sem escalonamento. Duas chamadas de
+LLM por documento:
+
+1. **Extração** — o PDF vai como anexo (`type: file`, base64) para a capacidade nova
+   **`extract`**, e volta a **tabela de itens em texto, "as it is"**.
+2. **Casamento** — para cada item da API, uma chamada (`chat`) que recebe **só essa tabela** e
+   devolve descrição completa, preço, quantidade e fornecedor.
+
+**Por que texto livre, e não colunas.** Cada documento traz as colunas que tem: um traz
+fornecedor e modelo, outro só descrição/quantidade/preço. Um esquema fixo obrigaria o modelo a
+preencher campo inexistente — que é convite para inventar. `documento_extracao.tabela_texto`
+guarda a resposta como veio; quem estrutura é a segunda chamada, item a item, contra a âncora
+que a API já fornece.
+
+**Por que uma capacidade nova, e não a `chat`.** São modelos diferentes com preços diferentes:
+`chat` é o barato que classifica texto ([ADR-004](#adr-004)) e a etapa 3 faz dezenas de milhares
+de chamadas com ele. `extract` precisa aceitar documento. Uma capacidade só obrigaria a escolher
+entre pagar caro na etapa 3 ou não conseguir ler PDF na 5.
+
+**Consequências.**
+
+- **`documento_pagina` foi dropada.** Era o gigante do banco (888 mil linhas, 2,6 GB) e ninguém
+  a jusante a lia: as etapas 6 a 8 leem de `item_enriquecido` apenas `descricao_final` e
+  `destino`. Com ela saíram a política de retenção de página e a migração `m10`.
+- **O contrato de saída não mudou.** Foi possível trocar a extração inteira sem tocar em
+  nenhuma etapa a jusante — a prova de que o corte da [ADR-010](#adr-010) em `item_enriquecido`
+  estava certo, mesmo com o resto do desenho errado.
+- **A capacidade `pdf` deixou de existir**, e com ela o cliente do serviço `pdf` do companion.
+  O serviço continua no repositório `pncp-servicos-locais`, mas **órfão**: nada mais o chama, e
+  não precisa ser subido para a etapa 5 rodar. Idem para o `ocr`, que já não tinha cliente desde
+  a [ADR-021](#adr-021).
+- **O download voltou para este processo.** Não contradiz a ADR-021: baixar do PNCP é I/O
+  barato, e o cliente da API já vive aqui desde a etapa 2. O que a ADR-021 tirou daqui foi o
+  trabalho de GPU e de CPU intensiva — e agora nem isso acontece, porque nenhum byte de PDF é
+  processado deste lado: ele é lido e enviado.
+- **Circuit breaker na etapa 5.** Vinte extrações seguidas falhando sem nenhuma dar certo abortam
+  a etapa. É o mecanismo que faltou na etapa 3 em 2026-08-25, quando um modelo aposentado no
+  OpenRouter produziu falha silenciosa em série.
+
+**O que se perde.** Não há mais como reprocessar um documento "com a outra estratégia" e
+comparar. Era o argumento central da ADR-010 — e em nenhuma execução real chegou a ser usado
+para decidir coisa alguma, porque nenhuma das estratégias confirmou item. Se um dia houver duas
+formas de ler documento que valham a pena comparar, a comparação volta como decisão nova, não
+como código adormecido.

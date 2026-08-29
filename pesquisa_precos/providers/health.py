@@ -27,14 +27,15 @@ _TIMEOUT_S = 5
 
 
 # Serviços de `pncp-servicos-locais`: expõem `/health`, e não o `/models` da convenção
-# OpenAI-compatible. Antes da ADR-021 estas duas podiam rodar em processo e `base_url` vazio
-# significava "roda aqui" — hoje significa "não configurado", e reprovar é o certo.
-_CAPACIDADES_DE_SERVICO = ("pdf", "matching")
+# OpenAI-compatible. Antes da ADR-021 podiam rodar em processo e `base_url` vazio significava
+# "roda aqui" — hoje significa "não configurado", e reprovar é o certo. `extract` saiu daqui
+# na ADR-023: virou um modelo de chat multimodal, sondado pelo `/models` como os outros.
+_CAPACIDADES_DE_SERVICO = ("matching",)
 
 
 def sondar_health(base_url: str, timeout_s: int = _TIMEOUT_S) -> dict[str, Any]:
-    """GET em `base_url + /health` — o endpoint que os serviços `pdf` e
-    `pareamento` do repo `pncp-servicos-locais` expõem. Mesma regra de `sondar_url`: responder já basta."""
+    """GET em `base_url + /health` — o endpoint que o serviço `pareamento` do repo
+    `pncp-servicos-locais` expõe. Mesma regra de `sondar_url`: responder já basta."""
     inicio = time.monotonic()
     try:
         resp = requests.get(base_url.rstrip("/") + "/health", timeout=timeout_s)

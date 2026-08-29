@@ -1,5 +1,5 @@
 """
-Resolução de provedor por capacidade — de onde vem "quem atende chat/embed/rerank/pdf/
+Resolução de provedor por capacidade — de onde vem "quem atende chat/embed/rerank/extract/
 pareamento agora".
 
 **Uma fonte só: o banco** (`provider` + `provider_capability`, docs/02_SCHEMA.md §10),
@@ -14,7 +14,7 @@ Capacidade sem linha em `provider_capability` agora levanta `CapabilityNotConfig
 etapa para antes de começar. Não sobrou modo degradado — é a mesma dureza que a ADR-020 impôs
 com `DATABASE_URL`.
 
-`criar_chat`/`criar_embed`/`criar_rerank`/`criar_pdf`/`create_matching` devolvem o adapter já
+`criar_chat`/`criar_embed`/`criar_rerank`/`criar_extract`/`create_matching` devolvem o adapter já
 pronto (satisfaz o `Protocol` correspondente). `Provedores` é o objeto que `ctx.providers`
 expõe (docs/03_ETAPAS.md §1), resolvido e instanciado sob demanda — montar o cliente custa, e
 uma etapa que só usa `chat` não deve pagar pelo resto — e cacheado pela vida do contexto.
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-CAPACIDADES = ("chat", "embed", "rerank", "pdf", "matching")
+CAPACIDADES = ("chat", "embed", "rerank", "extract", "matching")
 
 
 class CapabilityNotConfigured(RuntimeError):
@@ -156,13 +156,20 @@ def criar_rerank(*, sessao: "Session | None" = None, batch: int | None = None):
     return RerankGpuCaseiraAdapter(r.info, api_key=r.api_key)
 
 
-def criar_pdf(*, sessao: "Session | None" = None):
-    """Capacidade `pdf` (ADR-019/ADR-021). Este processo baixa os arquivos; o serviço faz o
-    parse, a rasterização e o OCR."""
-    from pesquisa_precos.providers.adaptadores import PdfRemotoAdapter
+def criar_extract(*, sessao: "Session | None" = None, curador_kwargs: dict | None = None):
+    """Capacidade `extract` (ADR-023) — o modelo que recebe o PDF anexo e devolve a tabela
+    de itens. É um provedor de CHAT multimodal, não um serviço do `pncp-servicos-locais`:
+    por isso passa por `ChatAdapter` e NÃO por `_exigir_servico`.
 
-    r = _exigir_servico(resolver_capacidade("pdf", sessao=sessao), "pdf")
-    return PdfRemotoAdapter(r.info, api_key=r.api_key)
+    Fica separada de `chat` de propósito. São modelos diferentes: `chat` é o barato que
+    classifica texto (ADR-004); `extract` precisa aceitar documento e custa mais por
+    chamada. Uma capacidade só obrigaria a escolher entre pagar caro na etapa 3 ou não
+    conseguir ler PDF na 5.
+    """
+    from pesquisa_precos.providers.adaptadores import ChatAdapter
+
+    r = resolver_capacidade("extract", sessao=sessao)
+    return ChatAdapter(r.info, api_key=r.api_key, curador_kwargs=curador_kwargs)
 
 
 def create_matching(*, sessao: "Session | None" = None):
@@ -244,10 +251,10 @@ class Providers:
         return self._cache["rerank"]
 
     @property
-    def pdf(self):
-        if "pdf" not in self._cache:
-            self._cache["pdf"] = criar_pdf(sessao=self._sessao)
-        return self._cache["pdf"]
+    def extract(self):
+        if "extract" not in self._cache:
+            self._cache["extract"] = criar_extract(sessao=self._sessao)
+        return self._cache["extract"]
 
     @property
     def matching(self):
@@ -265,6 +272,10 @@ class Providers:
     def novo_chat(self, *, curador_kwargs: dict | None = None):
         with _sessao_de_resolucao() as sessao:
             return criar_chat(sessao=sessao, curador_kwargs=curador_kwargs)
+
+    def novo_extract(self, *, curador_kwargs: dict | None = None):
+        with _sessao_de_resolucao() as sessao:
+            return criar_extract(sessao=sessao, curador_kwargs=curador_kwargs)
 
     def novo_embed(self):
         with _sessao_de_resolucao() as sessao:

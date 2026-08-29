@@ -1,16 +1,18 @@
 """
-Extração de item a partir de texto (Fase 9 — priority 2 de docs/08_CONVENCOES.md §6):
-`janela_para_item`, `validar_extracao`, `_variantes_preco`, `num`. Funções puras — teste de
-tabela com casos reais, incluindo números BR malformados (`107.222,00` não pode virar `107,22`).
+Regras de negócio da etapa 5 (`core/extraction.py`) — confirmação do item e veredito.
+
+Herdado de `tests/test_extracao.py`, que morreu junto com o pacote `strategies/` (ADR-023).
+O que ficou é justamente o que a troca de abordagem NÃO mudou: `num` e `validar_extracao`
+nunca dependeram de como o texto chegou ao processo. Os testes de `janela_para_item` e
+`_variantes_preco` saíram com a estratégia de janela.
 """
 
-from pesquisa_precos.strategies.base import (
+from pesquisa_precos.core.extraction import (
     BANDA_SANIDADE_MAX,
     BANDA_SANIDADE_MIN,
     num,
     validar_extracao,
 )
-from pesquisa_precos.strategies.window import _variantes_preco, janela_para_item
 
 
 class TestNum:
@@ -38,53 +40,6 @@ class TestNum:
 
     def test_texto_invalido(self):
         assert num("não é número") is None
-
-
-class TestVariantesPreco:
-    def test_gera_formato_br_ponto_milhar(self):
-        variantes = _variantes_preco(578538.24)
-        assert "578.538,24" in variantes
-
-    def test_gera_formato_br_sem_ponto_milhar(self):
-        variantes = _variantes_preco(578538.24)
-        assert "578538,24" in variantes
-
-    def test_valor_zero_ou_negativo_sem_variante(self):
-        assert _variantes_preco(0) == []
-        assert _variantes_preco(-10) == []
-
-    def test_valor_invalido_sem_variante(self):
-        assert _variantes_preco("abc") == []
-
-    def test_valor_string_br_aceito(self):
-        assert "1.500,00" in _variantes_preco("1500,00")
-
-
-class TestJanelaParaItem:
-    def test_ancora_na_descricao(self):
-        texto = "x" * 5000 + "PISTOLA 9MM CALIBRE ESPECIAL" + "y" * 5000
-        item = {"descricao_api": "PISTOLA 9MM CALIBRE ESPECIAL", "numeroItem": 1}
-        janela = janela_para_item(texto, item, janela_max=9000, raio_desc=200)
-        assert "PISTOLA 9MM CALIBRE ESPECIAL" in janela
-
-    def test_ancora_no_preco_quando_descricao_nao_bate(self):
-        texto = "a" * 3000 + "value unitario: 1.500,00 reais" + "b" * 3000
-        item = {"descricao_api": "algo que não está no texto", "preco_unitario": 1500.00}
-        janela = janela_para_item(texto, item, janela_max=9000, raio_preco=200)
-        assert "1.500,00" in janela
-
-    def test_sem_ancora_nenhuma_devolve_prefixo(self):
-        texto = "z" * 20000
-        item = {"descricao_api": "não existe", "preco_unitario": None}
-        janela = janela_para_item(texto, item)
-        assert len(janela) <= janela.count("z") + 1  # não estoura o teto de prefixo
-        assert janela == texto[: 3000 * 4]
-
-    def test_respeita_teto_janela_max(self):
-        texto = "PISTOLA" + "x" * 50000 + "1.500,00" * 3
-        item = {"descricao_api": "PISTOLA", "preco_unitario": 1500.00}
-        janela = janela_para_item(texto, item, janela_max=1000)
-        assert len(janela) <= 1000 + len("\n[...]\n") * 3  # margem para os separadores
 
 
 class TestValidarExtracao:

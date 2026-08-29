@@ -183,9 +183,10 @@ def test_testar_provedor_grava_status(cliente):
 
 
 def test_provedor_de_service_usa_health_e_nao_models(cliente):
-    """`pdf`/`pareamento` expõem `/health`, não o `/models` da convenção OpenAI."""
+    """`pareamento` expõe `/health`, não o `/models` da convenção OpenAI. Desde a ADR-023 é
+    o único: `extract` virou um LLM e é sondado como chat."""
     cliente.post("/providers", data={
-        "name": f"{PREFIXO}pdf", "base_url": "http://pdf:8200", "capabilities": ["pdf"],
+        "name": f"{PREFIXO}pdf", "base_url": "http://par:8300", "capabilities": ["matching"],
         "active": "on"})
     falso = {"healthy": True, "latency_ms": 5, "message": None}
     with patch("pesquisa_precos.providers.health.sondar_health", return_value=falso) as mock:

@@ -11,8 +11,6 @@ Os construtores aceitam `com_justificativa`:
   False → saída só com o id (economia de tokens de saída — usado na 1ª rodada)
 """
 
-import json
-
 from pesquisa_precos.core.classification.categories import CATEGORIAS_MATERIAL as _DEF_MATERIAL
 from pesquisa_precos.core.classification.categories import CATEGORIAS_SERVICO as _DEF_SERVICO
 from pesquisa_precos.core.classification.categories import META_CATEGORIAS as _META
@@ -115,39 +113,6 @@ def montar_prompt_busca(nome: str, descricao: str, categoria: str = "") -> str:
     )
 
 
-def montar_prompt_extrair_itens(texto: str) -> str:
-    """
-    Prompt p/ extrair os itens de uma ata de registro de preços (texto já extraído do PDF
-    por `parsear_pdfs.py`), pensado para um modelo PEQUENO (7B, ex. OPENAI_MODEL_VISION):
-    instruções curtas, diretas, uma regra por linha, e um formato de saída rígido com
-    exemplo, para reduzir a chance do modelo divagar ou inventar campos extras.
-    """
-    return (
-        "Tarefa: extrair a lista de ITENS de uma ata de registro de preços.\n\n"
-        "REGRAS:\n"
-        "1. Cada item vira UMA linha, em texto corrido (sem quebras de linha internas).\n"
-        "2. Inclua no texto do item: nome/descrição, especificações técnicas e unidade\n"
-        "   de medida/quantidade, se aparecerem no documento.\n"
-        "3. NÃO inclua: valor unitário, valor total, marca, fornecedor, CNPJ, prazo de\n"
-        "   entrega, garantia ou qualquer outro dado que não descreva o item em si.\n"
-        "4. NÃO invente itens. Se o documento não tiver itens, responda apenas: NENHUM\n"
-        "5. NÃO escreva nada além da lista de itens (sem introdução, sem comentários,\n"
-        "   sem resumo, sem markdown).\n\n"
-        "FORMATO DE SAÍDA (siga exatamente):\n"
-        "Item 1: <texto corrido do item 1>\n"
-        "Item 2: <texto corrido do item 2>\n"
-        "...\n"
-        "Item N: <texto corrido do item N>\n\n"
-        "EXEMPLO:\n"
-        "Item 1: Colete balístico nível IIIA, tamanho G, cor preta, com placa frontal e "
-        "traseira\n"
-        "Item 2: Viatura policial caminhonete 4x4, motor a diesel, cabine dupla, unidade\n\n"
-        "TEXTO DA ATA:\n"
-        f"{texto}\n\n"
-        "Agora extraia os itens seguindo exatamente o formato acima."
-    )
-
-
 def montar_prompt_comparar_item(descricao_pncp: str, objeto_compra: str, nome_catalogo: str, descricao_catalogo: str) -> str:
     """
     Prompt p/ decidir se um item real de contrato/ata do PNCP é o MESMO tipo de item que um
@@ -246,34 +211,6 @@ def montar_prompt_classificar_item(descricao: str, unidade: str = "") -> str:
     )
 
 
-def montar_prompt_extrair_item_pdf(janela_texto: str, item_api: dict) -> str:
-    """
-    Etapa 5.2 — extração GUIADA de um único item a partir do texto do PDF. Nunca "liste
-    todos"; pede só o item que casa com `item_api` (numeroItem + descricao_api). Reduz
-    alucinação e permite validação âncora por preço/quantidade a jusante.
-    """
-    numero = item_api.get("numeroItem", "")
-    descricao_api = item_api.get("descricao_api", "")
-    return (
-        "Você extrai os dados de UM item específico do texto de um contrato/ata (PDF).\n\n"
-        "O item procurado, conforme a API do PNCP:\n"
-        f"  Número do item: {numero}\n"
-        f"  Descrição (API, pobre): {descricao_api}\n\n"
-        "No texto abaixo, localize ESSE item (pelo número e/ou pela descrição) e extraia:\n"
-        "  - descricao_completa: a descrição rica do item como aparece no documento "
-        "(especificações técnicas, sem valores/marca/fornecedor);\n"
-        "  - preco_unitario: valor unitário (número, ponto decimal);\n"
-        "  - quantidade: quantidade (número);\n"
-        "  - encontrado: true se localizou o item com confiança, false caso contrário.\n\n"
-        "NÃO invente. Se não encontrar o item no texto, devolva encontrado=false e os "
-        "demais campos nulos. NÃO liste outros itens.\n\n"
-        "TEXTO DO DOCUMENTO:\n"
-        f"{janela_texto}\n\n"
-        'Responda SOMENTE com JSON puro: '
-        '{"descricao_completa": "...", "preco_unitario": 0.0, "quantidade": 0, "encontrado": true}'
-    )
-
-
 def montar_prompt_comparar_par(texto_catalogo: str, texto_item: str) -> str:
     """
     Etapa 6c — decide se o item do PNCP e o item de catálogo são o MESMO item para fins
@@ -363,98 +300,64 @@ def montar_prompt_termos_item(nome: str, descricao: str, tipo: str = "material",
 
 
 # --------------------------------------------------------------------------------------
-# Etapa 5-ALT — extração da tabela de itens direto do PDF (visão) + casamento estruturado.
-# Alternativa ao par 5a(OCR)+5b(janela de texto): 5_alt_a manda a IMAGEM da página a um
-# modelo de visão e recebe a tabela "as it is"; 5_alt_b casa o item da API contra essa
-# tabela LIMPA (JSON estruturado), sem texto corrido em volta — muito menos alucinação.
+# Etapa 5 (ADR-023) — duas chamadas, uma por documento e uma por item.
+#
+# A primeira recebe o PDF INTEIRO como anexo e devolve a tabela de itens em TEXTO, "as it
+# is": cada documento tem as colunas que tem — uns trazem fornecedor e marca, outros só
+# descrição/quantidade/preço. Impor um esquema fixo aqui era exatamente o que fazia o modelo
+# inventar coluna vazia. A segunda casa UM item da API contra esse texto, que é curto e já
+# está limpo — bem menos margem para alucinar do que o documento cru.
 # --------------------------------------------------------------------------------------
 
-def montar_prompt_extrair_tabela_pdf() -> str:
-    """
-    Etapa 5_alt_a — instrução (texto) que acompanha a IMAGEM de UMA página de PDF enviada
-    a um modelo de visão. Pede a tabela de itens/preços EXATAMENTE como está na página,
-    sem normalizar nem inventar. Cada documento tem um layout diferente: transcreva o que
-    houver, não force um formato de origem.
-    """
+def montar_prompt_extrair_tabela_documento() -> str:
+    """Instrução que acompanha o PDF anexo. Sem placeholder: o documento não vai no texto."""
     return (
-        "Você recebe a IMAGEM de uma página de uma Ata de Registro de Preços / contrato "
-        "público (PDF). Extraia a TABELA DE ITENS desta página EXATAMENTE como aparece — "
-        "transcreva, não interprete nem normalize.\n\n"
+        "Observe esse documento (contrato ou ata de registro de preços) e retorne a TABELA "
+        "DE ITENS, com as informações que estiverem nela. APENAS A TABELA DE ITENS.\n\n"
         "REGRAS:\n"
-        "- Cada linha da tabela de itens vira um objeto. Só itens de produto/serviço com "
-        "preço; ignore cabeçalhos, rodapés, cláusulas, assinaturas e texto corrido.\n"
-        "- Copie os NÚMEROS como estão na página (ex.: '1.234,56' fica '1.234,56'); NÃO "
-        "converta separador decimal, NÃO arredonde, NÃO complete casas.\n"
-        "- Copie a descrição do item integralmente, como escrita (especificações inclusas).\n"
-        "- Se um campo não existir na página, use string vazia. NÃO invente valores.\n"
-        "- Se a página NÃO tiver tabela de itens, devolva lista vazia e tem_tabela=false.\n"
-        "- A tabela pode ser uma IMAGEM embutida na página — leia-a mesmo assim.\n\n"
-        'Responda SOMENTE com JSON puro:\n'
-        '{"tem_tabela": true, "itens": [{"numero_item": "", "descricao": "", '
-        '"unidade": "", "quantidade": "", "preco_unitario": "", "preco_total": "", '
-        '"fornecedor": ""}]}'
+        "- Transcreva a tabela COMO ELA É. Use as colunas que o documento tiver — se houver "
+        "fornecedor, marca ou modelo, traga; se não houver, NÃO crie a coluna.\n"
+        "- NÃO invente nenhum valor, item ou coluna. Nada além do que está no documento.\n"
+        "- Copie os NÚMEROS exatamente como aparecem ('1.234,56' continua '1.234,56'): não "
+        "converta separador decimal, não arredonde, não complete casas.\n"
+        "- Copie a descrição de cada item integralmente, com as especificações técnicas.\n"
+        "- Traga TODOS os itens do documento, inclusive os de páginas seguintes.\n"
+        "- Ignore cláusulas, preâmbulo, assinaturas, rodapés e texto corrido.\n"
+        "- A tabela pode estar como imagem digitalizada — leia-a mesmo assim.\n"
+        "- Se o documento NÃO tiver tabela de itens, responda exatamente: SEM_TABELA\n\n"
+        "Responda com a tabela em markdown e mais nada — sem introdução, sem comentário, "
+        "sem resumo."
     )
 
 
-def montar_prompt_extrair_tabela_texto(texto: str) -> str:
-    """
-    Etapa 5 — estratégia `completa` (Fase 8, ADR-010): extrai a tabela de itens de UM CHUNK
-    de texto já parseado do documento (nativo/OCR), em vez da imagem da página (essa é a
-    `visao`). Mesmo contrato de saída de `montar_prompt_extrair_tabela_pdf`, para que
-    `casar_item_tabela` sirva às duas estratégias sem distinção.
-    """
-    return (
-        "Você recebe um TRECHO do texto de um contrato/ata de registro de preços (PDF já "
-        "convertido para texto). Extraia a TABELA DE ITENS deste trecho EXATAMENTE como "
-        "aparece — transcreva, não interprete nem normalize.\n\n"
-        "REGRAS:\n"
-        "- Cada item/linha da tabela vira um objeto. Só itens de produto/serviço com preço; "
-        "ignore cláusulas, assinaturas e texto corrido que não seja tabela/lista de itens.\n"
-        "- Copie os NÚMEROS como estão no texto (ex.: '1.234,56' fica '1.234,56'); NÃO "
-        "converta separador decimal, NÃO arredonde, NÃO complete casas.\n"
-        "- Copie a descrição do item integralmente, como escrita (especificações inclusas).\n"
-        "- Se um campo não existir no trecho, use string vazia. NÃO invente valores.\n"
-        "- Se este trecho NÃO tiver tabela/lista de itens, devolva lista vazia.\n"
-        "- Este é só um PEDAÇO do documento — pode não ter todos os itens; não invente os "
-        "que faltam.\n\n"
-        "TRECHO DO DOCUMENTO:\n"
-        f"{texto}\n\n"
-        'Responda SOMENTE com JSON puro:\n'
-        '{"itens": [{"numero_item": "", "descricao": "", "unidade": "", "quantidade": "", '
-        '"preco_unitario": "", "preco_total": "", "fornecedor": ""}]}'
-    )
+def montar_prompt_casar_item_tabela(item_api: dict, tabela_texto: str) -> str:
+    """Casa UM item da API do PNCP contra a tabela já extraída do documento.
 
-
-def montar_prompt_casar_item_tabela(item_api: dict, linhas: list[dict]) -> str:
-    """
-    Etapa 5_alt_b — casa UM item da API do PNCP contra a tabela LIMPA extraída do PDF
-    (lista de linhas estruturadas de 5_alt_a). Como a entrada é estruturada e curta, o
-    modelo escolhe a linha certa (ou nenhuma) com pouca margem para alucinar.
+    A entrada é curta e só contém itens: a chamada não vê o documento inteiro, que é o
+    ponto do desenho de duas passadas.
     """
     numero = item_api.get("numeroItem", "")
     descricao_api = item_api.get("descricao_api", "")
-    linhas_fmt = json.dumps(
-        [{"idx": i, **{k: linha.get(k, "") for k in
-                        ("numero_item", "descricao", "unidade", "quantidade",
-                         "preco_unitario", "preco_total", "fornecedor")}}
-         for i, linha in enumerate(linhas)],
-        ensure_ascii=False,
-    )
     return (
-        "Você recebe UM item da API do PNCP e a TABELA de itens extraída do PDF da ata "
-        "(linhas já estruturadas). Diga QUAL linha da tabela é o mesmo item — casando "
-        "por número do item e/ou descrição — ou que não há correspondência.\n\n"
+        "Você recebe UM item da API do PNCP e a TABELA DE ITENS extraída do documento da "
+        "ata/contrato. Diga qual linha da tabela é o MESMO item — casando por número do "
+        "item e/ou descrição — ou que não há correspondência.\n\n"
         "ITEM DA API (referência, descrição pobre):\n"
         f"  Número do item: {numero}\n"
         f"  Descrição: {descricao_api}\n\n"
-        "TABELA DO PDF (uma linha por objeto, campo 'idx' identifica a linha):\n"
-        f"{linhas_fmt}\n\n"
+        "TABELA DO DOCUMENTO:\n"
+        f"{tabela_texto}\n\n"
         "REGRAS:\n"
         "- Case pelo SENTIDO do objeto, não pela grafia. O número do item ajuda, mas a "
         "descrição manda: se o número aponta uma linha de objeto claramente diferente, "
         "confie na descrição.\n"
-        "- COPIE preco_unitario e quantidade da LINHA escolhida, exatamente como estão.\n"
-        "- Se NENHUMA linha for o mesmo item, encontrado=false e idx=-1.\n\n"
-        'Responda SOMENTE com JSON puro: {"encontrado": true, "idx": 0, '
-        '"descricao_completa": "...", "preco_unitario": "", "quantidade": ""}'
+        "- COPIE preco_unitario e quantidade da LINHA escolhida, exatamente como estão na "
+        "tabela. NÃO converta separador decimal e NÃO arredonde.\n"
+        "- descricao_completa é a descrição do item COMO ESTÁ na tabela, com as "
+        "especificações técnicas, sem preço, marca nem fornecedor.\n"
+        "- fornecedor só se a tabela tiver essa informação; senão, string vazia.\n"
+        "- Se NENHUMA linha for o mesmo item, encontrado=false e os demais campos vazios. "
+        "NÃO invente correspondência.\n\n"
+        'Responda SOMENTE com JSON puro: {"encontrado": true, "descricao_completa": "...", '
+        '"preco_unitario": "", "quantidade": "", "fornecedor": ""}'
     )

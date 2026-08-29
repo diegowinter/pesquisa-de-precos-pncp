@@ -201,3 +201,131 @@ def test_nenhum_codigo_inalcancavel_depois_de_return():
                         f"{arquivo.relative_to(raiz)}:{corpo[i + 1].lineno} "
                         f"depois de {type(cmd).__name__.lower()} na linha {cmd.lineno}")
     assert not achados, "código inalcançável:\n  " + "\n  ".join(achados)
+
+
+# Vocabulário da abordagem de extração aposentada (ADR-023). Cada entrada é (agulha, o que
+# ela denunciaria se voltasse). São palavras que NÃO aparecem em nenhum outro contexto do
+# pacote — `vision` não entra na lista porque colide com "visão"/`input_modalities` em texto
+# de comentário; o que a representa é `estrategia`, que era o eixo do desenho todo.
+_RESQUICIOS_DA_EXTRACAO_ANTIGA = {
+    "strategies": "o pacote de estratégias plugáveis",
+    "janela_max": "a estratégia de janela de texto",
+    "extrair_tabela_pdf": "a extração por imagem de página (visão)",
+    "extrair_tabela_texto": "a extração por chunk de texto",
+    "extrair_item_pdf": "a extração guiada de um item por vez",
+    "documento_pagina": "a tabela de texto por página",
+    "PdfRemotoAdapter": "o cliente do serviço `pdf` do companion",
+    "escolher_estrategia": "o roteamento automático entre estratégias",
+}
+
+
+def _linhas_de_codigo(arquivo: Path) -> dict[int, str]:
+    """Linhas do arquivo SEM comentários e SEM docstrings, indexadas por número.
+
+    A distinção importa: explicar em prosa o que foi removido e por quê é o que mantém uma
+    decisão rastreável — proibir a palavra até no comentário obrigaria a apagar a explicação
+    junto com o código, que é o oposto do que se quer. O que não pode voltar é o CÓDIGO.
+
+    Strings comuns continuam sendo varridas de propósito: é onde mora o SQL.
+    """
+    import ast
+    import io
+    import tokenize
+
+    texto = arquivo.read_text(encoding="utf-8")
+    linhas = dict(enumerate(texto.splitlines(), 1))
+
+    arvore = ast.parse(texto, str(arquivo))
+    for no in ast.walk(arvore):
+        if not isinstance(no, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        doc = no.body[0] if no.body else None
+        if (isinstance(doc, ast.Expr) and isinstance(doc.value, ast.Constant)
+                and isinstance(doc.value.value, str)):
+            for n in range(doc.lineno, (doc.end_lineno or doc.lineno) + 1):
+                linhas.pop(n, None)
+
+    for token in tokenize.generate_tokens(io.StringIO(texto).readline):
+        if token.type == tokenize.COMMENT:
+            n = token.start[0]
+            if n in linhas:
+                linhas[n] = linhas[n][: token.start[1]]
+    return linhas
+
+
+def test_nenhum_resquicio_da_extracao_por_estrategias():
+    """A ADR-023 trocou a etapa 5 inteira, e o pedido foi explícito: sem sobra.
+
+    Código morto de uma abordagem substituída é pior que código feio — quem for entender a
+    etapa 5 depois vai encontrar dois desenhos e nenhuma pista de qual está vivo. O histórico
+    do git é o resgate; a árvore fica com um caminho só.
+
+    A varredura é sobre `pesquisa_precos/`, `migracao/` e `tools/` — não sobre `tests/`, onde
+    citar o nome do que morreu (como aqui) é justamente o ponto.
+    """
+    raiz = Path(__file__).resolve().parents[1]
+    achados = []
+    for pacote in ("pesquisa_precos", "migracao", "tools"):
+        for arquivo in (raiz / pacote).rglob("*.py"):
+            for linha_n, linha in _linhas_de_codigo(arquivo).items():
+                for agulha, o_que in _RESQUICIOS_DA_EXTRACAO_ANTIGA.items():
+                    if agulha in linha:
+                        achados.append(
+                            f"{arquivo.relative_to(raiz)}:{linha_n} cita {agulha!r} "
+                            f"({o_que})")
+    assert not achados, (
+        "resquício da extração por estratégias:\n  "
+        + "\n  ".join(sorted(achados)))
+
+
+def test_etapa_5_manda_o_documento_como_anexo():
+    """O contrato da 1ª chamada: uma parte de texto + uma parte `file` com o PDF em base64.
+
+    Se alguém trocar o anexo por texto extraído, a etapa volta a ser a que produziu zero item
+    confirmado em 4.159 documentos — e volta em silêncio, porque o modelo responde do mesmo
+    jeito quando não recebe documento nenhum.
+    """
+    from pesquisa_precos.providers.llm_curador import Curador
+
+    class RespostaFake:
+        content = "| item | preço |\n| --- | --- |\n| colete | 1.200,00 |"
+
+    class LlmFake:
+        def __init__(self):
+            self.mensagens = None
+
+        def invoke(self, mensagens):
+            self.mensagens = mensagens
+            return RespostaFake()
+
+    curador = Curador.__new__(Curador)      # sem rede: só o empacotamento da mensagem
+    curador._prompts_ativos = {}
+    curador.llm = LlmFake()
+
+    tabela = curador.extrair_tabela_documento(b"%PDF-1.7 conteudo", "ata.pdf")
+    assert "colete" in tabela
+
+    partes = curador.llm.mensagens[0].content
+    tipos = [parte["type"] for parte in partes]
+    assert tipos == ["text", "file"], f"a mensagem não leva o PDF anexo: {tipos}"
+    anexo = partes[1]["file"]
+    assert anexo["filename"] == "ata.pdf"
+    assert anexo["file_data"].startswith("data:application/pdf;base64,")
+
+
+def test_etapa_5_trata_sem_tabela_como_documento_sem_itens():
+    """`SEM_TABELA` é a resposta combinada para "não há tabela de itens aqui". Precisa virar
+    string vazia, e não uma descrição falsa gravada como se fosse a tabela do documento."""
+    from pesquisa_precos.providers.llm_curador import Curador
+
+    class RespostaFake:
+        content = "SEM_TABELA"
+
+    class LlmFake:
+        def invoke(self, _mensagens):
+            return RespostaFake()
+
+    curador = Curador.__new__(Curador)
+    curador._prompts_ativos = {}
+    curador.llm = LlmFake()
+    assert curador.extrair_tabela_documento(b"%PDF-1.7", "x.pdf") == ""

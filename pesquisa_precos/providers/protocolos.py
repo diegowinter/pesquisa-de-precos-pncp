@@ -87,47 +87,6 @@ class RerankProvider(Protocol):
 
 
 @runtime_checkable
-class OcrProvider(Protocol):
-    """Capacidade `ocr` — markdown de UMA página escaneada (etapa 5)."""
-
-    info: ProviderInfo
-
-    def ocr_pagina(self, png_bytes: bytes) -> str:
-        """Markdown da página, ou '' em falha persistente (o adapter já fez seu retry)."""
-
-
-@runtime_checkable
-class PdfProvider(Protocol):
-    """Capacidade `pdf` (Fase 11, ADR-019) — documento inteiro → texto por página.
-
-    O provedor BAIXA o PDF ele mesmo e, quando a página é escaneada, chama o OCR por dentro.
-    O container nunca vê um byte de PDF: recebe só texto. Isso é deliberado — `ocr_pdf` fazia
-    o parse E a rasterização com PyMuPDF, então tirar o fitz do processo sem mover o OCR
-    junto quebraria o OCR (ADR-019).
-    """
-
-    info: ProviderInfo
-
-    def extrair(self, url_pncp: str, *, numero_controle: str = "",
-                tipo_doc: str = "", numero_sequencial: str | None = None,
-                numero_sequencial_ata: str | None = None,
-                orgao_cnpj: str | None = None, ano: int | None = None) -> dict:
-        """`{paginas: [{pagina, texto, densidade, escaneada}], n_paginas, hash, cost_usd}`.
-
-        Os identificadores existem porque o serviço pode precisar refazer
-        `listar_arquivos()` quando a `url_pncp` sozinha não resolve o arquivo (ADR-012).
-        """
-
-    def rasterizar(self, url_pncp: str, *, max_paginas: int | None = None,
-                   **ids) -> list[bytes]:
-        """Páginas como PNG, para a estratégia `visao` (ADR-010) — rota de EXCEÇÃO.
-
-        Separado de `extrair` porque devolver imagens de 200 DPI em toda extração faria o
-        caminho normal trafegar dezenas de MB por documento sem usar nada disso.
-        """
-
-
-@runtime_checkable
 class MatchingProvider(Protocol):
     """Capacidade `pareamento` (Fase 11, ADR-019) — catálogo × itens → pares sobreviventes.
 

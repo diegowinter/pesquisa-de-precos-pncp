@@ -240,90 +240,76 @@ Sem LLM. Marca `item.sobrevivente = true` para item com ≥1 categoria e atualiz
 categoria é **apenas diagnóstico**. Não reintroduzir descarte por `MIN_ITENS` aqui.
 
 **Gate:** mostra quantos documentos e itens entram na etapa 5, com a estimativa de custo por
-estratégia de roteamento. É o último ponto barato antes de gastar com download, OCR e LLM.
+estratégia de roteamento. É o último ponto barato antes de gastar com download e LLM.
 
 ---
 
-### 5 — Extrair e enriquecer (duas estratégias)
+### 5 — Extrair a tabela do documento e enriquecer os itens
 
-**Origem:** [`etapas/e5a_ocr.py`](../pesquisa_precos/etapas/e5a_ocr.py) + [`etapas/e5b_extrair.py`](../pesquisa_precos/etapas/e5b_extrair.py)
-(caminho `janela`); [`etapas/e5_alt_a_tabela.py`](../pesquisa_precos/etapas/e5_alt_a_tabela.py) +
-[`etapas/e5_alt_b_casar.py`](../pesquisa_precos/etapas/e5_alt_b_casar.py) (embrião das outras)
+**Módulo:** [`steps/e5_extract.py`](../pesquisa_precos/steps/e5_extract.py) ·
+regras em [`core/extraction.py`](../pesquisa_precos/core/extraction.py)
 
-Esta é a etapa com implementações intercambiáveis. Fluxo por documento:
+Duas chamadas de LLM por documento ([ADR-023](07_DECISOES.md#adr-023)). Fluxo:
 
 ```
-baixa PDF → extrai texto (nativo + OCR nas páginas escaneadas)
-          → grava documento_pagina
-          → DESCARTA o PDF
-          → aplica a estratégia escolhida
-          → grava item_enriquecido (contrato único)
+baixa o PDF do PNCP  → manda o ARQUIVO INTEIRO como anexo (capacidade `extract`)
+                     → recebe a TABELA DE ITENS em texto, "as it is"
+                     → DESCARTA o PDF (ADR-012)
+                     → grava documento_extracao.tabela_texto
+                     → por item da API: casa contra ESSA tabela (capacidade `chat`)
+                     → grava item_enriquecido (contrato de saída)
 ```
 
 - **Lê:** `item` (sobreviventes), `documento`
-- **Escreve:** `documento_pagina`, `documento_extracao`, `item_enriquecido`, `documento.estado`
-- **Params:** `estrategia: auto|janela|completa|visao = auto`, `concurrency_ocr: int = 4`,
-  `concurrency_llm: int = 8`, `janela_max: int = 9000`, `raio_preco: int = 1500`,
-  `max_paginas: int | None`, `documentos: list[str] | None` (forçar reprocesso pontual)
+- **Escreve:** `documento_extracao`, `item_enriquecido`, `documento.estado`
+- **Capacidades:** `("extract", "chat")` — modelos diferentes de propósito, ver ADR-023
+- **Params:** `concurrency_docs: int = 4`, `concurrency_llm: int = 8`, `max_mb: int = 32`,
+  `file_parser: bool = True`, `limite_docs: int | None`, `documentos: str | None`
+- **Chave de resumo:** `documento.estado = 'extraido'` (ADR-018). Reprocessar um documento
+  sobrescreve o veredito de TODOS os seus itens.
 
-#### 5.1 Estratégia `janela` (padrão para a maioria)
+#### 5.1 A tabela é texto livre, não um esquema
 
-Recorte multi-âncora ao redor da descrição do item **e** de cada ocorrência do preço, com teto
-rígido de `janela_max` chars. Uma chamada de LLM por item.
+O modelo devolve a tabela **como ela é no documento**: um traz fornecedor e modelo, outro só
+descrição/quantidade/preço. Impor colunas fixas obrigaria o modelo a preencher campo
+inexistente — convite para inventar. `documento_extracao.tabela_texto` guarda a resposta como
+veio; quem estrutura é a segunda chamada, item a item.
 
-Por que multi-âncora: em contratos grandes a descrição (objeto) e o valor (cláusula de preço)
-ficam em seções distantes. Ancorar só na descrição perdia o preço e derrubava a validação — isso
-já foi corrigido no código atual, não regredir.
+Se o documento não tiver tabela de itens, a resposta combinada é `SEM_TABELA`, e todos os seus
+itens saem `sem_texto` / `doc_status = ilegivel`. A linha em `documento_extracao` é gravada
+mesmo assim: é o registro de que o documento já foi tentado, e é o que impede repagar o
+download na execução seguinte.
 
-**Validação (preservar integralmente):**
-- confirma o item pela **quantidade** (tolerância `max(1.0, 1%)`) **ou** por match exato de preço
-  acima de `PRECO_FINGERPRINT = 1000.0`;
+#### 5.2 Validação (preservar integralmente)
+
+- confirma o item pela **quantidade** (tolerância `max(1.0, 1%)`) **ou** por match exato de
+  preço acima de `PRECO_FINGERPRINT = 1000.0`;
 - confirmado o item, o preço deixa de ser critério de aceite e vira **saída**: a API traz o
   estimado, o PDF traz o homologado/registrado. Divergência é **sinalizada, não descartada**;
 - banda de sanidade `0,3×…3,0×` marca provável misparse de número BR.
 
-**Detector de PDF trocado:** `doc_status` é derivado do documento inteiro — nenhum item confirmou
-= `suspeito`; nenhuma página legível = `ilegivel`. Daí sai o `destino`:
-`manter` (confirmado) / `revisar` (doc suspeito ou ilegível) / `descartar` (falha isolada em doc
-saudável).
+**Detector de PDF trocado:** `doc_status` é derivado do documento inteiro — nenhum item
+confirmou = `suspeito`; nenhuma tabela saiu do documento = `ilegivel`. Daí sai o `destino`:
+`manter` (confirmado) / `revisar` (doc suspeito ou ilegível) / `descartar` (falha isolada em
+documento saudável).
 
-#### 5.2 Estratégia `completa`
+#### 5.3 Circuit breaker
 
-Uma chamada com o texto do documento inteiro → lista estruturada de itens (`documento_extracao.itens_json`);
-depois uma chamada barata por item para casar contra a linha certa.
+Vinte extrações seguidas falhando **sem nenhuma ter dado certo** abortam a etapa: o problema
+é do provedor (modelo que não aceita anexo, chave vencida), não dos documentos. Sem isso a
+etapa desce a fila inteira produzindo falha em série — foi o que aconteceu na etapa 3 em
+2026-08-25, com um modelo aposentado no OpenRouter.
 
-**Requisitos obrigatórios** (ver [02_SCHEMA.md §6.2](02_SCHEMA.md#62-requisitos-que-a-estratégia-completa-deve-herdar-da-janela)):
-confirmação por quantidade, banda de sanidade, `doc_status`, e **chunking por página com overlap**
-para os 5,6% de documentos acima de 40k tokens. Truncar em silêncio faz item sumir sem erro.
+Documento **sem tabela** não conta como falha nem como sucesso para o breaker: ele foi lido, a
+resposta chegou, e o veredito "não há tabela aqui" é um resultado legítimo.
 
-> A implementação atual de `etapas/e5_alt_b_casar.py` valida **só por preço** e não deriva
-> `doc_status`. **Não usar como referência** sem corrigir isso.
+#### 5.4 O que NÃO fazer
 
-#### 5.3 Estratégia `visao`
-
-Rasteriza a página e envia a imagem a um modelo de visão. **Não é caminho principal** — medição
-mostrou que custa mais que as outras duas na distribuição real. Nicho legítimo: documento
-escaneado com tabela grande, onde o OCR corrido embaralha colunas.
-
-Acionamento sugerido: `doc_status ∈ {suspeito, ilegivel}` **e** `n_itens_sobreviventes ≥ N`.
-
-#### 5.4 Roteamento `auto`
-
-```
-usar 'completa' quando  n_itens_sobreviventes > tamanho_texto_chars / divisor
-divisor padrão = janela_max − tamanho_tabela = 9000 − 2500 = 6500
-```
-
-Ganho medido: **−38% de tokens de entrada** vs. `janela` pura. 20,7% dos documentos vão para
-`completa`, cobrindo 74% dos itens.
-
-`janela` / `completa` / `visao` explícitos existem para teste e para forçar reprocessamento de
-documento específico. Como o contrato de saída é o mesmo e a chave é `item_key`, "reprocessar
-este documento com outra estratégia" é só reexecutar com a estratégia forçada.
-
-**Paralelismo:** OCR é o mais caro em CPU do pipeline. Se rodar no mesmo fluxo do download, a
-coleta fica presa atrás dele. Usar `ProcessPoolExecutor` pequeno (2–4) só para OCR, alimentado
-por fila em memória. Este é o **único** paralelismo real do monolito.
+- persistir o PDF além do documento — sempre `try/finally` + `shutil.rmtree` (ADR-012);
+- usar o preço como critério de aceite (é SAÍDA, não filtro — [08_CONVENCOES.md §5.9](08_CONVENCOES.md));
+- mandar o documento inteiro para a chamada de casamento: o ponto das duas passadas é que a
+  segunda vê **só a tabela**;
+- reintroduzir estratégias, roteamento ou escalonamento. Ver ADR-023 para o que isso custou.
 
 ---
 
