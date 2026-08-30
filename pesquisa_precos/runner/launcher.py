@@ -165,6 +165,7 @@ def iniciar_subprocesso(run_etapa_id: int, *, action: str = "update",
 
     with db.session() as sessao:
         repo.heartbeat(sessao, run_etapa_id, processo.pid)
+        lock.registrar_pid(sessao, run_etapa_id, processo.pid)
         lock.renovar(sessao, run_etapa_id, timeout_s=lease_timeout_s)
     return processo
 

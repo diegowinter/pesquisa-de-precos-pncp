@@ -689,6 +689,11 @@ def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
     """Erro de UMA unidade de trabalho — não derruba a etapa (docs/03_ETAPAS.md §1.1 regra 4).
     Reaproveita a linha em nova tentativa em vez de acumular duplicata por `key`.
 
+    `last_seen` avança a cada ocorrência; `created_at` fica na PRIMEIRA. Sem essa distinção
+    não dá para responder "quais erros são desta execução": como todas as execuções de uma
+    etapa compartilham o `run_id`, a linha reaproveitada continua datada da primeira vez, e a
+    tela marcando "erros: 21" convive com zero linhas recentes (migration 0016).
+
     Com `run_etapa_id`, também incrementa `run_step.errors` — a coluna que a tela mostra.
     Sem isso a etapa 3 chegou a falhar em 100% dos textos com a tela marcando "erros: 0"
     (2026-08-25): os erros estavam todos em `item_error`, invisíveis até alguém ir ao banco.
@@ -700,7 +705,7 @@ def registrar_erro_item(sessao: Session, run_id: int, step: str, key: str,
     if existente:
         sessao.execute(
             text("UPDATE item_error SET attempts = attempts + 1, error_type = :t, "
-                 "                     message = :m WHERE id = :id"),
+                 "                     message = :m, last_seen = now() WHERE id = :id"),
             {"t": error_type, "m": message[:4000], "id": existente.id})
     else:
         sessao.execute(

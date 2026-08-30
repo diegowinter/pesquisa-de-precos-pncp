@@ -68,6 +68,22 @@ def liberar(sessao: Session, run_etapa_id: int) -> None:
              "WHERE id = 1 AND run_etapa_id = :re"), {"re": run_etapa_id})
 
 
+def registrar_pid(sessao: Session, run_etapa_id: int, pid: int) -> None:
+    """Grava no lock o PID REAL do worker, assim que o `Popen` devolve.
+
+    O lock nasce com `pid=0` porque ele é tomado ANTES de haver processo — a ordem existe
+    para que duas tentativas simultâneas não subam dois workers. Mas ninguém voltava para
+    corrigir, e o `run_lock` ficava permanentemente mentindo `pid = 0`.
+
+    Isso custou caro em 2026-08-30: um worker cancelado seguiu vivo segurando o advisory lock,
+    e a linha do lock — o primeiro lugar onde se olha — não dizia quem era. O PID estava em
+    `run_step.pid`, e foi preciso ir ao sistema operacional listar processos para achá-lo.
+    """
+    sessao.execute(
+        text("UPDATE run_lock SET pid = :pid WHERE id = 1 AND run_etapa_id = :re"),
+        {"pid": pid, "re": run_etapa_id})
+
+
 def quem_detem(sessao: Session) -> dict | None:
     """`None` = livre. Usado pelo CLI/API para recusar um novo play com mensagem clara em vez
     de deixar o segundo processo brigar pela linha e falhar tarde."""

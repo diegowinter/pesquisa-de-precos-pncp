@@ -84,3 +84,18 @@ def test_download_falho_vale_retentativa():
     from pesquisa_precos.steps.e5_extract import DownloadFalhou
 
     assert falha_permanente(DownloadFalhou("nenhum arquivo baixou")) is None
+
+
+# ── O lock e o worker pendurado ──────────────────────────────────────────────────────
+
+def test_lock_registra_o_pid_real_do_worker():
+    """O lock nasce com `pid=0` (é tomado antes de existir processo) e alguém precisa voltar
+    para corrigir. Sem isso o `run_lock` — primeiro lugar onde se olha quando a etapa trava —
+    mente `pid = 0`, e achar o worker exige listar processos do sistema operacional."""
+    import inspect
+
+    from pesquisa_precos.runner import launcher, lock
+
+    assert hasattr(lock, "registrar_pid")
+    fonte = inspect.getsource(launcher.iniciar_subprocesso)
+    assert "registrar_pid(sessao, run_etapa_id, processo.pid)" in fonte

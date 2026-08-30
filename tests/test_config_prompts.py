@@ -67,24 +67,48 @@ def test_resolver_template_mal_formado_cai_no_fallback():
 
 # ── config_version/config_value: imutabilidade e diff (ADR-014) ──────────────────────
 
+@pytest.fixture
+def config_versoes():
+    """Versões de config descartáveis, APAGADAS no teardown.
+
+    A suíte roda contra o banco real (não há banco de teste), então teste que cria linha de
+    domínio tem de levar o próprio lixo embora. Sem isto sobravam `config_version` órfãs a
+    cada `pytest` — 6 delas apareceram numa inspeção de 2026-08-30, no meio das versões de
+    verdade do operador. `config_value` sai junto pelo ON DELETE CASCADE.
+    """
+    criadas: list[int] = []
+
+    def criar(label: str, valores: dict) -> int:
+        with db.session() as sessao:
+            vid = repo.criar_config_versao(sessao, label)
+            repo.gravar_config(sessao, vid, valores)
+            sessao.commit()
+        criadas.append(vid)
+        return vid
+
+    yield criar
+
+    if criadas:
+        from sqlalchemy import text
+        with db.session() as sessao:
+            sessao.execute(text("DELETE FROM config_version WHERE id = ANY(:ids)"),
+                           {"ids": criadas})
+            sessao.commit()
+
+
 @pytestmark_db
-def test_diff_config_reporta_so_o_que_mudou():
+def test_diff_config_reporta_so_o_que_mudou(config_versoes):
+    a = config_versoes("teste-fase6-a", {"top_n": 0, "min_itens": 1})
+    b = config_versoes("teste-fase6-b", {"top_n": 5, "min_itens": 1})
     with db.session() as sessao:
-        a = repo.criar_config_versao(sessao, "teste-fase6-a")
-        repo.gravar_config(sessao, a, {"top_n": 0, "min_itens": 1})
-        b = repo.criar_config_versao(sessao, "teste-fase6-b")
-        repo.gravar_config(sessao, b, {"top_n": 5, "min_itens": 1})
         diff = repo.diff_config(sessao, a, b)
     assert diff["diferencas"] == [{"key": "top_n", "de": 0, "para": 5}]
 
 
 @pytestmark_db
-def test_config_versao_e_imutavel_editar_cria_nova():
-    with db.session() as sessao:
-        v1 = repo.criar_config_versao(sessao, "teste-fase6-imut")
-        repo.gravar_config(sessao, v1, {"top_n": 0})
-        v2 = repo.criar_config_versao(sessao, "teste-fase6-imut")
-        repo.gravar_config(sessao, v2, {"top_n": 5})
+def test_config_versao_e_imutavel_editar_cria_nova(config_versoes):
+    v1 = config_versoes("teste-fase6-imut", {"top_n": 0})
+    v2 = config_versoes("teste-fase6-imut", {"top_n": 5})
     assert v1 != v2
     with db.session() as sessao:
         assert repo.ler_config(sessao, v1) == {"top_n": 0}

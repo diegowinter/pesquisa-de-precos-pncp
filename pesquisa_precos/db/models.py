@@ -248,6 +248,10 @@ class ErroItem(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = _agora()
+    # PRIMEIRA ocorrência em `created_at`, ÚLTIMA aqui: a linha é reaproveitada por
+    # `(run_id, step, key)`, e como todas as execuções de uma etapa compartilham o `run_id`,
+    # sem esta coluna não dá para saber quais erros são da execução de agora (migration 0016).
+    last_seen: Mapped[datetime] = _agora()
 
 
 class LlmChamada(Base):
