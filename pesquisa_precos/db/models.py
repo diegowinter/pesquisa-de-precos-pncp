@@ -640,7 +640,7 @@ class ItemEnriquecido(Base):
     quantidade_pdf: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     status: Mapped[str] = mapped_column(_enum("status_enriquecimento"), nullable=False)
     destino: Mapped[str] = mapped_column(_enum("destino_item"), nullable=False)
-    doc_status: Mapped[str] = mapped_column(_enum("estado_documento"), nullable=False)
+    doc_status: Mapped[str] = mapped_column(_enum("doc_status"), nullable=False)
     run_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("run.id"))
     created_at: Mapped[datetime] = _agora()
 

@@ -56,12 +56,28 @@ from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepRes
 KEY = "5"
 # 3.0.0 (ADR-023): estratégias plugáveis fora; extração direta com o PDF anexo.
 # 4.0.0 (ADR-024): item pertence à compra; casamento vira uma chamada por documento.
-CODE_VERSION = "4.0.0"
+# 4.1.0: `pdf_engine` volta a NÃO declarar plugin (`auto`) — `cloudflare-ai` entregava 557 de
+#        17.878 tokens; falha permanente sai da fila; `doc_status` gravado cru; `llm_call`.
+# 4.2.0: `provider_sort` — o OpenRouter roteava para Parasail a ~US$ 2,80/Mtok em vez de
+#        Cloudflare a ~US$ 0,10/Mtok. Mesmo resultado, 27× a fatura.
+CODE_VERSION = "4.2.0"
 
 # Se as primeiras N extrações falharem TODAS, o problema não é do documento — é do provedor
 # (modelo que não aceita anexo, chave vencida, serviço fora). Foi a lição da etapa 3 em
 # 2026-08-25: sem isto, a etapa segue documento a documento rumo a milhares de falhas.
 LIMITE_FALHA_TOTAL = 20
+
+
+class DownloadFalhou(RuntimeError):
+    """O PNCP publicou o arquivo, mas ele não veio.
+
+    Existe para NÃO deixar isso virar "documento ilegível". `baixar_arquivo` tenta 5 vezes e
+    devolve `None` em silêncio; antes de 2026-08-30 `_baixar_documento` devolvia lista vazia e
+    o documento recebia o mesmo veredito de um PDF que o modelo leu e não entendeu — sem erro
+    na tela, sem custo de LLM, e sem nada que dissesse que o modelo nunca tinha visto o
+    arquivo. Foi o que aconteceu com os 1.274 documentos da execução de 2026-08-30: TODOS
+    tinham `hash_arquivo` nulo, ou seja, nenhum chegou ao modelo.
+    """
 
 
 class _FalhaTotal(SystemExit):
@@ -74,15 +90,26 @@ class Params(BaseModel):
     max_mb: int = Field(
         32, ge=1, le=200, description="Teto de tamanho do PDF; acima disso o documento é "
                                       "marcado como ilegível sem chamar o modelo")
-    pdf_engine: Literal["cloudflare-ai", "mistral-ocr", "native"] = Field(
-        "cloudflare-ai",
-        description="Como o OpenRouter converte o PDF antes do modelo ver. 'cloudflare-ai' é "
-                    "GRÁTIS e devolve markdown. 'mistral-ocr' custa US$ 2 por 1.000 páginas e "
-                    "lê documento escaneado. 'native' só serve para modelo que aceita 'file' "
-                    "— o Gemma NÃO aceita")
+    pdf_engine: Literal["auto", "pdf-text", "cloudflare-ai", "mistral-ocr", "native"] = Field(
+        "auto",
+        description="Como o OpenRouter converte o PDF antes do modelo ver. 'auto' NÃO declara "
+                    "plugin e deixa o OpenRouter escolher — é o que o playground faz, e o que "
+                    "entregou o documento inteiro de graça. 'pdf-text' extrai a camada de "
+                    "texto. 'mistral-ocr' custa US$ 2 por 1.000 páginas e lê documento "
+                    "escaneado. 'cloudflare-ai' entregou 567 tokens de um documento de 18.730 "
+                    "— não use sem medir. 'native' só serve para modelo que aceita 'file'")
+    provider_sort: Literal["price", "throughput", "latency", "livre"] = Field(
+        "price",
+        description="Como o OpenRouter escolhe o PROVEDOR de inferência do modelo. 'livre' "
+                    "deixa ele decidir — e foi assim que a mesma chamada saiu 27× mais cara "
+                    "(Parasail a ~US$ 2,80/Mtok em vez de Cloudflare a ~US$ 0,10/Mtok)")
     teto_chars_lote: int = Field(
         40_000, ge=2_000, description="Teto de texto dos itens candidatos por chamada de "
                                       "casamento; acima disso a compra é dividida em lotes")
+    reprocessar_ilegiveis: bool = Field(
+        False, description="Traz de volta à fila os documentos de que não saiu tabela. Só "
+                           "marque junto com uma TROCA de 'pdf_engine' ou de modelo — repetir "
+                           "com a mesma configuração paga de novo pelo mesmo resultado")
     limite_docs: int | None = Field(None, description="Teto de documentos (debug)")
     documentos: str | None = Field(
         None, description="numeroControlePNCP separados por vírgula — força reprocesso mesmo "
@@ -92,14 +119,37 @@ class Params(BaseModel):
 def _plugin_pdf(engine: str) -> dict:
     """O plugin do OpenRouter que converte o PDF anexo antes de o modelo ver.
 
-    Enviado SEMPRE, explicitamente, e é isso que importa: sem plugin declarado o OpenRouter
-    escolhe sozinho — "primeiro a capacidade nativa do modelo; se não houver, `mistral-ocr`".
-    Como `google/gemma-4-26b-a4b-it` declara `input_modalities` `['image','text','video']` e
-    NÃO `file`, o silêncio significa `mistral-ocr` a US$ 2 por 1.000 páginas. Com ~9,1 páginas
-    por documento (média medida em 242 documentos do acervo), isso é ~US$ 76 sem ninguém ter
-    escolhido nada. Escolher é do operador, pelo `Params`.
+    `auto` NÃO declara plugin. Isso é deliberado, e é o padrão desde 2026-08-30.
+
+    O raciocínio original era o oposto: declarar sempre, porque o silêncio significaria
+    `mistral-ocr` a US$ 2/1.000 páginas — uns US$ 76 no acervo — já que o Gemma não declara
+    `file` entre os `input_modalities`. A medição desmentiu isso. A MESMA ata, pelo caminho
+    sem plugin, chegou ao modelo com **18.730 tokens** e `usage_file: null` — nenhuma cobrança
+    de parser. Declarando `cloudflare-ai`, chegou com **567**, e o modelo respondeu
+    `SEM_TABELA`, como responderia qualquer um diante de meia página.
+
+    O custo de errar aqui é invisível: a etapa não falha, ela só devolve documento vazio. Foi
+    assim que 1.156 de 1.165 extrações "deram certo" produzindo nada.
     """
+    if engine == "auto":
+        return {}
     return {"plugins": [{"id": "file-parser", "pdf": {"engine": engine}}]}
+
+
+def _roteamento(sort: str) -> dict:
+    """Preferência de PROVEDOR de inferência — outra coisa que o silêncio decide por nós.
+
+    O mesmo modelo é servido por vários provedores a preços muito diferentes, e sem `provider`
+    no corpo o OpenRouter escolhe. Em 2026-08-30 ele mandou a etapa para a **Parasail**, a
+    ~US$ 2,80/Mtok, enquanto o playground caía na **Cloudflare** a ~US$ 0,10/Mtok — 27× de
+    diferença, invisível para nós porque nada falha: a resposta vem igual, só a fatura muda.
+
+    `price` pede o mais barato que sirva o modelo. É o padrão porque este projeto não tem
+    orçamento para o caminho caro, e a etapa 5 é a que mais consome token do ciclo.
+    """
+    if sort == "livre":
+        return {}
+    return {"provider": {"sort": sort}}
 
 
 def _num(v):
@@ -123,11 +173,20 @@ class _Acumulador:
         self._lock = threading.Lock()
         self.ok = 0
         self.erros = 0
+        self.permanentes = 0
 
-    def registra_erro(self, causa: object = "") -> None:
+    def registra_erro(self, causa: object = "", *, permanente: bool = False) -> None:
+        """Conta o erro e, se NADA deu certo até aqui, corta a etapa.
+
+        `permanente` é o veredito de `regras.falha_permanente`: o provedor recusou ESTE
+        arquivo. Isso conta como erro na tela, mas NÃO alimenta o circuit breaker — ele
+        existe para pegar chave errada e modelo sem suporte a PDF, e em 2026-08-30 abortou a
+        etapa dizendo "o problema é do provedor" depois de 20 PDFs grandes demais seguidos.
+        """
         with self._lock:
             self.erros += 1
-            desistir = self.ok == 0 and self.erros >= LIMITE_FALHA_TOTAL
+            self.permanentes += permanente
+            desistir = not permanente and self.ok == 0 and self.erros >= LIMITE_FALHA_TOTAL
         if desistir:
             raise _FalhaTotal(
                 f"As primeiras {self.erros} extrações falharam e nenhuma deu certo — o "
@@ -172,7 +231,12 @@ def _documentos_pendentes(params: Params) -> tuple[dict, list[str]]:
             "tipo_doc": tipo, "orgao_cnpj": cnpj or "", "ano": str(ano or ""),
             "numero_sequencial": seq or "", "numero_sequencial_ata": seq_ata or "",
         })
-    pend = [nc for nc in grupos if nc in forcados or estados.get(nc) != "extraido"]
+    # `descoberto` é o que nunca foi tentado. `ilegivel` já foi — e repeti-lo com a mesma
+    # configuração baixa o mesmo PDF e chama o mesmo modelo para chegar à mesma resposta.
+    # Ele volta por escolha explícita (`reprocessar_ilegiveis`), que é quando trocar de
+    # engine ou de modelo pode mudar alguma coisa.
+    feitos = {"extraido"} if params.reprocessar_ilegiveis else {"extraido", "ilegivel"}
+    pend = [nc for nc in grupos if nc in forcados or estados.get(nc) not in feitos]
     if params.limite_docs:
         pend = pend[: params.limite_docs]
     return grupos, pend
@@ -206,7 +270,15 @@ def _baixar_documento(item0: dict, destino: str) -> list[str]:
         tipo, cnpj, ano, seq, (item0.get("numero_sequencial_ata") or "").strip() or None,
         silent=True)
     alvos = fetch_files.selecionar_do_tipo(arquivos, tipo)
-    return fetch_files.baixar_arquivos(alvos, destino, silent=True) if alvos else []
+    if not alvos:
+        # O órgão não publicou arquivo deste tipo. Não há o que ler, e repetir não muda —
+        # este é o caso legítimo de documento sem tabela.
+        return []
+    nomes = fetch_files.baixar_arquivos(alvos, destino, silent=True)
+    if not nomes:
+        raise DownloadFalhou(
+            f"o PNCP lista {len(alvos)} arquivo(s) para este documento, mas nenhum baixou")
+    return nomes
 
 
 def _linha_enriquecido(item: dict, extraido: dict) -> dict:
@@ -227,16 +299,29 @@ def _linha_enriquecido(item: dict, extraido: dict) -> dict:
     }
 
 
-def _sem_tabela(itens_doc: list[dict]) -> tuple[list[dict], dict]:
+def _sem_tabela(itens_doc: list[dict], hash_arquivo: str | None = None,
+                uso_extract: tuple[int, int] = (0, 0)) -> tuple[list[dict], dict]:
     """Documento sem arquivo, grande demais ou sem tabela de itens: nenhum item confirma.
 
     Grava mesmo assim — `documento_extracao` com `tabela_texto` vazia é o registro de que o
     documento JÁ foi tentado, e é o que impede de repagar o download na próxima execução.
+
+    `hash_arquivo` é o que separa os dois "sem tabela" que aqui viram a mesma linha:
+
+    | hash | o que houve |
+    |---|---|
+    | preenchido | os bytes foram ao modelo, e ele respondeu que não há tabela |
+    | nulo | nem chegou lá — sem arquivo publicado, ou grande demais |
+
+    Ele custa nada (já está em memória) e é a única evidência de que a extração aconteceu:
+    a `tabela_texto` é vazia nos dois casos. Em 2026-08-30 a ausência dele me levou a
+    diagnosticar 1.274 documentos como "nunca chegaram ao modelo" sem ter como saber.
     """
     linhas = [{**_linha_enriquecido(it, {"encontrado": False}),
                "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
               for it in itens_doc]
-    return linhas, {"tabela_texto": ""}
+    return linhas, {"tabela_texto": "", "hash_arquivo": hash_arquivo,
+                    "uso_extract": uso_extract, "uso_chat": (0, 0)}
 
 
 def _lotes_de_itens(itens_doc: list[dict], teto_chars: int) -> list[list[dict]]:
@@ -289,9 +374,13 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
         # ADR-012: o PDF é efêmero. Ele vive o tempo da leitura, e nada mais.
         shutil.rmtree(pasta, ignore_errors=True)
 
-    tabela_texto = extrator().curador.extrair_tabela_documento(pdf_bytes, nomes[0])
+    curador_extract = extrator().curador
+    tabela_texto = curador_extract.extrair_tabela_documento(pdf_bytes, nomes[0])
+    uso_extract = curador_extract.ultimo_uso
     if not tabela_texto.strip():
-        return _sem_tabela(itens_doc)
+        # O modelo VIU o PDF e disse que não há tabela. O hash vai junto — é o que distingue
+        # esta resposta de um documento que nem foi baixado.
+        return _sem_tabela(itens_doc, hash_arquivo, uso_extract)
 
     # ── Casamento: UMA chamada por documento, não uma por item (ADR-024) ──────────────
     #
@@ -301,11 +390,16 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
     curador = curador_factory()
     achados: dict[int, dict] = {}
     erro_casamento: Exception | None = None
+    uso_chat = [0, 0]
     for lote in _lotes_de_itens(itens_doc, params.teto_chars_lote):
         try:
             achados.update(curador.casar_itens_tabela(lote, tabela_texto))
         except Exception as exc:  # noqa: BLE001 — vira status 'erro', não 'nao_encontrado'
             erro_casamento = exc
+        # Depois do try: o lote que falhou também consumiu tokens de entrada, e não
+        # contabilizá-los subestimaria justo o documento problemático.
+        uso_chat[0] += curador.ultimo_uso[0]
+        uso_chat[1] += curador.ultimo_uso[1]
 
     linhas = []
     for item in itens_doc:
@@ -324,6 +418,7 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
         linha["doc_status"] = doc_status
         linha["destino"] = regras.destino_de(linha["status"], doc_status)
     return linhas, {"tabela_texto": tabela_texto, "hash_arquivo": hash_arquivo,
+                    "uso_extract": uso_extract, "uso_chat": tuple(uso_chat),
                     "_erro_casamento": erro_casamento}
 
 
@@ -333,27 +428,72 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
 # caras do ciclo, e perder uma hora de extração por uma queda no fim seria exatamente o que o
 # checkpoint por documento existe para evitar.
 
+def _custo(info, tokens: tuple[int, int]) -> float:
+    """Preço da chamada pelas tarifas cadastradas em `/providers`.
+
+    Zero quando o provedor não tem tarifa preenchida (a GPU caseira, por exemplo) — e zero
+    ali é a verdade, não um dado faltando.
+    """
+    entrada, saida = tokens
+    return (entrada * (info.cost_in_per_mtok or 0.0)
+            + saida * (info.cost_out_per_mtok or 0.0)) / 1_000_000 + (
+        info.cost_usd_per_call or 0.0)
+
+
+def _contabilizar(doc_ctrl: str, extracao: dict, run_id: int | None,
+                  info_extract, info_chat) -> None:
+    """Uma linha em `llm_call` por chamada que o documento fez (docs/02_SCHEMA.md §9).
+
+    A tabela existia desde a Fase 3 e estava VAZIA: medir era responsabilidade de quem
+    chamava, e ninguém chamava. Sem ela o custo por documento é estimativa, e o teto por run
+    (`teto_custo_usd`) não tem em que se basear.
+
+    As duas chamadas do documento aparecem separadas de propósito: a de `extract` manda o PDF
+    inteiro e é a cara; a de `chat` manda só texto. Somá-las esconderia qual das duas pesa.
+    """
+    from pesquisa_precos.db.repos import execution as repo_exec
+
+    chamadas = [("extract", info_extract, extracao.get("uso_extract") or (0, 0)),
+                ("chat", info_chat, extracao.get("uso_chat") or (0, 0))]
+    with db.session() as s:
+        for capacidade, info, tokens in chamadas:
+            if not any(tokens):
+                continue  # a chamada não aconteceu (documento que nem baixou)
+            repo_exec.registrar_llm_chamada(
+                s, run_id=run_id, step="5", capability=capacidade, provider=info.name,
+                model=info.model, key=doc_ctrl, tokens_in=tokens[0], tokens_out=tokens[1],
+                cost_usd=_custo(info, tokens),
+                success=capacidade == "extract" or extracao.get("_erro_casamento") is None)
+        s.commit()
+
+
 def _gravar_documento(doc_ctrl: str, linhas_item: list[dict], extracao: dict,
-                      run_id: int | None, model: str, provider: str) -> None:
+                      run_id: int | None, model: str, provider: str,
+                      info_extract=None) -> None:
     from pesquisa_precos.db import copy
     from pesquisa_precos.db.repos import extraction as repo
 
     doc_status = linhas_item[0]["doc_status"] if linhas_item else "ilegivel"
     # `text` do PostgreSQL recusa byte NUL, e a resposta do modelo carrega o que o
     # parser do provedor tiver deixado passar do PDF — foi assim no texto por página.
+    # Só a chamada de EXTRAÇÃO entra aqui: esta linha é o registro do documento, e o
+    # casamento é sobre os itens dele. As duas aparecem separadas em `llm_call`.
+    # `duration_ms` fica NULL porque "não medido" não é "zero".
+    tk_in, tk_out = extracao.get("uso_extract") or (0, 0)
     linha_extr = (doc_ctrl, copy.texto_para_pg(extracao.get("tabela_texto") or ""),
-                  # tokens/custo ainda não são medidos por documento; as colunas são NOT NULL
-                  # com DEFAULT 0, e `DEFAULT` não vale para NULL enviado explicitamente por
-                  # um COPY. Zero é o valor certo — `duration_ms` fica NULL porque "não
-                  # medido" não é "zero".
-                  0, 0, 0, None, model, provider, run_id)
+                  tk_in, tk_out,
+                  _custo(info_extract, (tk_in, tk_out)) if info_extract else 0,
+                  None, model, provider, run_id)
     lote_itens = [(
         linha["item_key"], doc_ctrl, linha.get("descricao_final") or "",
         linha.get("fonte_descricao") or "api", _num(linha.get("preco_api")),
         _num(linha.get("preco_pdf")), _num(linha.get("divergencia_preco")),
         linha.get("fornecedor") or None, _num(linha.get("quantidade_pdf")),
         linha.get("status") or "", linha.get("destino") or "revisar",
-        regras.estado_documento(linha.get("doc_status")), run_id,
+        # CRU, não `estado_documento(...)`: a coluna guarda o veredito da extração
+        # (`ok`/`fora_de_escopo`/`ilegivel`), e envolvê-la no enum da fila achatava `ok` e
+        # `fora_de_escopo` em `extraido` (migration 0015).
+        linha.get("doc_status") or "ilegivel", run_id,
     ) for linha in linhas_item]
 
     with db.raw_connection() as conn:
@@ -433,7 +573,8 @@ def run(params: Params, ctx: RunContext) -> StepResult:
                 # O anexo pode ter dezenas de MB e o documento inteiro passa pelo modelo: o
                 # timeout padrão de 60s não cobre isso.
                 "timeout": 600,
-                "extra_body": _plugin_pdf(params.pdf_engine)})
+                "extra_body": {**_plugin_pdf(params.pdf_engine),
+                               **_roteamento(params.provider_sort)}})
         return _tls.e
 
     def curador_factory():
@@ -454,7 +595,9 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     def ok_doc(doc_ctrl, resultado):
         linhas_item, extracao = resultado
         _gravar_documento(doc_ctrl, linhas_item, extracao, run_id, model,
-                          resolucao_extract.info.name)
+                          resolucao_extract.info.name, resolucao_extract.info)
+        _contabilizar(doc_ctrl, extracao, run_id,
+                      resolucao_extract.info, resolucao_chat.info)
 
         # A extração deu certo, mas o CASAMENTO pode ter quebrado. Os dois falham de formas
         # diferentes e precisam aparecer diferentes na tela — misturá-los foi o que escondeu
@@ -479,8 +622,19 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     def err_doc(doc_ctrl, exc):
         ctx.item_error(doc_ctrl, exc)
-        ctx.log("aviso", f"[yellow][5] erro em {doc_ctrl}: {str(exc)[:160]}[/]")
-        acumulador.registra_erro(exc)
+        motivo = regras.falha_permanente(exc)
+        if motivo:
+            # Sai da trilha de retentativa: grava como documento já tentado, do mesmo jeito
+            # que um documento sem tabela. Sem isso ele fica em `descoberto` e volta em toda
+            # execução para tomar o mesmo 400 — 282 documentos assim em 2026-08-30.
+            linhas, extracao = _sem_tabela(grupos[doc_ctrl])
+            _gravar_documento(doc_ctrl, linhas, extracao, run_id, model,
+                              resolucao_extract.info.name, resolucao_extract.info)
+            ctx.log("aviso", f"[yellow][5] {doc_ctrl}: {motivo} — não será tentado de novo. "
+                             f"{str(exc)[:160]}[/]")
+        else:
+            ctx.log("aviso", f"[yellow][5] erro em {doc_ctrl}: {str(exc)[:160]}[/]")
+        acumulador.registra_erro(exc, permanente=bool(motivo))
 
     ctx.progresso(0, len(pend), descricao="extraindo tabela (PDF → LLM)")
     try:
@@ -495,7 +649,12 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         from pesquisa_precos.db.repos import extraction as repo_extr
         cont = repo_extr.contar(s)
     cor = "yellow" if acumulador.erros else "green"
-    ctx.log("info", f"[bold {cor}][5] Concluído.[/] {acumulador.erros} erros. → banco ({cont})")
+    # Os permanentes aparecem separados porque a reação a eles é outra: não adianta rodar de
+    # novo, e o número deles é o que diz se vale trocar de `pdf_engine`.
+    detalhe = (f" ({acumulador.permanentes} recusados pelo parser, não serão retentados)"
+               if acumulador.permanentes else "")
+    ctx.log("info", f"[bold {cor}][5] Concluído.[/] {acumulador.erros} erros{detalhe}. "
+                    f"→ banco ({cont})")
 
     return StepResult(
         processed=acumulador.ok, errors=acumulador.erros,

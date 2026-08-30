@@ -36,6 +36,22 @@ class EstadoDocumento(_Valor):
     erro = "erro"
 
 
+class DocStatus(_Valor):
+    """O veredito da etapa 5 sobre um documento — não confundir com `EstadoDocumento`.
+
+    `EstadoDocumento` é a FILA ("já foi processado?"); este é a QUALIDADE ("deu bom
+    resultado?"). Até a migration 0015 a coluna `item_enriquecido.doc_status` usava o enum da
+    fila, o que achatava `ok` e `fora_de_escopo` num único `extraido` e deixava a coluna
+    respondendo sempre a mesma coisa em 2.545 documentos.
+
+    `suspeito` não existe aqui: a etapa 5 deixou de produzi-lo em 2026-08-29.
+    """
+
+    ok = "ok"                          # ao menos um candidato casou com a tabela
+    fora_de_escopo = "fora_de_escopo"  # a tabela saiu, mas nenhum candidato está nela
+    ilegivel = "ilegivel"              # não saiu tabela do documento
+
+
 class StatusEnriquecimento(_Valor):
     pdf_ok = "pdf_ok"
     pdf_ok_diverge = "pdf_ok_diverge"
@@ -117,6 +133,7 @@ NOMES: dict[str, type[_Valor]] = {
     "tipo_catalogo": TipoCatalogo,
     "tipo_documento": TipoDocumento,
     "estado_documento": EstadoDocumento,
+    "doc_status": DocStatus,
     "status_enriquecimento": StatusEnriquecimento,
     "destino_item": DestinoItem,
     "decisao_rerank": DecisaoRerank,

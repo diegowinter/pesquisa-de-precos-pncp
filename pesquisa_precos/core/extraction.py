@@ -135,3 +135,44 @@ def estado_documento(doc_status: str | None) -> str:
     O veredito de qualidade não se perde: ele continua em `item_enriquecido.doc_status`.
     """
     return "ilegivel" if doc_status == "ilegivel" else "extraido"
+
+
+# ── Falha que repetir não conserta ───────────────────────────────────────────────────
+
+# Trechos que o provedor devolve quando o problema é ESTE arquivo. Não são "o serviço está
+# fora": a mesma chamada, feita de novo amanhã, devolve exatamente o mesmo 400.
+_MARCAS_PERMANENTES = (
+    "exceeds the maximum size",   # o file-parser tem teto próprio, menor que o nosso `max_mb`
+    "failed to parse",            # .docx, PDF corrompido, formato que o parser não abre
+    "unsupported",
+)
+
+
+def falha_permanente(exc: BaseException) -> str | None:
+    """Por que repetir ESTE documento não vai mudar nada — ou `None` se vale tentar de novo.
+
+    A distinção existe porque as duas falhas exigem reações opostas, e tratá-las igual
+    produzia os dois defeitos ao mesmo tempo:
+
+    - o documento recusado pelo parser ficava em `descoberto` e voltava à fila em toda
+      execução, para tomar o mesmo 400 (282 documentos assim em 2026-08-30);
+    - e o circuit breaker, que existe para pegar chave errada ou modelo sem suporte a PDF,
+      contava essas recusas e abortava a etapa inteira dizendo "o problema é do provedor de
+      `extract`" — quando o provedor estava perfeito e o arquivo é que era grande demais.
+
+    O corte é o **código HTTP**, não o texto: 4xx de conteúdo (400 requisição malformada,
+    413 grande demais, 415 tipo não suportado, 422) é veredito sobre este arquivo. 401/403
+    (credencial), 429 (limite) e 5xx são do serviço e DEVEM alimentar o breaker. O texto entra
+    só como reforço, para provedor que embrulha tudo em 400 sem status legível.
+    """
+    status = getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None)
+    if status in (400, 413, 415, 422):
+        return f"HTTP {status}: o provedor recusou este arquivo"
+    if status is not None:
+        return None
+    msg = str(exc).lower()
+    for marca in _MARCAS_PERMANENTES:
+        if marca in msg:
+            return f"o parser recusou este arquivo ({marca})"
+    return None

@@ -98,6 +98,9 @@ class Curador:
     def __init__(self, model: str, base_url: str, api_key: str, temperature: float = 0.1,
                  timeout: int = 60, max_retries: int = 0, reasoning: dict | None = None,
                  extra_body: dict | None = None, prompts_ativos: PromptsAtivos | None = None):
+        # Tokens da última chamada deste curador (ver `_invoke`). Começa zerado para que
+        # quem contabiliza nunca precise de `hasattr`.
+        self.ultimo_uso: tuple[int, int] = (0, 0)
         # max_retries: retry NATIVO do cliente OpenAI (honra Retry-After em 429/5xx).
         #   0 (default) preserva o comportamento dos scripts existentes.
         #   O script paralelo passa um valor maior (ex.: 8) para 429 robusto.
@@ -127,6 +130,31 @@ class Curador:
     # caminho que a ADR-022 existe para eliminar. Quem precisa de um Curador pede
     # `ctx.providers.novo_chat(...)`, que passa pelo resolver.
 
+    def _invoke(self, content):
+        """Única porta para o modelo — invoca e anota os tokens da chamada.
+
+        Existe para que a contabilidade não dependa de alguém lembrar de instrumentar cada
+        `llm.invoke`. `llm_call` ficou vazia desde a Fase 3 justamente porque medir era
+        responsabilidade de quem chamava, e ninguém chamou; sem ela não há custo real por
+        documento, só estimativa — e foi por não ter esse número que em 2026-08-30 não deu
+        para dizer quanto tinham custado 1.274 documentos.
+
+        `ultimo_uso` é por instância, e cada thread da etapa tem a sua (`_tls`).
+        """
+        resp = self.llm.invoke([HumanMessage(content=content)])
+        try:
+            uso = getattr(resp, "usage_metadata", None) or {}
+            if uso:
+                self.ultimo_uso = (int(uso.get("input_tokens") or 0),
+                                   int(uso.get("output_tokens") or 0))
+            else:
+                tk = (getattr(resp, "response_metadata", None) or {}).get("token_usage") or {}
+                self.ultimo_uso = (int(tk.get("prompt_tokens") or 0),
+                                   int(tk.get("completion_tokens") or 0))
+        except Exception:  # noqa: BLE001 — contabilidade nunca derruba a chamada que ela mede
+            self.ultimo_uso = (0, 0)
+        return resp
+
     def _invocar_json(self, prompt: str) -> dict:
         """
         Invoca o modelo esperando JSON puro. Faz 1 retry em resposta inválida (JSONDecodeError).
@@ -135,7 +163,7 @@ class Curador:
         ultimo_erro = None
         ultima_resposta = ""
         for _ in range(2):
-            resp = self.llm.invoke([HumanMessage(content=prompt)])
+            resp = self._invoke(prompt)
             texto = (resp.content or "").strip()
             try:
                 return _extrair_json(texto)
@@ -209,7 +237,7 @@ class Curador:
              "file": {"filename": filename,
                       "file_data": f"data:application/pdf;base64,{b64}"}},
         ]
-        resp = self.llm.invoke([HumanMessage(content=content)])
+        resp = self._invoke(content)
         texto = (resp.content or "").strip()
         if not texto or texto.strip().upper().startswith("SEM_TABELA"):
             return ""
@@ -292,7 +320,7 @@ class Curador:
         """Retorna (categoria, justificativa) para um item de 'material' ou 'servico'."""
         prompt, categoria_map = self._prompt_e_map(row, tipo, com_justificativa)
         try:
-            resp = self.llm.invoke([HumanMessage(content=prompt)])
+            resp = self._invoke(prompt)
             texto = (resp.content or "").strip()
         except Exception as e:  # falha permanente após retries
             return "erro", str(e)[:120]
@@ -306,7 +334,7 @@ class Curador:
         """
         prompt = montar_prompt_busca(name, descricao, categoria)
         try:
-            resp = self.llm.invoke([HumanMessage(content=prompt)])
+            resp = self._invoke(prompt)
             texto = (resp.content or "").strip()
         except Exception:
             return ""
@@ -319,7 +347,7 @@ class Curador:
         """
         prompt = montar_prompt_comparar_item(descricao_pncp, objeto_compra, nome_catalogo, descricao_catalogo)
         try:
-            resp = self.llm.invoke([HumanMessage(content=prompt)])
+            resp = self._invoke(prompt)
             texto = (resp.content or "").strip()
         except Exception:
             return "erro"

@@ -331,6 +331,47 @@ etapa desce a fila inteira produzindo falha em série — foi o que aconteceu na
 Documento **sem tabela** não conta como falha nem como sucesso para o breaker: ele foi lido, a
 resposta chegou, e o veredito "não há tabela aqui" é um resultado legítimo.
 
+**Falha permanente também não conta** (`core.extraction.falha_permanente`). O corte é o código
+HTTP: 400/413/415/422 é veredito do provedor sobre AQUELE arquivo — PDF maior que o teto do
+file-parser, `.docx`, arquivo corrompido. 401/403 (credencial), 429 (limite) e 5xx são do
+serviço e seguem alimentando o breaker.
+
+Em 2026-08-30 o breaker abortou a etapa em 82 de 1.614 documentos anunciando "o problema é do
+provedor de `extract`" — e o provedor estava perfeito: eram 20 PDFs grandes demais em sequência.
+
+#### 5.3.1 O que sai da trilha de retentativa
+
+A fila da etapa é `documento.estado`, e há dois jeitos de um documento sair dela para sempre:
+
+| | estado | volta? |
+|---|---|---|
+| a tabela saiu | `extraido` | não |
+| não saiu tabela, ou o provedor recusou o arquivo | `ilegivel` | só com `reprocessar_ilegiveis` |
+| erro de serviço (timeout, 429, 5xx) | fica `descoberto` | sim, na próxima execução |
+
+**Download que falha não é documento ilegível.** Se o PNCP lista arquivo e nenhum baixa, a
+etapa levanta `DownloadFalhou` — erro de serviço, o documento fica em `descoberto` e volta.
+Só a ausência de arquivo publicado é motivo legítimo de "não há tabela". Antes de 2026-08-30
+os dois casos eram a mesma lista vazia, e uma noite ruim de rede condenou 1.274 documentos:
+todos com `hash_arquivo` nulo, ou seja, nenhum tinha chegado ao modelo.
+
+> `hash_arquivo` é o discriminador para depurar isto: ele é gravado sempre que os bytes vão
+> para o modelo, INCLUSIVE quando a resposta vem sem tabela. Hash nulo = a extração não
+> aconteceu (sem arquivo publicado, ou grande demais); hash preenchido com `tabela_texto`
+> vazia = o modelo viu o PDF e disse que não há tabela.
+>
+> Até 2026-08-30 `_sem_tabela` descartava o hash, e os dois casos eram indistinguíveis. Isso
+> me levou a diagnosticar 1.274 documentos como "nunca chegaram ao modelo" sem ter como saber
+> — e a devolvê-los à fila, o que fez parte deles repagar a extração. `llm_call`, que
+> responderia isso sem inferência, estava vazia; hoje não está.
+
+Falha permanente grava `documento_extracao` com `tabela_texto` vazia, igual a um documento sem
+tabela — o registro de que já foi tentado. Antes disso ela não gravava nada, o documento ficava
+em `descoberto` e voltava em toda execução para tomar o mesmo 400 (282 documentos assim).
+
+`reprocessar_ilegiveis` é um campo do formulário, e só faz sentido junto com uma **troca** de
+`pdf_engine` ou de modelo. Marcá-lo sem trocar nada repaga a mesma resposta.
+
 #### 5.4 O que NÃO fazer
 
 - persistir o PDF além do documento — sempre `try/finally` + `shutil.rmtree` (ADR-012);

@@ -83,29 +83,49 @@ def test_indices_que_sao_comportamento_existem(inspetor):
 
 
 def test_doc_status_da_regra_cabe_no_enum_do_banco():
-    """Todo `doc_status` que a etapa 5 produz tem de ser um rótulo de `estado_documento`.
+    """Os dois vocabulários são separados, e cada um tem de caber no SEU enum.
 
-    Os dois vocabulários quase coincidem, e foi o quase que doeu (2026-08-29): a regra chama
-    o caso bom de `ok`, o enum chama de `extraido`. `suspeito` e `ilegivel` gravavam sem
-    reclamar, então SÓ os documentos em que a extração deu certo eram recusados pelo COPY —
-    o inverso do que qualquer um investigaria primeiro.
+    `doc_status` é o veredito da extração (`ok`, `fora_de_escopo`, `ilegivel`); `estado` é a
+    fila (`descoberto`, `extraido`, `ilegivel`). Eles quase coincidem, e foi o quase que doeu
+    (2026-08-29): a regra chama o caso bom de `ok`, a fila chama de `extraido`. `ilegivel`
+    gravava sem reclamar, então SÓ os documentos em que a extração deu certo eram recusados
+    pelo COPY — o inverso do que qualquer um investigaria primeiro. O conserto de então
+    envolveu o valor em `estado_documento()`, o que fez a coluna gravar `extraido` em 100%
+    das linhas; a migration 0015 deu a ela o enum próprio.
     """
     from sqlalchemy import text
 
     from pesquisa_precos.core.extraction import doc_status_de_motivos, estado_documento
 
-    with db.session() as sessao:
-        rotulos = {r[0] for r in sessao.execute(text(
-            "SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
-            "WHERE t.typname = 'estado_documento'")).all()}
+    def rotulos(tipo):
+        with db.session() as sessao:
+            return {r[0] for r in sessao.execute(text(
+                "SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
+                "WHERE t.typname = :t"), {"t": tipo}).all()}
 
-    # Os três casos que `doc_status_de_motivos` sabe devolver, pelos seus caminhos reais.
+    # Os casos que `doc_status_de_motivos` sabe devolver, pelos seus caminhos reais.
     produzidos = {
-        doc_status_de_motivos({}),                          # ilegivel
+        doc_status_de_motivos({}),                          # fora_de_escopo
         doc_status_de_motivos({"a": "sem_texto"}),          # ilegivel
-        doc_status_de_motivos({"a": "nao_encontrado"}),     # suspeito
+        doc_status_de_motivos({"a": "nao_encontrado"}),     # fora_de_escopo
         doc_status_de_motivos({"a": "pdf_ok"}),             # ok
     }
-    fora = {s: estado_documento(s) for s in produzidos
-            if estado_documento(s) not in rotulos}
-    assert not fora, f"doc_status sem rótulo correspondente no enum: {fora}"
+    assert not produzidos - rotulos("doc_status"), (
+        f"veredito sem rótulo em `doc_status`: {produzidos - rotulos('doc_status')}")
+
+    estados = {estado_documento(s) for s in produzidos}
+    assert not estados - rotulos("estado_documento"), (
+        f"estado sem rótulo em `estado_documento`: {estados - rotulos('estado_documento')}")
+
+
+def test_doc_status_nao_e_gravado_pelo_enum_da_fila():
+    """A etapa 5 grava o veredito CRU. Envolvê-lo em `estado_documento()` foi o defeito que a
+    migration 0015 removeu, e ele é fácil de reintroduzir por parecer um cast inocente."""
+    import pathlib
+    import re
+
+    fonte = pathlib.Path("pesquisa_precos/steps/e5_extract.py").read_text(encoding="utf-8")
+    corpo = fonte[fonte.index("def _gravar_documento"):fonte.index("def estimate")]
+    linhas = [ln for ln in corpo.splitlines()
+              if not re.match(r"\s*#", ln) and "estado_documento(linha" in ln]
+    assert not linhas, f"`doc_status` voltou a ser achatado pelo enum da fila: {linhas}"

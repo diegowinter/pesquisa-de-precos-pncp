@@ -305,7 +305,7 @@ CREATE TABLE item_enriquecido (
     quantidade_pdf    numeric(18,4),
     status            status_enriquecimento NOT NULL,
     destino           destino_item NOT NULL,
-    doc_status        estado_documento NOT NULL,
+    doc_status        doc_status NOT NULL,   -- enum PRÓPRIO, não o da fila (migration 0015)
     run_id            bigint REFERENCES run(id),
     created_at        timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (item_key, numero_controle_pncp)
@@ -331,7 +331,15 @@ nunca dependeram de como o texto chegou:
 1. **Confirmação por quantidade** (tolerância `max(1.0, 1%)`) como fingerprint anti-PDF-trocado,
    ou match exato de preço acima de `PRECO_FINGERPRINT = 1000.0`.
 2. **Banda de sanidade de preço** (`0,3× … 3,0×` do preço da API) para pegar misparse de milhar.
-3. **`doc_status`** derivado do documento inteiro (`ok` / `suspeito` / `ilegivel`).
+3. **`doc_status`** derivado do documento inteiro (`ok` / `fora_de_escopo` / `ilegivel`).
+
+   Tipo `doc_status`, e não `estado_documento`: um é o veredito da extração, o outro é a
+   fila. Eles quase coincidem, e o quase custou caro — a coluna nasceu com o enum da fila, o
+   COPY recusou o valor `ok`, e o conserto de então envolveu tudo em `estado_documento()`.
+   Resultado: 2.545 documentos gravados, 100% deles com `doc_status = 'extraido'`. A
+   migration 0015 separou os dois e reconstruiu o veredito a partir dos itens.
+
+   `suspeito` saiu: a etapa 5 deixou de produzi-lo em 2026-08-29.
 4. **Preço é SAÍDA, não filtro**: confirmado o item, a divergência entre estimado e homologado é
    sinalizada, nunca descartada.
 
@@ -551,6 +559,11 @@ CREATE TABLE erro_item (
 CREATE INDEX ix_erro_pendente ON erro_item (etapa, resolvido) WHERE NOT resolvido;
 
 -- Toda chamada a provedor pago. É o que sustenta estimativa, teto e dashboard.
+--
+-- Ficou VAZIA da Fase 3 até 2026-08-30: o repo `registrar_llm_chamada` existia, mas medir
+-- era responsabilidade de quem chamava e ninguém chamava. Hoje quem mede é `Curador._invoke`,
+-- a única porta para o modelo — a garantia é estrutural, não disciplinar (um teste exige que
+-- `llm.invoke` apareça uma vez só no arquivo).
 CREATE TABLE llm_chamada (
     id         bigserial PRIMARY KEY,
     run_id     bigint REFERENCES run(id) ON DELETE CASCADE,
