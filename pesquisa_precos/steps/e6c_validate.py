@@ -27,7 +27,7 @@ from pesquisa_precos.core.parallel import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import session as db
 from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
-                                        avanco_cancelavel)
+                                        avanco_cancelavel, sem_reasoning)
 
 KEY = "6c"
 CODE_VERSION = "2.0.0"
@@ -88,7 +88,8 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
     vereditos: dict[str, int] = {"sim": 0, "nao": 0, "indeterminado": 0}
 
     if pend:
-        model = ctx.providers.resolucao("chat").info.model
+        resolucao_chat = ctx.providers.resolucao("chat")
+        model = resolucao_chat.info.model
         ctx.log("info" if not forte else "aviso",
                 f"[6c] model de validação: {model} "
                 f"({'FORTE/CARO — ver ADR-004' if forte else 'barato (padrão)'})")
@@ -97,8 +98,9 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
                 prompts_ativos = prompts_resolver.carregar_ativos(sessao, ["comparar_par"])
         except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
             prompts_ativos = {}
-        curador = ctx.providers.novo_chat(
-            curador_kwargs={"max_retries": 6, "prompts_ativos": prompts_ativos}).curador
+        curador = ctx.providers.novo_chat(curador_kwargs={
+            "max_retries": 6, "prompts_ativos": prompts_ativos,
+            **sem_reasoning(resolucao_chat.info.name)}).curador
         lote: list[tuple] = []
 
         def descarregar():

@@ -29,7 +29,9 @@ ITEM_KEY = f"{NC}::1"
 TERMO_TESTE = "termo de teste bloco c"
 
 LINHA_ITEM = {
-    "item_key": ITEM_KEY, "tipo_doc": "contrato", "numeroControlePNCP": NC,
+    # `compra_key` é a identidade do item desde a ADR-024. Para contrato ela coincide com o
+    # número de controle do documento, então o `item_key` deste fixture não mudou.
+    "item_key": ITEM_KEY, "compra_key": NC, "tipo_doc": "contrato", "numeroControlePNCP": NC,
     "numeroItem": "1", "descricao_api": "COLETE BALISTICO NIVEL III-A",
     "unidade": "UNIDADE", "quantidade": "10", "preco_unitario": "1234.56",
     "preco_estimado": "1300.00", "fornecedor": "FORNECEDOR TESTE",

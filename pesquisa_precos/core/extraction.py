@@ -1,15 +1,16 @@
 """
 Regras de negócio da etapa 5 — confirmação do item, veredito do documento e destino.
 
-Estas três regras são o que sobrou do pacote `strategies/` (aposentado na ADR-023): elas nunca
+Estas regras são o que sobrou do pacote `strategies/` (aposentado na ADR-023): elas nunca
 dependeram de COMO o texto chegou, só do par (item da API, item extraído do documento). O
-caminho de extração mudou inteiro — de quatro estratégias plugáveis para uma chamada única com
-o PDF anexo — e nenhuma linha daqui precisou mudar junto, que é a evidência de que o corte
-está no lugar certo.
+caminho de extração mudou duas vezes — de quatro estratégias plugáveis para uma chamada com o
+PDF anexo (ADR-023), e depois de um casamento por item para um por documento (ADR-024) — e só
+`doc_status_de_motivos` precisou de ajuste, para ganhar `fora_de_escopo`. É a evidência de que
+o corte está no lugar certo.
 
 `validar_extracao` recebe o mesmo dict de sempre: {"descricao_completa", "preco_unitario",
-"quantidade", "encontrado"}. Hoje quem o produz é `Curador.casar_item_tabela`, lendo a tabela
-que o modelo de extração devolveu.
+"quantidade", "encontrado"}. Hoje quem o produz é `Curador.casar_itens_tabela`, que casa os
+candidatos de uma compra contra a tabela que o modelo de extração leu do documento.
 """
 
 # Match exato de preço (até os centavos) acima deste valor já é fingerprint único: confirma
@@ -72,25 +73,46 @@ def validar_extracao(extraido: dict, item: dict) -> tuple[str, float | None, flo
 
 
 def doc_status_de_motivos(status_por_item: dict[str, str]) -> str:
-    """Detector de PDF trocado (docs/03_ETAPAS.md §5.1): deriva `doc_status` do documento
-    INTEIRO a partir do status de todos os seus itens — nenhum item confirmou = `suspeito`
-    (o PDF provavelmente não é o documento certo); nenhuma tabela de itens saiu do documento
-    (todos `sem_texto`) = `ilegivel`; senão `ok`."""
+    """Veredito do documento INTEIRO, a partir do status de todos os seus candidatos.
+
+        não saiu tabela do documento  -> `ilegivel`
+        saiu tabela, nenhum casou     -> `fora_de_escopo`
+        ao menos um casou             -> `ok`
+
+    **`suspeito` deixou de ser produzido aqui** (2026-08-29). Ele era o detector de PDF
+    trocado, inferido de "nenhum item confirmou" — inferência boa enquanto o item pertencia a
+    UMA ata, e errada depois da ADR-024. Medido no acervo: a ata 000004 do pregão 507 tem os
+    itens 1, 2 e 3 (mouse pad, key pad, apoio de pés), todos cortados na etapa 4; seus
+    candidatos são coturno e bota, que estão em outras atas. O PDF está perfeito — o que falta
+    é escopo, não integridade.
+
+    O detector também vale menos agora: o item é procurado em TODAS as atas da compra, então
+    uma ata com o arquivo errado não faz mais o item se perder, só a deixa sem contribuição.
+
+    Distinguir de verdade exigiria mandar todos os itens da compra como candidatos (não só os
+    sobreviventes) e ver se algum casa — ~4x mais tokens na chamada, para um sinal que já não
+    protege contra perda. Fica registrado como o caminho, se um dia o detector voltar a valer.
+    """
     motivos = list(status_por_item.values())
     if not motivos:
-        return "ilegivel"
+        return "fora_de_escopo"
     n_ok = sum(m.startswith("pdf_ok") for m in motivos)
     n_legivel = sum(m != "sem_texto" for m in motivos)
     if n_legivel == 0:
         return "ilegivel"
     if n_ok == 0:
-        return "suspeito"
+        return "fora_de_escopo"
     return "ok"
 
 
 def destino_de(status: str, doc_status: str) -> str:
-    """manter (confirmado) / revisar (doc suspeito ou ilegível) / descartar (falha isolada
-    num documento saudável) — docs/03_ETAPAS.md §5.1."""
+    """manter (confirmado) / revisar (documento problemático) / descartar (não está aqui).
+
+    `fora_de_escopo` cai em `descartar`, não em `revisar`: o item não estar nesta ata é a
+    resposta CERTA, e mandar para revisão manual milhares de pares que sabemos serem
+    inexistentes é ruído. `revisar` fica para `ilegivel` e `suspeito` — documento que pode
+    estar escondendo item de verdade.
+    """
     if status.startswith("pdf_ok"):
         return "manter"
     if doc_status in ("suspeito", "ilegivel"):
@@ -101,8 +123,15 @@ def destino_de(status: str, doc_status: str) -> str:
 def estado_documento(doc_status: str | None) -> str:
     """`doc_status` da regra de negócio → rótulo do enum `estado_documento` do banco.
 
-    Os dois vocabulários coincidem em `suspeito` e `ilegivel` e divergem no caso bom: a regra
-    chama de `ok`, o enum chama de `extraido`. Ponto único de tradução — quando havia dois,
-    um deles esqueceu, e o COPY recusava justamente os documentos em que a extração DEU CERTO.
+    **`estado` responde "o trabalho caro foi feito?", não "deu bom resultado?"** — é a chave de
+    resumo da etapa 5 (`estado <> 'extraido'` é o que volta para a fila). Documento cuja tabela
+    saiu está FEITO, mesmo que nenhum candidato tenha casado: reprocessá-lo baixaria o mesmo
+    PDF e chamaria o mesmo modelo para chegar à mesma resposta. Só `ilegivel` volta, porque aí
+    trocar de `pdf_engine` ou de modelo pode mudar o resultado.
+
+    Antes de 2026-08-29 `fora_de_escopo` (então chamado de `suspeito`) voltava para a fila, e
+    isso repagava a extração de milhares de documentos a cada execução.
+
+    O veredito de qualidade não se perde: ele continua em `item_enriquecido.doc_status`.
     """
-    return "extraido" if (doc_status or "ok") == "ok" else doc_status
+    return "ilegivel" if doc_status == "ilegivel" else "extraido"

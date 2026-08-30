@@ -22,9 +22,36 @@ COLUNAS_DOC = ("numero_controle_pncp", "tipo_doc", "orgao", "orgao_cnpj", "uf", 
                "data", "data_assinatura", "data_fim_vigencia", "data_atualizacao_pncp",
                "url_pncp", "numero_sequencial", "numero_sequencial_ata", "n_itens")
 
-COLUNAS_ITEM = ("item_key", "numero_controle_pncp", "numero_item", "descricao_api",
+COLUNAS_ITEM = ("item_key", "compra_key", "numero_item", "descricao_api",
                 "unidade", "quantidade", "preco_unitario", "preco_estimado",
                 "fornecedor", "data_resultado", "texto_hash")
+
+
+# ── De qual DOCUMENTO um item veio (ADR-024) ────────────────────────────────────────
+#
+# `item` não tem mais `numero_controle_pncp`: a identidade do item é a COMPRA, porque a API do
+# PNCP não sabe dizer qual ata registrou qual item. Quem sabe é a etapa 5, que lê a tabela do
+# PDF — e ela grava isso em `item_enriquecido.numero_controle_pncp`.
+#
+# Este fragmento é o join canônico "item -> documento". O `LEFT JOIN LATERAL` existe para o
+# caso de o item ainda não ter passado pela etapa 5 (ou não ter sido achado em ata nenhuma):
+# aí ele cai em QUALQUER documento da compra, escolhido de forma determinística. A exportação
+# precisa citar uma fonte; citar a compra pela ata de menor número de controle é impreciso mas
+# estável, e é melhor que perder a linha num JOIN interno.
+#
+# Espera as tabelas com os aliases `i` (item) e `e` (item_enriquecido, LEFT JOIN por item_key)
+# já em escopo, e entrega o alias `d`.
+SQL_DOCUMENTO_DO_ITEM = """
+          LEFT JOIN LATERAL (
+              SELECT dd.*
+                FROM documento dd
+               WHERE dd.numero_controle_pncp = e.numero_controle_pncp
+                  OR (e.numero_controle_pncp IS NULL AND dd.compra_key = i.compra_key)
+               ORDER BY (dd.numero_controle_pncp = e.numero_controle_pncp) DESC NULLS LAST,
+                        dd.numero_controle_pncp
+               LIMIT 1
+          ) d ON true
+"""
 
 
 def gravar_documentos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
@@ -121,14 +148,20 @@ def limpar_sobreviventes(sessao: Session) -> int:
 
 
 def recontar_sobreviventes_por_documento(sessao: Session) -> int:
-    """Recalcula `documento.n_itens_sobreviventes` por SQL puro. Derivada, sempre recomputável."""
+    """Recalcula `documento.n_itens_sobreviventes` por SQL puro. Derivada, sempre recomputável.
+
+    Conta por COMPRA (ADR-024): todas as atas de um pregão compartilham a mesma lista de itens,
+    e é justamente por isso que o item não é mais atributo do documento. O número diz "itens da
+    minha compra que sobreviveram ao corte" — quais deles estão NESTE documento, só a etapa 5
+    responde.
+    """
     return sessao.execute(text("""
         UPDATE documento d
            SET n_itens_sobreviventes = COALESCE(c.n, 0),
                updated_at = now()
-          FROM (SELECT numero_controle_pncp, count(*) FILTER (WHERE sobrevivente) AS n
-                  FROM item GROUP BY numero_controle_pncp) c
-         WHERE c.numero_controle_pncp = d.numero_controle_pncp
+          FROM (SELECT compra_key, count(*) FILTER (WHERE sobrevivente) AS n
+                  FROM item GROUP BY compra_key) c
+         WHERE c.compra_key = d.compra_key
            AND d.n_itens_sobreviventes IS DISTINCT FROM COALESCE(c.n, 0)
     """)).rowcount
 
@@ -143,6 +176,28 @@ def atualizar_estado(sessao: Session, estados: Sequence[tuple[str, str]]) -> int
              "  FROM unnest(CAST(:ncs AS text[]), CAST(:sts AS text[])) AS e(nc, estado) "
              " WHERE d.numero_controle_pncp = e.nc"),
         {"ncs": [nc for nc, _ in estados], "sts": [st for _, st in estados]},
+    ).rowcount
+
+
+def gravar_hash_arquivo(sessao: Session, pares: Sequence[tuple[str, str]]) -> int:
+    """`(numero_controle_pncp, sha256)` do arquivo de onde a tabela de itens foi lida.
+
+    Cumpre a parte da ADR-012 que nunca tinha sido implementada. O PDF é descartado segundos
+    depois de ser lido, e `url_pncp` sozinha só promete que dá para rebaixá-lo — o hash é o que
+    permite CONFERIR que o arquivo rebaixado é o mesmo que gerou a extração. Sem ele,
+    "reprocessar sob demanda" é um ato de fé.
+
+    O `n_paginas` que a mesma ADR previa não tem como ser preenchido: desde a ADR-023 este
+    processo não abre PDF, e a coluna foi dropada na migration 0014.
+    """
+    if not pares:
+        return 0
+    return sessao.execute(
+        text("UPDATE documento d SET hash_arquivo = h.hash, updated_at = now() "
+             "  FROM unnest(CAST(:ncs AS text[]), CAST(:hs AS text[])) AS h(nc, hash) "
+             " WHERE d.numero_controle_pncp = h.nc "
+             "   AND d.hash_arquivo IS DISTINCT FROM h.hash"),
+        {"ncs": [nc for nc, _ in pares], "hs": [h for _, h in pares]},
     ).rowcount
 
 

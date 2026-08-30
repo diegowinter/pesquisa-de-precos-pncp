@@ -4,6 +4,7 @@ sem aviso"). Cobre as funções puras de `core.collection.collect_pncp` e `core.
 com fixtures de resposta gravadas (formato real do PNCP, sem bater na rede).
 """
 
+import pytest
 from unittest.mock import patch
 
 from pesquisa_precos.core.collection import collect_pncp, fetch_items
@@ -56,6 +57,16 @@ class TestColetarDeBaseSemIdentificacao:
                 "data_fim_vigencia": "", "data_assinatura": ""}
         linhas, status = collect_pncp._coletar_de_base(base, "ata", "termo x")
         assert linhas == [] and status == "sem_identificacao"
+
+
+@pytest.fixture(autouse=True)
+def _sem_cache_entre_testes():
+    """`_itens_da_compra` memoiza por (cnpj, ano, sequencial) — e os testes desta classe usam
+    os MESMOS identificadores com dados diferentes. Sem isto, o segundo teste lê o preço que o
+    primeiro cacheou e passa/falha pelo motivo errado (foi o que aconteceu na ADR-024)."""
+    collect_pncp.limpar_cache_itens()
+    yield
+    collect_pncp.limpar_cache_itens()
 
 
 class TestPrecoHomologadoVsEstimado:

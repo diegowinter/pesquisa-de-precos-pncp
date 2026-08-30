@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from pesquisa_precos.db import copy
+from pesquisa_precos.db.repos.documento import SQL_DOCUMENTO_DO_ITEM
 
 COLUNAS_6A = ("par_key", "tipo", "codigo", "item_key", "categoria",
               "score_bm25", "score_cosseno", "sobreviveu", "run_id")
@@ -110,16 +111,16 @@ def confirmados(sessao: Session) -> list[dict]:
     """
     linhas = sessao.execute(text("""
         SELECT p.par_key, p.tipo::text AS tipo, p.codigo, p.item_key, p.categoria,
-               d.tipo_doc::text AS tipo_doc, i.numero_controle_pncp, i.numero_item,
+               d.tipo_doc::text AS tipo_doc, d.numero_controle_pncp, i.numero_item,
                i.unidade, i.quantidade, i.preco_unitario, i.preco_estimado,
                i.fornecedor, i.data_resultado,
                d.orgao, d.uf, d.data, d.ano, d.orgao_cnpj,
                d.data_fim_vigencia, d.data_assinatura,
                COALESCE(NULLIF(e.descricao_final, ''), i.descricao_api) AS descricao_final
           FROM par p
-          JOIN item i      ON i.item_key = p.item_key
-          JOIN documento d ON d.numero_controle_pncp = i.numero_controle_pncp
+          JOIN item i ON i.item_key = p.item_key
           LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+    """ + SQL_DOCUMENTO_DO_ITEM + """
          WHERE p.final_decision = 'confirmado'
     """)).mappings().all()
     return [dict(r) for r in linhas]

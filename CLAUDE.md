@@ -162,6 +162,46 @@ edita, volta, aprova o corte. A tela NÃO deriva nada: aplicar é sempre a 0b.
 
 A etapa 1 passou a depender de `0b`, não de `0a`.
 
+
+## O item é da COMPRA, não da ata (ADR-024, 2026-08-29)
+
+A API do PNCP entrega itens **por compra** e não tem rota de itens por ata (conferido na
+especificação OpenAPI). Como a etapa 2 varre atas, ela pendurava a lista inteira da compra em
+cada ata — o pregão 507 da Embrapa tem 88 itens e **25 atas**, e as 25 receberam os mesmos 82.
+Medido: **8,40× de duplicação em ata**, 1,00× em contrato, 4,11× no total.
+
+```
+item_key = 00348003000110-1-000507/2025::1     ← COMPRA::item  (era ATA::item)
+```
+
+- `item.numero_controle_pncp` **não existe mais**. O item guarda `compra_key`, sem FK —
+  compra não é linha em `documento`.
+- Em qual documento o item foi achado é **resultado da etapa 5**, e mora em
+  `item_enriquecido.numero_controle_pncp` (que entrou na PK).
+- A chave de compra sai de **`core.collection.urls.chave_compra`**, e de lugar nenhum mais.
+  Um `regexp_replace` equivalente escrito à mão perdeu o ano por um backslash comido pelo
+  shell e produziu contagem errada sem erro nenhum. `tests/test_estrutura.py` guarda isso.
+
+**As contagens mudaram de escala, e não se perdeu acervo:**
+
+| | antes | depois |
+|---|---:|---:|
+| `item` | 311.094 | **75.711** |
+| `item_categoria` | 34.396 | **9.949** |
+| sobreviventes (entrada da etapa 5) | 34.256 | **9.886** |
+
+Quem comparar com uma execução anterior vai achar que sumiram 70% dos itens. Sumiu a
+duplicação. É a mesma armadilha do watermark e do snapshot da etapa 8.
+
+**Na etapa 5 isso vira:** os candidatos de um documento são os itens sobreviventes da COMPRA
+dele, e é NORMAL a maioria não estar ali — 3 confirmados em 82 é resultado bom. `doc_status`
+só marca `suspeito` quando **zero** confirmam (regra absoluta, não proporcional), e ganhou
+`fora_de_escopo` para a ata que não tem candidato nenhum.
+
+**Pendência:** um item pode ter mais de um fornecedor homologado? `fetch_resultado_vencedor`
+guarda só um vencedor, então o banco não responde. Não é regressão, mas é o que poderia
+afetar a correção do preço.
+
 ## `pytest` roda contra o banco REAL — e isso já destruiu dado
 
 Não há banco de teste: a suíte usa o `DATABASE_URL` do `.env`. Em 2026-08-23 um `pytest`
@@ -247,9 +287,13 @@ refazer tudo do zero. Peças desse desenho, reaproveitáveis como padrão:
   `tools/seed_watermark_v2.py`; a partir da primeira `--atualizar` real o mecanismo
   normal já sobrescreve com datas reais. **Não precisa rodar de novo.**
 - **Dedup por texto** (etapa 3): classifica só `(descricao, unidade)` únicos e propaga o rótulo
-  para todos os `item_key` iguais — corta o volume de chamadas de LLM em ~5x. A etapa 5b **não**
-  tem esse dedup (cada item chama o LLM individualmente).
-- **Custo vs escopo**: etapas caras (3, 5b, 6b-GPU, 6c) só processam itens **novos**
+  para todos os `item_key` iguais — corta o volume de chamadas de LLM em ~5x. Era ele que
+  absorvia a duplicação entre atas antes da ADR-024 (32.006 textos distintos para 311 mil
+  linhas), e é por isso que a etapa 3 nunca pareceu cara apesar do problema.
+- **Dedup por compra** (etapa 2, ADR-024): os itens de uma compra são buscados uma vez e
+  reaproveitados entre as atas dela. Antes, cada ata refazia `fetch_itens()` e um
+  `fetch_resultado_vencedor()` por item — 2.200+ chamadas à API para o pregão 507.
+- **Custo vs escopo**: etapas caras (3, 5, 6b-GPU, 6c) só processam itens **novos**
   (resumíveis por chave). Etapas baratas de agregação (4, 7, 8) sempre recomputam o **corpus
   inteiro** (antigo + novo), porque resultados como "mais barato por código" exigem comparar
   itens novos contra os antigos.

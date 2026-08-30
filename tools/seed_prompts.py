@@ -2,11 +2,14 @@
 Semeia no banco os prompts da pipeline ativa (Fase 6, docs/04_FASES.md — "prompts migrados de
 `core/prompts.py` para o banco, com versão ativa e histórico").
 
-Grava a versão 1, ATIVA, dos três prompts que a Curador de fato usa nas etapas com custo de
-LLM (3, 5, 6c — os mesmos citados em docs/02_SCHEMA.md §10 como exemplo de `prompt.name`):
-'classificar_item', 'casar_item_tabela', 'comparar_par'. O prompt de extração da etapa 5
-(`extrair_tabela_documento`) NÃO entra aqui: ele não tem placeholder nenhum — o documento vai
-como anexo — e semeá-lo só criaria uma versão para manter em sincronia à toa. O TEXTO gravado aqui é idêntico ao
+Grava a versão 1, ATIVA, dos prompts que o Curador usa nas etapas com custo de LLM e que são
+100% template: 'classificar_item' e 'comparar_par'.
+
+Os DOIS da etapa 5 ficam de fora de propósito (ADR-023/ADR-024): `extrair_tabela_documento`
+não tem placeholder nenhum — o documento vai como anexo — e `casar_itens_tabela` renderiza a
+lista de candidatos em CÓDIGO, porque é dado de domínio e não texto de instrução, como o bloco
+de categorias da etapa 3 (ADR-014). Semear metade de um prompt criaria uma versão editável que
+mente sobre o que o modelo recebe. O TEXTO gravado aqui é idêntico ao
 hardcoded em `core/prompts.py`, só reescrito como template `str.format()` — rodar este script
 não muda nenhum resultado: antes dele, `providers/llm_curador.py` usa o hardcoded (nenhuma
 `prompt_version` ativa no banco); depois, usa o texto do banco, byte a byte igual.
@@ -14,7 +17,6 @@ não muda nenhum resultado: antes dele, `providers/llm_curador.py` usa o hardcod
 Placeholders de cada template (ver `core/prompts_resolver.py` e `providers/llm_curador.py`
 para quem os preenche):
   classificar_item   → {bloco_categorias} {descricao} {ctx_unidade}
-  casar_item_tabela  → {numero} {descricao_api} {tabela_texto}
   comparar_par       → {texto_catalogo} {texto_item}
 
 Chaves `{`/`}` literais do JSON de exemplo pedido na resposta vêm escapadas (`{{`/`}}`) — é
@@ -65,30 +67,6 @@ TEMPLATE_CLASSIFICAR_ITEM = (
     'Responda SOMENTE com JSON puro: {{"categorias": [...], "confianca": "alta|media|baixa"}}'
 )
 
-TEMPLATE_CASAR_ITEM_TABELA = (
-    "Você recebe UM item da API do PNCP e a TABELA DE ITENS extraída do documento da "
-    "ata/contrato. Diga qual linha da tabela é o MESMO item — casando por número do "
-    "item e/ou descrição — ou que não há correspondência.\n\n"
-    "ITEM DA API (referência, descrição pobre):\n"
-    "  Número do item: {numero}\n"
-    "  Descrição: {descricao_api}\n\n"
-    "TABELA DO DOCUMENTO:\n"
-    "{tabela_texto}\n\n"
-    "REGRAS:\n"
-    "- Case pelo SENTIDO do objeto, não pela grafia. O número do item ajuda, mas a "
-    "descrição manda: se o número aponta uma linha de objeto claramente diferente, "
-    "confie na descrição.\n"
-    "- COPIE preco_unitario e quantidade da LINHA escolhida, exatamente como estão na "
-    "tabela. NÃO converta separador decimal e NÃO arredonde.\n"
-    "- descricao_completa é a descrição do item COMO ESTÁ na tabela, com as "
-    "especificações técnicas, sem preço, marca nem fornecedor.\n"
-    "- fornecedor só se a tabela tiver essa informação; senão, string vazia.\n"
-    "- Se NENHUMA linha for o mesmo item, encontrado=false e os demais campos vazios. "
-    "NÃO invente correspondência.\n\n"
-    'Responda SOMENTE com JSON puro: {{"encontrado": true, "descricao_completa": "...", '
-    '"preco_unitario": "", "quantidade": "", "fornecedor": ""}}'
-)
-
 TEMPLATE_COMPARAR_PAR = (
     "Você compara um item de catálogo (CATMAT/CATSER) com um item real de contrato/ata "
     "do PNCP para decidir se são o MESMO item para fins de pesquisa de preço.\n\n"
@@ -105,8 +83,6 @@ TEMPLATE_COMPARAR_PAR = (
 PROMPTS = (
     ("classificar_item", "Etapa 3 — classifica um item PNCP em 0+ categorias de conteúdo.",
      TEMPLATE_CLASSIFICAR_ITEM),
-    ("casar_item_tabela", "Etapa 5 — casa um item da API contra a tabela do documento.",
-     TEMPLATE_CASAR_ITEM_TABELA),
     ("comparar_par", "Etapa 6c — decide se catálogo e item PNCP são o mesmo item.",
      TEMPLATE_COMPARAR_PAR),
 )

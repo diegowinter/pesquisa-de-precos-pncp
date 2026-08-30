@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    Computed,
     ARRAY,
     BigInteger,
     Boolean,
@@ -440,6 +441,12 @@ class TermoCodigo(Base):
 class Documento(Base):
     __tablename__ = "documento"
     numero_controle_pncp: Mapped[str] = mapped_column(Text, primary_key=True)
+    # A COMPRA a que este documento pertence (ADR-024). Gerada pelo banco a partir do próprio
+    # número de controle, para nenhum SQL repetir a derivação — a versão Python é
+    # `core.collection.urls.chave_compra`. Para contrato coincide com a própria chave.
+    compra_key: Mapped[str] = mapped_column(
+        Text, Computed("left(numero_controle_pncp, strpos(numero_controle_pncp, '/') + 4)",
+                       persisted=True), index=True)
     tipo_doc: Mapped[str] = mapped_column(_enum("tipo_documento"), nullable=False)
     orgao: Mapped[str | None] = mapped_column(Text)
     orgao_cnpj: Mapped[str | None] = mapped_column(Text)
@@ -455,7 +462,9 @@ class Documento(Base):
     # `listar_arquivos()` para baixar o PDF depois do corte, sem reconsultar a busca.
     numero_sequencial: Mapped[str | None] = mapped_column(Text)
     numero_sequencial_ata: Mapped[str | None] = mapped_column(Text)
-    n_paginas: Mapped[int | None] = mapped_column(Integer)
+    # ADR-012: o PDF é descartado depois de lido, e o hash é o que permite conferir, ao
+    # rebaixá-lo do PNCP, que é o mesmo arquivo. Preenchido pela etapa 5. O `n_paginas` que a
+    # mesma ADR previa saiu na migration 0014 — sem parse de PDF aqui, é inalcançável.
     hash_arquivo: Mapped[str | None] = mapped_column(Text)
     estado: Mapped[str] = mapped_column(
         _enum("estado_documento"), nullable=False, server_default="descoberto")
@@ -479,8 +488,11 @@ class DocumentoTermo(Base):
 class Item(Base):
     __tablename__ = "item"
     item_key: Mapped[str] = mapped_column(Text, primary_key=True)
-    numero_controle_pncp: Mapped[str] = mapped_column(
-        Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"), nullable=False)
+    # A identidade do item é a COMPRA, não o documento (ADR-024). Sem FK de propósito: compra
+    # não é linha em `documento` — `documento` guarda atas e contratos, e um pregão gera N
+    # atas que compartilham a mesma lista de itens. Qual ata registrou qual item é descoberto
+    # pela etapa 5 e vive em `item_enriquecido.numero_controle_pncp`.
+    compra_key: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     numero_item: Mapped[int] = mapped_column(Integer, nullable=False)
     descricao_api: Mapped[str] = mapped_column(Text, nullable=False)
     unidade: Mapped[str | None] = mapped_column(Text)
@@ -493,7 +505,7 @@ class Item(Base):
     texto_hash: Mapped[str] = mapped_column(Text, nullable=False)
     sobrevivente: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = _agora()
-    __table_args__ = (UniqueConstraint("numero_controle_pncp", "numero_item"),)
+    __table_args__ = (UniqueConstraint("compra_key", "numero_item"),)
 
 
 class ColetaProgresso(Base):
@@ -591,7 +603,6 @@ class DocumentoExtracao(Base):
     numero_controle_pncp: Mapped[str] = mapped_column(
         Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"), nullable=False)
     tabela_texto: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    n_paginas: Mapped[int | None] = mapped_column(Integer)
     tokens_in: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     tokens_out: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     cost_usd: Mapped[Decimal] = mapped_column(
@@ -614,6 +625,12 @@ class ItemEnriquecido(Base):
     __tablename__ = "item_enriquecido"
     item_key: Mapped[str] = mapped_column(
         Text, ForeignKey("item.item_key", ondelete="CASCADE"), primary_key=True)
+    # A ata/contrato onde o item foi de fato encontrado (ADR-024). É AQUI que o vínculo
+    # documento↔item nasce — a etapa 5 o descobre lendo a tabela do PDF, porque a API do PNCP
+    # não sabe dizer. Entra na PK para o caso de o mesmo item aparecer em duas atas.
+    numero_controle_pncp: Mapped[str] = mapped_column(
+        Text, ForeignKey("documento.numero_controle_pncp", ondelete="CASCADE"),
+        primary_key=True)
     descricao_final: Mapped[str] = mapped_column(Text, nullable=False)
     fonte_descricao: Mapped[str] = mapped_column(Text, nullable=False)  # 'pdf' | 'api'
     preco_api: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))

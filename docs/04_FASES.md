@@ -540,6 +540,42 @@ Médio. O bloco 4 é a virada dura (sem provedor cadastrado, nada roda) e vem **
 os blocos 1-3 já validados. Reversível: o `downgrade` da migração restaura `api_key_ref` e o
 `.env` do operador continua no disco durante a transição.
 
+## Fase 15 (planejada) — Separar extração e casamento em duas etapas
+
+**Ideia do usuário, 2026-08-29.** Hoje a etapa 5 faz as duas coisas numa passada: extrai a
+tabela do documento (chamada à capacidade `extract`) e casa os candidatos contra ela (chamada à
+capacidade `chat`). A proposta é quebrar em duas etapas do registry:
+
+```
+5  extrair    documento -> documento_extracao.tabela_texto     (capacidade `extract`)
+5b casar      tabela + candidatos -> item_enriquecido          (capacidade `chat`)
+```
+
+**Por que vale a pena — depuração.** Foi exatamente o que doeu no teste assistido de
+2026-08-29: a etapa acusou "erros: 20" e foi preciso consultar o banco para descobrir que era
+**um** documento cuja chamada de casamento voltou vazia, enquanto a extração dos 37 tinha ido
+bem. Com as duas coisas juntas:
+
+- o contador de erro mistura unidades (progresso conta documentos, erro conta itens);
+- não dá para reprocessar só o casamento depois de mexer no prompt — reextrair custa de novo,
+  e a extração é o gargalo (~6 documentos/minuto);
+- um provedor instável em `chat` contamina a leitura de qualidade da extração, que é a parte
+  cara e a que de fato varia por documento.
+
+**O que torna a separação barata:** `documento_extracao.tabela_texto` já é o corte natural
+entre as duas. A tabela é persistida assim que a 1ª chamada volta (justamente para não repagar
+o documento se a 2ª falhar), então a etapa 5b já teria toda a entrada de que precisa no banco,
+sem nenhum formato novo.
+
+**Pontos a decidir na implementação:**
+- `documento.estado` hoje serve de chave de resumo para as duas coisas. Separando, a 5 resume
+  por "tem tabela?" e a 5b por "tem `item_enriquecido` para este documento?".
+- `doc_status` é derivado do casamento, então passa a ser produto da 5b, não da 5.
+- A 5b recomputa por documento ou por compra? Por compra permitiria reprocessar um pregão
+  inteiro depois de ajustar o prompt, que é o caso de uso real.
+- O gate: a 5b é a primeira oportunidade barata de olhar as tabelas extraídas antes de gastar
+  com casamento.
+
 ## Fora de escopo (todas as fases)
 
 Registrado para que ninguém "melhore" o projeto nessa direção:
@@ -575,3 +611,4 @@ paralelismo entre runs · auto-avanço de etapas.
 | F12 Deploy | ▪▪ | médio | sim |
 | F13 Web-only | ▪▪▪ | médio-baixo | via repo congelado |
 | F14 Config plugável | ▪▪▪ | médio | via `downgrade` da migração |
+| F15 Etapa 5 em duas (planejada) | ▪▪ | baixo | a tabela já está persistida |

@@ -50,10 +50,6 @@ DEFINICOES = (
      "Geração de termos de busca a partir de name/descrição de catálogo",
      "chat",
      lambda: prompts.montar_prompt_busca("{name}", "{description}", "{categoria}")),
-    ("casar_item_tabela",
-     "Etapa 5 — casa um item da API contra a tabela de itens extraída do documento",
-     "chat",
-     lambda: prompts.montar_prompt_casar_item_tabela(_ITEM_API, "{tabela_texto}")),
 )
 
 

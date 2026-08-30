@@ -260,13 +260,29 @@ baixa o PDF do PNCP  → manda o ARQUIVO INTEIRO como anexo (capacidade `extract
                      → grava item_enriquecido (contrato de saída)
 ```
 
-- **Lê:** `item` (sobreviventes), `documento`
-- **Escreve:** `documento_extracao`, `item_enriquecido`, `documento.estado`
+- **Lê:** `item` (sobreviventes da COMPRA do documento), `documento`
+- **Escreve:** `documento_extracao`, `item_enriquecido` (incl. em QUAL documento o item foi
+  achado), `documento.estado`
 - **Capacidades:** `("extract", "chat")` — modelos diferentes de propósito, ver ADR-023
 - **Params:** `concurrency_docs: int = 4`, `concurrency_llm: int = 8`, `max_mb: int = 32`,
   `file_parser: bool = True`, `limite_docs: int | None`, `documentos: str | None`
 - **Chave de resumo:** `documento.estado = 'extraido'` (ADR-018). Reprocessar um documento
   sobrescreve o veredito de TODOS os seus itens.
+
+#### 5.0 Os candidatos são da COMPRA, não do documento (ADR-024)
+
+A API do PNCP entrega itens por compra e não sabe dizer qual ata registrou qual item. Um
+pregão gera N atas, cada uma com o que **um fornecedor** ganhou. Então os candidatos de um
+documento são os itens sobreviventes da compra dele, e **é normal a maioria não estar ali**:
+no pregão 507 da Embrapa, a ata 00062 tem 3 dos 82 itens.
+
+O casamento é **uma chamada por documento** — leva a tabela extraída e os candidatos juntos.
+Perguntar item a item fazia 82 perguntas em cada uma das 25 atas: 2.050 chamadas para 82
+respostas úteis, 71% delas impossíveis de responder com "sim". Compra grande é dividida em
+lotes por `teto_chars_lote`.
+
+É esta etapa que **produz** o vínculo documento↔item, gravando-o em
+`item_enriquecido.numero_controle_pncp`.
 
 #### 5.1 A tabela é texto livre, não um esquema
 
@@ -288,10 +304,22 @@ download na execução seguinte.
   estimado, o PDF traz o homologado/registrado. Divergência é **sinalizada, não descartada**;
 - banda de sanidade `0,3×…3,0×` marca provável misparse de número BR.
 
-**Detector de PDF trocado:** `doc_status` é derivado do documento inteiro — nenhum item
-confirmou = `suspeito`; nenhuma tabela saiu do documento = `ilegivel`. Daí sai o `destino`:
-`manter` (confirmado) / `revisar` (doc suspeito ou ilegível) / `descartar` (falha isolada em
-documento saudável).
+**Veredito do documento.** `doc_status` é derivado do documento inteiro:
+
+| situação | `doc_status` | `documento.estado` | `destino` do não-confirmado |
+|---|---|---|---|
+| não saiu tabela do documento | `ilegivel` | `ilegivel` (volta à fila) | `revisar` |
+| saiu tabela, nenhum candidato casou | `fora_de_escopo` | `extraido` | `descartar` |
+| ao menos um casou | `ok` | `extraido` | `descartar` |
+
+**`suspeito` não é mais produzido pela etapa 5.** Ele era o detector de PDF trocado, inferido
+de "nenhum item confirmou" — e essa inferência ficou errada com a ADR-024: a ata 000004 do
+pregão 507 tem os itens 1, 2 e 3 (material de escritório, cortados na etapa 4), enquanto seus
+candidatos são coturno e bota, que estão em outras atas. O PDF está perfeito; falta escopo.
+
+**`documento.estado` responde "o trabalho caro foi feito?", não "deu bom resultado?"** — é a
+chave de resumo, e documento cuja tabela saiu não volta à fila. Antes de 2026-08-29 o
+`suspeito` voltava, repagando a extração de milhares de documentos a cada execução.
 
 #### 5.3 Circuit breaker
 

@@ -329,3 +329,71 @@ def test_etapa_5_trata_sem_tabela_como_documento_sem_itens():
     curador._prompts_ativos = {}
     curador.llm = LlmFake()
     assert curador.extrair_tabela_documento(b"%PDF-1.7", "x.pdf") == ""
+
+
+def test_chave_de_compra_e_derivada_num_lugar_so():
+    """`urls.chave_compra` é a única função que separa a compra do sequencial da ata.
+
+    Durante a investigação da ADR-024 o mesmo recorte foi escrito à mão em SQL como
+    `regexp_replace(nc, '(/[0-9]{4})-[0-9]+$', '\\\\1')`. O shell comeu um backslash, o `\\1`
+    virou `\\x01`, e a chave passou a sair SEM O ANO — produzindo contagens erradas sem
+    levantar erro nenhum. Uma derivação escrita duas vezes é uma que diverge.
+
+    A migration 0013 tem a sua própria cópia em SQL, de propósito: migration não importa o
+    código da aplicação (ela precisa rodar contra um schema que o código já não descreve).
+    Por isso `alembic/` fica fora da varredura.
+    """
+    import re
+
+    raiz = Path(__file__).resolve().parents[1]
+    padrao = re.compile(r"(left|substring|regexp_replace|split_part)\s*\(\s*[a-z_.]*"
+                        r"numero_controle_pncp", re.IGNORECASE)
+    achados = []
+    for pacote in ("pesquisa_precos", "migracao", "tools"):
+        for arquivo in (raiz / pacote).rglob("*.py"):
+            for n, linha in enumerate(arquivo.read_text(encoding="utf-8").splitlines(), 1):
+                if padrao.search(linha):
+                    achados.append(f"{arquivo.relative_to(raiz)}:{n}  {linha.strip()[:70]}")
+    # `models.py` declara a coluna GERADA do Postgres, que é a definição canônica em SQL —
+    # o banco precisa dela para calcular `documento.compra_key` sozinho.
+    achados = [a for a in achados if "db\\models.py" not in a and "db/models.py" not in a]
+    assert not achados, ("derivação da chave de compra fora de `urls.chave_compra`:\n  "
+                         + "\n  ".join(achados))
+
+
+def test_item_nao_conhece_o_documento():
+    """ADR-024: `item` não tem mais `numero_controle_pncp`.
+
+    Enquanto tinha, cada linha de item nascia presa a UMA ata — e como a API do PNCP só
+    entrega itens por compra, os 82 itens de um pregão viravam 82 linhas em cada uma das 25
+    atas dele. Quem quer saber em qual documento o item foi achado pergunta a
+    `item_enriquecido`, que é onde a etapa 5 grava essa descoberta.
+    """
+    from pesquisa_precos.db.models import Item, ItemEnriquecido
+
+    colunas_item = {c.name for c in Item.__table__.columns}
+    assert "numero_controle_pncp" not in colunas_item, \
+        "`item` voltou a conhecer o documento — a duplicação volta junto"
+    assert "compra_key" in colunas_item
+
+    pk = {c.name for c in ItemEnriquecido.__table__.primary_key.columns}
+    assert pk == {"item_key", "numero_controle_pncp"}, \
+        f"a PK de item_enriquecido precisa carregar o documento (é {pk})"
+
+
+def test_casamento_da_etapa_5_e_por_documento_e_nao_por_item():
+    """O casamento manda os candidatos JUNTOS, numa chamada por documento (ADR-024).
+
+    Voltar a perguntar item a item significa, para o pregão 507 da Embrapa, 82 perguntas em
+    cada uma das 25 atas — 2.050 chamadas para 82 respostas úteis, e 71% delas impossíveis de
+    responder com "sim" por construção.
+    """
+    from pesquisa_precos.providers.llm_curador import Curador
+
+    assert hasattr(Curador, "casar_itens_tabela")
+    assert not hasattr(Curador, "casar_item_tabela"), \
+        "a versão por item voltou — ver ADR-024"
+
+    fonte = (Path(__file__).resolve().parents[1]
+             / "pesquisa_precos" / "steps" / "e5_extract.py").read_text(encoding="utf-8")
+    assert "casar_itens_tabela" in fonte

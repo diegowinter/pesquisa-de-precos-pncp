@@ -177,9 +177,15 @@ CREATE TABLE documento_termo (
     PRIMARY KEY (numero_controle_pncp, termo_id)
 );
 
+-- O item pertence à COMPRA, não ao documento (ADR-024). A API do PNCP entrega itens por
+-- compra e não tem rota de itens por ata; um pregão gera N atas, cada uma com o que um
+-- fornecedor ganhou. Enquanto o item era atributo do documento, os 82 itens de um pregão
+-- viravam 82 linhas em CADA uma das 25 atas dele — 8,4x de duplicação no acervo de atas.
+-- Em qual documento o item foi de fato achado é RESULTADO da etapa 5, e vive em
+-- `item_enriquecido.numero_controle_pncp`.
 CREATE TABLE item (
-    item_key             text NOT NULL PRIMARY KEY,   -- <numero_controle_pncp>#<numero_item>
-    numero_controle_pncp text NOT NULL REFERENCES documento(numero_controle_pncp) ON DELETE CASCADE,
+    item_key             text NOT NULL PRIMARY KEY,   -- <compra_key>::<numero_item>
+    compra_key           text NOT NULL,   -- SEM FK: compra não é linha em `documento`
     numero_item          int  NOT NULL,
     descricao_api        text NOT NULL,
     unidade              text,
@@ -191,9 +197,9 @@ CREATE TABLE item (
     texto_hash           text NOT NULL,   -- sha1(norm(descricao_api)||'|'||norm(unidade))
     sobrevivente         boolean NOT NULL DEFAULT false,   -- resultado da etapa 4
     criado_em            timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (numero_controle_pncp, numero_item)
+    UNIQUE (compra_key, numero_item)
 );
-CREATE INDEX ix_item_doc         ON item (numero_controle_pncp);
+CREATE INDEX ix_item_compra_key  ON item (compra_key);
 CREATE INDEX ix_item_texto_hash  ON item (texto_hash);
 CREATE INDEX ix_item_sobrevivente ON item (sobrevivente) WHERE sobrevivente;
 
@@ -284,7 +290,12 @@ CREATE TABLE documento_extracao (
 -- Foi o que permitiu trocar a extração inteira (ADR-023) sem tocar em nenhuma delas.
 -- ===================================================================
 CREATE TABLE item_enriquecido (
-    item_key          text NOT NULL PRIMARY KEY REFERENCES item(item_key) ON DELETE CASCADE,
+    item_key          text NOT NULL REFERENCES item(item_key) ON DELETE CASCADE,
+    -- A ata/contrato onde o item foi ENCONTRADO (ADR-024). É aqui que o vínculo
+    -- documento<->item nasce: a etapa 5 o descobre lendo a tabela do PDF, porque a API do
+    -- PNCP não sabe dizer. Na PK para cobrir o item que aparece em duas atas.
+    numero_controle_pncp text NOT NULL
+        REFERENCES documento(numero_controle_pncp) ON DELETE CASCADE,
     descricao_final   text NOT NULL,
     fonte_descricao   text NOT NULL,       -- 'pdf' | 'api'
     preco_api         numeric(18,4),
@@ -296,7 +307,8 @@ CREATE TABLE item_enriquecido (
     destino           destino_item NOT NULL,
     doc_status        estado_documento NOT NULL,
     run_id            bigint REFERENCES run(id),
-    created_at        timestamptz NOT NULL DEFAULT now()
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (item_key, numero_controle_pncp)
 );
 CREATE INDEX ix_enriq_destino ON item_enriquecido (destino);
 ```

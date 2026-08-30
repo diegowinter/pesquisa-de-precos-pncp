@@ -755,6 +755,12 @@ desenvolvimento.
 
 ## ADR-023 — Etapa 5: uma extração só, com o documento inteiro como anexo
 
+> **Diagnóstico corrigido pela [ADR-024](#adr-024) (2026-08-29):** os "zero itens confirmados
+> em 4.159 documentos" citados abaixo NÃO vinham só do desenho das estratégias plugáveis.
+> Metade da causa era a duplicação de itens entre atas da mesma compra — a etapa perguntava,
+> para cada ata, por 82 itens dos quais só 3 podiam estar ali. A troca da extração continua
+> justificada (e produziu o primeiro `pdf_ok` do projeto), mas sozinha não teria resolvido.
+
 **Contexto.** A [ADR-010](#adr-010) desenhou a etapa 5 com quatro caminhos — `window`, `full`,
 `vision` e o roteamento `auto` entre eles — apostando que documentos diferentes pedem
 estratégias diferentes. O primeiro teste assistido sobre dado real (2026-08-28) mediu a aposta:
@@ -821,3 +827,98 @@ comparar. Era o argumento central da ADR-010 — e em nenhuma execução real ch
 para decidir coisa alguma, porque nenhuma das estratégias confirmou item. Se um dia houver duas
 formas de ler documento que valham a pena comparar, a comparação volta como decisão nova, não
 como código adormecido.
+
+---
+
+## ADR-024 — O item pertence à COMPRA, e o casamento é uma chamada por documento
+
+**Status:** aceita · 2026-08-29
+
+**Contexto.** A API do PNCP entrega itens **por compra**. Não existe rota de itens por ata —
+confirmado na especificação OpenAPI oficial (109 rotas; as de ata são `atas`, `atas/{seq}`,
+`arquivos`, `contratos`, `partesenvolvidas`, `historico`, nenhuma de item). O endpoint
+`/itens/{n}/resultados` traz fornecedor e preço homologado, mas aponta para
+`numeroControlePNCPCompra`, não para a ata.
+
+Como a etapa 2 varre atas, ela pendurava a lista inteira da compra em **cada ata**. Medido no
+acervo:
+
+| | linhas | itens reais | fator |
+|---|---:|---:|---:|
+| ata | 267.205 | 31.822 | **8,40×** |
+| contrato | 43.889 | 43.889 | 1,00× |
+| **total** | 311.094 | 75.711 | **4,11×** |
+
+O caso que revelou o problema: o pregão 507 da Embrapa tem 88 itens e **25 atas**, uma por
+fornecedor. A ata 00062 registra 3 itens (DARLU: mouse pad, apoio de punho, descanso de pés);
+a 00061 registra 55; a 00065, um. As 25 receberam os mesmos 82 itens homologados.
+
+Isso destruía a etapa 5: no teste de 2026-08-29 ela confirmou **1 item em 89**, com 12 de 13
+documentos marcados `suspeito`. A extração estava certa — a ata 00062 devolveu exatamente as 3
+linhas da DARLU. O `nao_encontrado` também estava certo: o Coturno não está numa ata de mouse
+pad. **O que estava errado era a pergunta.** Dos 34.256 pares (item, documento) que a etapa
+tinha para casar, ~71% eram impossíveis de responder com "sim" por construção.
+
+> Isso corrige em parte o diagnóstico da [ADR-023](#adr-023), que atribuiu os "zero itens
+> confirmados em 4.159 documentos" apenas ao desenho das estratégias plugáveis. A duplicação
+> pesava tanto quanto, e a abordagem antiga sofria dela igualmente.
+
+**Decisão.**
+
+1. **A identidade do item é a compra.** `item_key` passa de `<documento>::<item>` para
+   `<chave_compra>::<item>`, e `item.numero_controle_pncp` (com o FK para `documento`) sai.
+   Era essa amarra que criava a duplicação: cada linha nascia presa a uma ata.
+2. **O vínculo ata↔item nasce na etapa 5**, em `item_enriquecido.numero_controle_pncp`, que
+   entra na chave primária. É onde ele é de fato descoberto — lendo a tabela do PDF.
+3. **O casamento vira uma chamada por documento**, levando a tabela extraída e os candidatos
+   da compra juntos. De 34.256 chamadas para 3.347.
+
+**A chave de compra é o prefixo até o ano**, e existe numa função só
+(`core.collection.urls.chave_compra`):
+
+```
+ata:      00348003000110-1-000507/2025-000004  ->  00348003000110-1-000507/2025
+contrato: 01664910000131-2-000068/2026         ->  01664910000131-2-000068/2026
+```
+
+Para contrato coincide com o próprio documento — mesma regra, mesmo resultado, sem caso
+especial (1.661 de 1.661 verificados). Um `regexp_replace` equivalente escrito à mão em SQL
+durante esta investigação perdeu o ano por um backslash comido pelo shell e produziu contagens
+erradas sem levantar erro; `tests/test_estrutura.py` guarda a exclusividade da função.
+
+**Por que não deduplicar na etapa 4.** Marcar `sobrevivente` numa ata só por item real exigiria
+escolher a ata **antes** de saber qual delas contém o item — que é justamente o que a etapa 5
+descobre. Foi descartado por isso.
+
+**Por que não mandar todas as tabelas da compra numa chamada por item.** Foi a primeira ideia,
+e não economiza nada: 82 itens × 25 tabelas é o mesmo produto cartesiano de 25 atas × 82
+itens. Cai o número de chamadas, não o de tokens — e é token que se paga.
+
+**Por que não vincular ata→fornecedor.** Cada ata é de um fornecedor, e o item já tem
+`fornecedor` no banco; bastaria saber o fornecedor de cada ata para filtrar. Mas a API não o
+expõe (`/atas/{seq}` não traz, `partesenvolvidas` só lista órgãos), então viria do PDF — e
+duas alternativas determinísticas caíram por fragilidade: casar pelo número do item (muitos
+documentos não numeram) e casar por preço (não se sabe se a tabela traz o homologado inicial
+ou o do vencedor). O casamento em lote dispensa o vínculo: ele o **produz**.
+
+**Consequências.**
+
+- **`doc_status` ganha `fora_de_escopo`.** Uma ata cujos candidatos não incluem nenhum item
+  dela é um documento perfeito fora do escopo, não um PDF ilegível. A regra de `suspeito`
+  **não** muda: é absoluta (zero confirmados), não proporcional — 3 de 82 é `ok`.
+- **Falha de casamento vira `status = 'erro'`**, não `nao_encontrado`. Eram indistinguíveis, e
+  foi essa confusão que escondeu a falha em massa da etapa 3 em 2026-08-25.
+- **A etapa 2 também economiza.** Ela refazia `fetch_itens()` e um `fetch_resultado_vencedor()`
+  por item em cada ata — mais de 2.200 chamadas para o pregão 507. Um cache por compra derruba
+  para 89.
+- **As contagens mudam de escala.** A etapa 4 vai de 34.256 para 9.886 sobreviventes. Não se
+  perdeu acervo: sumiu a duplicação.
+- **A migração é destrutiva por natureza.** O `downgrade` recria as colunas e devolve cada item
+  a UMA ata da compra, mas a associação original não volta — era justamente a associação errada
+  que esta ADR remove.
+
+**Pendência conhecida.** Um item pode ter mais de um fornecedor homologado?
+`fetch_resultado_vencedor` escolhe **um** vencedor e guarda só ele, então o banco não pode
+responder — a ausência de divergência de preço entre atas é consequência disso, não evidência.
+Não é regressão (é o comportamento que já existia), mas é o único ponto que poderia afetar a
+correção do preço, e merece medição antes de o produto ser publicado.

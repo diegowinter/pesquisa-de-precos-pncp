@@ -139,3 +139,18 @@ def subprogresso(ctx: RunContext, processed: int | None = None,
     if fn is None:
         return
     fn(processed=processed, total=total, descricao=descricao)
+
+
+def sem_reasoning(nome_provedor: str) -> dict:
+    """Desliga o raciocínio do modelo no casamento. Mesma decisão da etapa 3.
+
+    O casamento é transcrição estruturada, não dedução: o modelo lê uma tabela e diz quais
+    candidatos estão nela. Raciocínio aqui gasta tokens de SAÍDA (os caros), aumenta a latência
+    — e a etapa 5 já é o gargalo do ciclo — e traz variância que não melhora a resposta.
+
+    Os dois formatos existem porque não são intercambiáveis: o LM Studio IGNORA o objeto
+    `reasoning` do OpenRouter, e só entende `reasoning_effort` no corpo cru.
+    """
+    if nome_provedor == "local":
+        return {"extra_body": {"reasoning_effort": "none"}}
+    return {"reasoning": {"enabled": False}}

@@ -26,7 +26,7 @@ from pesquisa_precos.core.parallel import executar_paralelo
 from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.db import session as db
 from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
-                                        avanco_cancelavel)
+                                        avanco_cancelavel, sem_reasoning)
 
 KEY = "3"
 # 1.1.0 (Fase 2): o dedup passa a agrupar pelo `texto_hash` canônico de core.text, que
@@ -78,10 +78,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     nome_provedor = resolucao_chat.info.name
 
     # Prompt e reasoning são resolvidos igual nos dois caminhos; só o IO muda.
-    reasoning_kw = {}
-    if not params.reasoning:
-        reasoning_kw = ({"extra_body": {"reasoning_effort": "none"}}
-                        if nome_provedor == "local" else {"reasoning": {"enabled": False}})
+    reasoning_kw = {} if params.reasoning else sem_reasoning(nome_provedor)
     try:
         with db.session() as sessao:
             prompts_ativos = prompts_resolver.carregar_ativos(sessao,

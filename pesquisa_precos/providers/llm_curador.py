@@ -32,7 +32,8 @@ from pesquisa_precos.core.prompts import (  # noqa: F401
     CATEGORIA_MAP_SERVICO,
     _bloco_categorias_classificacao,
     montar_prompt_busca,
-    montar_prompt_casar_item_tabela,
+    bloco_itens_candidatos,
+    montar_prompt_casar_itens_tabela,
     montar_prompt_classificar_item,
     montar_prompt_comparar_item,
     montar_prompt_comparar_par,
@@ -132,14 +133,27 @@ class Curador:
         Levanta a última exceção se as duas tentativas falharem — quem chama trata/loga o erro.
         """
         ultimo_erro = None
+        ultima_resposta = ""
         for _ in range(2):
             resp = self.llm.invoke([HumanMessage(content=prompt)])
             texto = (resp.content or "").strip()
             try:
                 return _extrair_json(texto)
             except (json.JSONDecodeError, ValueError) as e:
-                ultimo_erro = e
-        raise ultimo_erro if ultimo_erro else RuntimeError("resposta vazia")
+                ultimo_erro, ultima_resposta = e, texto
+        # A causa do parsing sozinha ("Expecting value: line 1 column 1") diz que veio VAZIO,
+        # não por que. Guardar o começo da resposta e o `finish_reason` é o que transforma a
+        # próxima ocorrência em diagnóstico — `length` (estourou a saída, tipicamente reasoning
+        # comendo o orçamento) e `content_filter` pedem consertos completamente diferentes.
+        motivo = ""
+        try:
+            meta = getattr(resp, "response_metadata", None) or {}
+            motivo = meta.get("finish_reason") or ""
+        except Exception:  # noqa: BLE001 — diagnóstico nunca derruba a chamada
+            motivo = ""
+        detalhe = f" [finish_reason={motivo}]" if motivo else ""
+        amostra = ultima_resposta[:300] if ultima_resposta else "(resposta vazia)"
+        raise RuntimeError(f"{ultimo_erro}{detalhe} — resposta do model: {amostra}")
 
     def classificar_categoria(self, descricao: str, unidade: str = "") -> dict:
         """
@@ -201,31 +215,42 @@ class Curador:
             return ""
         return texto
 
-    def casar_item_tabela(self, item_api: dict, tabela_texto: str) -> dict:
+    def casar_itens_tabela(self, itens_api: list[dict], tabela_texto: str) -> dict[int, dict]:
         """
-        Etapa 5, 2ª chamada (ADR-023) — casa UM item da API contra a tabela já extraída.
-        Retorna {"encontrado","descricao_completa","preco_unitario","quantidade",
-        "fornecedor","_prompt_versao_id"}. Nunca levanta: em erro devolve encontrado=False.
+        Etapa 5, 2ª chamada (ADR-024) — casa os candidatos de UMA compra contra a tabela de UM
+        documento, numa chamada só. Devolve `numero_item -> {descricao_completa,
+        preco_unitario, quantidade, fornecedor}`, contendo APENAS os que o modelo achou.
+
+        Candidato ausente do retorno significa "não está neste documento", que é o caso comum
+        e correto — um pregão gera várias atas e cada uma registra o que um fornecedor ganhou.
+
+        LEVANTA em erro de chamada, ao contrário da versão por item que devolvia
+        `encontrado=False`. Falha de rede/modelo e "o item não está aqui" produziam o mesmo
+        `nao_encontrado`, e foi assim que 4.159 documentos passaram por erro silencioso.
+        Quem chama distingue os dois casos e grava `status='erro'` com a causa.
         """
         prompt, prompt_version_id = prompts_resolver.resolver(
-            self._prompts_ativos, "casar_item_tabela",
-            montar_prompt_casar_item_tabela(item_api, tabela_texto),
-            numero=item_api.get("numeroItem", ""),
-            descricao_api=item_api.get("descricao_api", ""),
-            tabela_texto=tabela_texto)
-        try:
-            data = self._invocar_json(prompt)
-        except Exception as e:  # noqa: BLE001
-            return {"encontrado": False, "_erro": str(e)[:200],
-                    "_prompt_versao_id": prompt_version_id}
-        return {
-            "encontrado": bool(data.get("encontrado")),
-            "descricao_completa": data.get("descricao_completa") or "",
-            "preco_unitario": data.get("preco_unitario"),
-            "quantidade": data.get("quantidade"),
-            "fornecedor": str(data.get("fornecedor") or "").strip(),
-            "_prompt_versao_id": prompt_version_id,
-        }
+            self._prompts_ativos, "casar_itens_tabela",
+            montar_prompt_casar_itens_tabela(itens_api, tabela_texto),
+            tabela_texto=tabela_texto, itens_fmt=bloco_itens_candidatos(itens_api))
+        data = self._invocar_json(prompt)
+        out: dict[int, dict] = {}
+        for achado in (data.get("itens") or []):
+            if not isinstance(achado, dict):
+                continue
+            try:
+                numero = int(achado.get("numero_item"))
+            except (TypeError, ValueError):
+                continue
+            out[numero] = {
+                "encontrado": True,
+                "descricao_completa": achado.get("descricao_completa") or "",
+                "preco_unitario": achado.get("preco_unitario"),
+                "quantidade": achado.get("quantidade"),
+                "fornecedor": str(achado.get("fornecedor") or "").strip(),
+                "_prompt_versao_id": prompt_version_id,
+            }
+        return out
 
     def comparar_par(self, texto_catalogo: str, texto_item: str) -> dict:
         """

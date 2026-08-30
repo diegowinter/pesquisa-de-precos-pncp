@@ -7,8 +7,15 @@ Duas chamadas de LLM por documento (ADR-023):
                         → recebe a TABELA DE ITENS em texto, "as it is"
                         → DESCARTA o PDF (ADR-012: url_pncp preservada, a tabela é o ativo)
                         → grava documento_extracao.tabela_texto
-                        → por item da API: casa contra ESSA tabela (capacidade `chat`)
+                        → UMA chamada com os candidatos da compra (capacidade `chat`)
                         → grava item_enriquecido (contrato de saída, lido pelas etapas 6-8)
+
+Os CANDIDATOS de um documento são os itens sobreviventes da COMPRA dele, não "os itens dele"
+(ADR-024): a API do PNCP entrega itens por compra e não sabe dizer qual ata registrou qual
+item. Um pregão gera N atas, cada uma com o que um fornecedor ganhou — e é esta etapa que
+descobre a divisão, gravando em `item_enriquecido.numero_controle_pncp`. Por isso é NORMAL a
+maioria dos candidatos não estar num documento: 3 confirmados em 82 é resultado bom, não
+suspeito.
 
 Substituiu as quatro estratégias plugáveis (`window`/`full`/`vision`/`auto`) e a escalada
 automática entre elas. O motivo está na ADR-023: no teste de 2026-08-28 aquele desenho
@@ -21,6 +28,7 @@ documento inteiro para a chamada de casamento (o ponto das duas passadas é que 
 só a tabela).
 """
 
+import hashlib
 import os
 import shutil
 import sys
@@ -35,6 +43,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 from pydantic import BaseModel, Field
+from typing import Literal
 from sqlalchemy import text as sa_text
 
 from pesquisa_precos.core import extraction as regras
@@ -42,11 +51,12 @@ from pesquisa_precos.core import prompts_resolver
 from pesquisa_precos.core.parallel import executar_paralelo
 from pesquisa_precos.db import session as db
 from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepResult,
-                                        avanco_cancelavel)
+                                        avanco_cancelavel, sem_reasoning)
 
 KEY = "5"
 # 3.0.0 (ADR-023): estratégias plugáveis fora; extração direta com o PDF anexo.
-CODE_VERSION = "3.0.0"
+# 4.0.0 (ADR-024): item pertence à compra; casamento vira uma chamada por documento.
+CODE_VERSION = "4.0.0"
 
 # Se as primeiras N extrações falharem TODAS, o problema não é do documento — é do provedor
 # (modelo que não aceita anexo, chave vencida, serviço fora). Foi a lição da etapa 3 em
@@ -61,25 +71,35 @@ class _FalhaTotal(SystemExit):
 class Params(BaseModel):
     concurrency_docs: int = Field(
         4, ge=1, le=16, description="Documentos processados em paralelo (download + extração)")
-    concurrency_llm: int = Field(
-        8, ge=1, le=32, description="Itens casados em paralelo, dentro de um documento")
     max_mb: int = Field(
         32, ge=1, le=200, description="Teto de tamanho do PDF; acima disso o documento é "
                                       "marcado como ilegível sem chamar o modelo")
-    file_parser: bool = Field(
-        True, description="Pede ao OpenRouter que parseie o PDF (plugin file-parser). "
-                          "Desligue se o modelo já lê PDF nativamente ou se o provedor não "
-                          "for OpenRouter")
+    pdf_engine: Literal["cloudflare-ai", "mistral-ocr", "native"] = Field(
+        "cloudflare-ai",
+        description="Como o OpenRouter converte o PDF antes do modelo ver. 'cloudflare-ai' é "
+                    "GRÁTIS e devolve markdown. 'mistral-ocr' custa US$ 2 por 1.000 páginas e "
+                    "lê documento escaneado. 'native' só serve para modelo que aceita 'file' "
+                    "— o Gemma NÃO aceita")
+    teto_chars_lote: int = Field(
+        40_000, ge=2_000, description="Teto de texto dos itens candidatos por chamada de "
+                                      "casamento; acima disso a compra é dividida em lotes")
     limite_docs: int | None = Field(None, description="Teto de documentos (debug)")
     documentos: str | None = Field(
         None, description="numeroControlePNCP separados por vírgula — força reprocesso mesmo "
                           "se o documento já estiver extraído")
 
 
-# O plugin do OpenRouter que converte o PDF anexo em texto antes de o modelo ver. Modelos com
-# leitura nativa de documento não precisam dele; para os demais, sem isto o anexo é ignorado
-# em silêncio — e a resposta vem plausível e vazia, que é o pior modo de falhar.
-PLUGIN_FILE_PARSER = {"plugins": [{"id": "file-parser", "pdf": {"engine": "pdf-text"}}]}
+def _plugin_pdf(engine: str) -> dict:
+    """O plugin do OpenRouter que converte o PDF anexo antes de o modelo ver.
+
+    Enviado SEMPRE, explicitamente, e é isso que importa: sem plugin declarado o OpenRouter
+    escolhe sozinho — "primeiro a capacidade nativa do modelo; se não houver, `mistral-ocr`".
+    Como `google/gemma-4-26b-a4b-it` declara `input_modalities` `['image','text','video']` e
+    NÃO `file`, o silêncio significa `mistral-ocr` a US$ 2 por 1.000 páginas. Com ~9,1 páginas
+    por documento (média medida em 242 documentos do acervo), isso é ~US$ 76 sem ninguém ter
+    escolhido nada. Escolher é do operador, pelo `Params`.
+    """
+    return {"plugins": [{"id": "file-parser", "pdf": {"engine": engine}}]}
 
 
 def _num(v):
@@ -131,13 +151,15 @@ def _documentos_pendentes(params: Params) -> tuple[dict, list[str]]:
         raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     forcados = _documentos_alvo(params)
     with db.session() as s:
+        # ADR-024: o item pertence à COMPRA. Um documento recebe os itens sobreviventes da
+        # compra dele como CANDIDATOS — quais estão de fato nele é o que esta etapa descobre.
         linhas = s.execute(sa_text("""
-            SELECT i.item_key, i.numero_controle_pncp, i.numero_item, i.descricao_api,
+            SELECT i.item_key, d.numero_controle_pncp, i.numero_item, i.descricao_api,
                    i.unidade, i.quantidade, i.preco_unitario, d.tipo_doc::text, d.orgao_cnpj,
                    d.ano, d.numero_sequencial, d.numero_sequencial_ata, d.estado::text
-              FROM item i JOIN documento d USING (numero_controle_pncp)
+              FROM documento d JOIN item i ON i.compra_key = d.compra_key
              WHERE i.sobrevivente
-             ORDER BY i.numero_controle_pncp, i.numero_item
+             ORDER BY d.numero_controle_pncp, i.numero_item
         """)).all()
     grupos: dict[str, list[dict]] = defaultdict(list)
     estados: dict[str, str] = {}
@@ -205,7 +227,7 @@ def _linha_enriquecido(item: dict, extraido: dict) -> dict:
     }
 
 
-def _sem_tabela(itens_doc: list[dict], n_paginas: int = 0) -> tuple[list[dict], dict]:
+def _sem_tabela(itens_doc: list[dict]) -> tuple[list[dict], dict]:
     """Documento sem arquivo, grande demais ou sem tabela de itens: nenhum item confirma.
 
     Grava mesmo assim — `documento_extracao` com `tabela_texto` vazia é o registro de que o
@@ -214,12 +236,35 @@ def _sem_tabela(itens_doc: list[dict], n_paginas: int = 0) -> tuple[list[dict], 
     linhas = [{**_linha_enriquecido(it, {"encontrado": False}),
                "status": "sem_texto", "doc_status": "ilegivel", "destino": "revisar"}
               for it in itens_doc]
-    return linhas, {"tabela_texto": "", "n_paginas": n_paginas}
+    return linhas, {"tabela_texto": ""}
+
+
+def _lotes_de_itens(itens_doc: list[dict], teto_chars: int) -> list[list[dict]]:
+    """Divide os candidatos em lotes que caibam numa chamada.
+
+    Medido no acervo: mediana de 4 candidatos por compra, média 7, p95 22 — a esmagadora
+    maioria vai num lote só. O teto existe para as 26 compras cujas descrições da API somam
+    mais de 60k chars; sem ele, elas fariam uma chamada gigante que o modelo trunca em
+    silêncio, e truncar aqui é perder item sem erro.
+    """
+    lotes: list[list[dict]] = []
+    atual: list[dict] = []
+    tamanho = 0
+    for item in itens_doc:
+        custo = len(item.get("descricao_api") or "") + 60
+        if atual and tamanho + custo > teto_chars:
+            lotes.append(atual)
+            atual, tamanho = [], 0
+        atual.append(item)
+        tamanho += custo
+    if atual:
+        lotes.append(atual)
+    return lotes
 
 
 def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
                          extrator, curador_factory) -> tuple[list[dict], dict]:
-    """Um documento inteiro: baixa → tabela → casa cada item → valida.
+    """Um documento inteiro: baixa → extrai a tabela → casa os candidatos → valida.
 
     Devolve (linhas de `item_enriquecido`, linha de `documento_extracao`).
     """
@@ -232,11 +277,14 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
         # O primeiro arquivo é o documento original (`selecionar_do_tipo` ordena por
         # sequencialDocumento); os seguintes são aditivos, que não trazem a tabela de itens.
         caminho = os.path.join(pasta, nomes[0])
-        tamanho = os.path.getsize(caminho)
-        if tamanho > params.max_mb * 1024 * 1024:
+        if os.path.getsize(caminho) > params.max_mb * 1024 * 1024:
             return _sem_tabela(itens_doc)
         with open(caminho, "rb") as fh:
             pdf_bytes = fh.read()
+        # ADR-012: o PDF é descartado, mas o hash fica — é o que permite conferir, ao rebaixar
+        # do PNCP, que o arquivo é o mesmo que gerou esta tabela. Custa nada: os bytes já estão
+        # em memória para irem ao modelo.
+        hash_arquivo = hashlib.sha256(pdf_bytes).hexdigest()
     finally:
         # ADR-012: o PDF é efêmero. Ele vive o tempo da leitura, e nada mais.
         shutil.rmtree(pasta, ignore_errors=True)
@@ -245,28 +293,38 @@ def _processar_documento(doc_ctrl: str, itens_doc: list[dict], params: Params,
     if not tabela_texto.strip():
         return _sem_tabela(itens_doc)
 
-    extraidos: dict[str, dict] = {}
+    # ── Casamento: UMA chamada por documento, não uma por item (ADR-024) ──────────────
+    #
+    # Os candidatos são os itens sobreviventes da COMPRA, e este documento contém apenas
+    # alguns deles. Perguntar item a item fazia 82 perguntas em cada uma das 25 atas do
+    # pregão 507 — 71% delas estruturalmente impossíveis de responder com "sim".
+    curador = curador_factory()
+    achados: dict[int, dict] = {}
+    erro_casamento: Exception | None = None
+    for lote in _lotes_de_itens(itens_doc, params.teto_chars_lote):
+        try:
+            achados.update(curador.casar_itens_tabela(lote, tabela_texto))
+        except Exception as exc:  # noqa: BLE001 — vira status 'erro', não 'nao_encontrado'
+            erro_casamento = exc
 
-    def casar(item):
-        return curador_factory().casar_item_tabela(item, tabela_texto)
+    linhas = []
+    for item in itens_doc:
+        if erro_casamento is not None and item["numeroItem"] not in achados:
+            # A chamada quebrou: "não achei" e "não perguntei direito" NÃO podem virar o
+            # mesmo status. Foi essa confusão que escondeu a falha em massa da etapa 3.
+            linhas.append({**_linha_enriquecido(item, {"encontrado": False}),
+                           "status": "erro", "_erro": str(erro_casamento)[:200]})
+            continue
+        linhas.append(_linha_enriquecido(
+            item, achados.get(item["numeroItem"], {"encontrado": False})))
 
-    def ok(item, res):
-        extraidos[item["item_key"]] = res
-
-    def err(item, _exc):
-        extraidos[item["item_key"]] = {"encontrado": False}
-
-    executar_paralelo(itens_doc, casar, concurrency=params.concurrency_llm,
-                      on_result=ok, on_error=err)
-
-    linhas = [_linha_enriquecido(it, extraidos.get(it["item_key"], {"encontrado": False}))
-              for it in itens_doc]
-    doc_status = regras.doc_status_de_motivos({linha["item_key"]: linha["status"]
-                                               for linha in linhas})
+    doc_status = regras.doc_status_de_motivos(
+        {linha["item_key"]: linha["status"] for linha in linhas})
     for linha in linhas:
         linha["doc_status"] = doc_status
         linha["destino"] = regras.destino_de(linha["status"], doc_status)
-    return linhas, {"tabela_texto": tabela_texto, "n_paginas": None}
+    return linhas, {"tabela_texto": tabela_texto, "hash_arquivo": hash_arquivo,
+                    "_erro_casamento": erro_casamento}
 
 
 # ── Gravação ────────────────────────────────────────────────────────────────────────
@@ -284,14 +342,13 @@ def _gravar_documento(doc_ctrl: str, linhas_item: list[dict], extracao: dict,
     # `text` do PostgreSQL recusa byte NUL, e a resposta do modelo carrega o que o
     # parser do provedor tiver deixado passar do PDF — foi assim no texto por página.
     linha_extr = (doc_ctrl, copy.texto_para_pg(extracao.get("tabela_texto") or ""),
-                  extracao.get("n_paginas"),
                   # tokens/custo ainda não são medidos por documento; as colunas são NOT NULL
                   # com DEFAULT 0, e `DEFAULT` não vale para NULL enviado explicitamente por
                   # um COPY. Zero é o valor certo — `duration_ms` fica NULL porque "não
                   # medido" não é "zero".
                   0, 0, 0, None, model, provider, run_id)
     lote_itens = [(
-        linha["item_key"], linha.get("descricao_final") or "",
+        linha["item_key"], doc_ctrl, linha.get("descricao_final") or "",
         linha.get("fonte_descricao") or "api", _num(linha.get("preco_api")),
         _num(linha.get("preco_pdf")), _num(linha.get("divergencia_preco")),
         linha.get("fornecedor") or None, _num(linha.get("quantidade_pdf")),
@@ -312,6 +369,8 @@ def _gravar_documento(doc_ctrl: str, linhas_item: list[dict], extracao: dict,
 
     with db.session() as s:
         repo_doc.atualizar_estado(s, [(doc_ctrl, regras.estado_documento(doc_status))])
+        if extracao.get("hash_arquivo"):
+            repo_doc.gravar_hash_arquivo(s, [(doc_ctrl, extracao["hash_arquivo"])])
         s.commit()
 
 
@@ -352,15 +411,15 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     n_itens = sum(len(grupos[d]) for d in pend)
     ctx.log("info", f"[bold][5] {len(grupos)} documentos sobreviventes, pendentes: "
                     f"{len(pend)} ({n_itens} itens)[/] — extração: {model} "
-                    f"({resolucao_extract.info.name}), casamento: "
-                    f"{resolucao_chat.info.name}, concorrência: {params.concurrency_docs} "
-                    f"docs × {params.concurrency_llm} itens")
+                    f"({resolucao_extract.info.name}, pdf: {params.pdf_engine}), "
+                    f"casamento: {resolucao_chat.info.name}, "
+                    f"concorrência: {params.concurrency_docs} documentos")
 
     prompts_ativos = {}
     try:
         with db.session() as sessao:
             prompts_ativos = prompts_resolver.carregar_ativos(
-                sessao, ["extrair_tabela_documento", "casar_item_tabela"])
+                sessao, ["extrair_tabela_documento", "casar_itens_tabela"])
     except Exception:  # noqa: BLE001 — sem banco de prompts, cai no hardcoded
         prompts_ativos = {}
 
@@ -369,19 +428,19 @@ def run(params: Params, ctx: RunContext) -> StepResult:
 
     def extrator():
         if not hasattr(_tls, "e"):
-            kwargs = {"max_retries": 3, "prompts_ativos": prompts_ativos,
-                      # O anexo pode ter dezenas de MB e o documento inteiro passa pelo
-                      # modelo: o timeout padrão de 60s não cobre isso.
-                      "timeout": 600}
-            if params.file_parser:
-                kwargs["extra_body"] = dict(PLUGIN_FILE_PARSER)
-            _tls.e = ctx.providers.novo_extract(curador_kwargs=kwargs)
+            _tls.e = ctx.providers.novo_extract(curador_kwargs={
+                "max_retries": 3, "prompts_ativos": prompts_ativos,
+                # O anexo pode ter dezenas de MB e o documento inteiro passa pelo modelo: o
+                # timeout padrão de 60s não cobre isso.
+                "timeout": 600,
+                "extra_body": _plugin_pdf(params.pdf_engine)})
         return _tls.e
 
     def curador_factory():
         if not hasattr(_tls, "c"):
             _tls.c = ctx.providers.novo_chat(curador_kwargs={
-                "max_retries": 6, "prompts_ativos": prompts_ativos}).curador
+                "max_retries": 6, "prompts_ativos": prompts_ativos,
+                **sem_reasoning(resolucao_chat.info.name)}).curador
         return _tls.c
 
     # `run_id` não está no protocolo `RunContext` — o `NullContext` não o tem.
@@ -396,12 +455,27 @@ def run(params: Params, ctx: RunContext) -> StepResult:
         linhas_item, extracao = resultado
         _gravar_documento(doc_ctrl, linhas_item, extracao, run_id, model,
                           resolucao_extract.info.name)
-        if extracao.get("tabela_texto"):
-            acumulador.registra_ok()
-        else:
+
+        # A extração deu certo, mas o CASAMENTO pode ter quebrado. Os dois falham de formas
+        # diferentes e precisam aparecer diferentes na tela — misturá-los foi o que escondeu
+        # a falha em massa da etapa 3 em 2026-08-25.
+        erro_casamento = extracao.get("_erro_casamento")
+        if erro_casamento is not None:
+            # UM erro por documento, não um por item. A unidade da etapa é o documento (é o
+            # que a barra de progresso conta), e uma chamada de casamento que falha produz um
+            # erro — não N. Em 2026-08-29 a tela mostrou "erros: 20" para UM documento com 20
+            # candidatos, e a leitura natural foi "20 documentos falharam".
+            ctx.item_error(doc_ctrl, erro_casamento, tipo="llm",
+                           name=f"casamento de {len(linhas_item)} candidatos")
+            ctx.log("aviso", f"[yellow][5] {doc_ctrl}: extraiu a tabela, mas o casamento "
+                             f"falhou — {str(erro_casamento)[:160]}[/]")
+
+        if not extracao.get("tabela_texto"):
             # Documento sem tabela não é falha de provedor — está gravado e não volta à fila.
             # Não conta como erro, mas também não conta como sucesso para o circuit breaker.
             ctx.log("aviso", f"[yellow][5] {doc_ctrl}: sem tabela de itens no documento[/]")
+        elif erro_casamento is None:
+            acumulador.registra_ok()
 
     def err_doc(doc_ctrl, exc):
         ctx.item_error(doc_ctrl, exc)

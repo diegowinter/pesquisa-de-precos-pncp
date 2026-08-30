@@ -19,12 +19,13 @@ from sqlalchemy.orm import Session
 
 from pesquisa_precos.db import copy
 
-COLUNAS_EXTRACAO = ("numero_controle_pncp", "tabela_texto", "n_paginas", "tokens_in",
-                    "tokens_out", "cost_usd", "duration_ms", "model", "provider", "run_id")
+COLUNAS_EXTRACAO = ("numero_controle_pncp", "tabela_texto", "tokens_in", "tokens_out",
+                    "cost_usd", "duration_ms", "model", "provider", "run_id")
 
-COLUNAS_ENRIQUECIDO = ("item_key", "descricao_final", "fonte_descricao", "preco_api",
-                       "preco_pdf", "divergencia_preco", "fornecedor", "quantidade_pdf",
-                       "status", "destino", "doc_status", "run_id")
+COLUNAS_ENRIQUECIDO = ("item_key", "numero_controle_pncp", "descricao_final",
+                       "fonte_descricao", "preco_api", "preco_pdf", "divergencia_preco",
+                       "fornecedor", "quantidade_pdf", "status", "destino", "doc_status",
+                       "run_id")
 
 
 def gravar_extracoes(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
@@ -33,7 +34,7 @@ def gravar_extracoes(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) 
     return copy.copiar(
         conn, "documento_extracao", COLUNAS_EXTRACAO, linhas,
         conflito=("numero_controle_pncp",),
-        atualizar=("tabela_texto", "n_paginas", "tokens_in", "tokens_out",
+        atualizar=("tabela_texto", "tokens_in", "tokens_out",
                    "cost_usd", "duration_ms", "model", "provider", "run_id"),
     )
 
@@ -41,12 +42,14 @@ def gravar_extracoes(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) 
 def gravar_enriquecidos(conn: psycopg.Connection, linhas: Sequence[Sequence[Any]]) -> int:
     """Contrato de saída da etapa 5 (ordem de `COLUNAS_ENRIQUECIDO`).
 
-    `DO UPDATE`: reprocessar um documento DEVE sobrescrever o veredito de todos os seus itens
-    — é a ação "reprocessar este documento" da interface.
+    A chave é `(item_key, numero_controle_pncp)` desde a ADR-024: o item pertence à COMPRA, e é
+    esta tabela que registra em QUAL documento dela ele foi encontrado. Reprocessar um
+    documento sobrescreve só o veredito daquele documento, sem tocar no que outra ata da mesma
+    compra já confirmou.
     """
     return copy.copiar(
         conn, "item_enriquecido", COLUNAS_ENRIQUECIDO, linhas,
-        conflito=("item_key",),
+        conflito=("item_key", "numero_controle_pncp"),
         atualizar=("descricao_final", "fonte_descricao", "preco_api", "preco_pdf",
                    "divergencia_preco", "fornecedor", "quantidade_pdf", "status",
                    "destino", "doc_status", "run_id"),

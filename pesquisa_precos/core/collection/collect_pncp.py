@@ -20,15 +20,19 @@ corte, só para os documentos que sobrevivem. `numero_sequencial`/`numero_sequen
 
 
 
+import threading
+
 from pesquisa_precos.core.collection import search_pncp, fetch_files, fetch_items, urls
 
 # Fontes de documento suportadas (tipo_doc na saída da etapa 2).
 FONTES = ["contrato", "ata"]
 
-# Colunas da saída da etapa 2 (data/2_itens_coletados.csv). item_key é a chave universal
-# do item daqui pra frente (numeroControlePNCP + "::" + numeroItem).
+# Colunas da saída da etapa 2. `item_key` é a chave universal do item daqui pra frente:
+# CHAVE DA COMPRA + "::" + numeroItem (ADR-024). Era o número de controle do DOCUMENTO até
+# 2026-08-29 — e como a API do PNCP só entrega itens por compra, isso copiava a lista inteira
+# em cada ata da mesma compra (8,4x de duplicação no acervo de atas).
 COLUNAS_ITENS = [
-    "item_key", "tipo_doc", "numeroControlePNCP", "numeroItem", "descricao_api",
+    "item_key", "compra_key", "tipo_doc", "numeroControlePNCP", "numeroItem", "descricao_api",
     "unidade", "quantidade", "preco_unitario", "orgao", "uf", "data",
     "conceitos_origem",
     # metadados extras úteis à exportação final (etapa 8):
@@ -41,8 +45,72 @@ COLUNAS_ITENS = [
 ]
 
 
-def montar_item_key(numero_controle: str, numero_item) -> str:
-    return f"{numero_controle}::{numero_item}"
+# ── Itens são da COMPRA, não do documento (ADR-024) ─────────────────────────────────
+#
+# Um pregão gera N atas, e a API do PNCP só tem itens por compra. Sem este cache, coletar as
+# 25 atas do pregão 507 da Embrapa refazia 25 vezes o `fetch_itens()` (88 itens) E os 88
+# `fetch_resultado_vencedor()` — mais de 2.200 chamadas à API para obter o mesmo dado. Com o
+# cache, uma vez.
+#
+# A etapa 2 processa documentos em paralelo (`params.concurrency`), então o dicionário é
+# protegido por lock. O teto existe porque uma execução longa passa por milhares de compras e
+# a lista de itens de cada uma não é pequena; ao estourar, o cache é esvaziado inteiro — não
+# há política de descarte fina porque as atas da mesma compra chegam próximas na busca, que
+# é justamente quando o cache serve.
+_TETO_CACHE_COMPRAS = 500
+_cache_itens: dict[tuple, list[dict]] = {}
+_lock_cache = threading.Lock()
+
+
+def _itens_da_compra(cnpj: str, ano, seq_itens) -> list[dict]:
+    """Itens HOMOLOGADOS da compra, com o resultado vencedor já resolvido. Memoizado."""
+    chave = (str(cnpj), str(ano), str(seq_itens))
+    with _lock_cache:
+        cacheado = _cache_itens.get(chave)
+    if cacheado is not None:
+        return cacheado
+
+    itens = fetch_items.fetch_itens(cnpj, ano, seq_itens, silent=True)
+    homologados = fetch_items.filtrar_homologados(itens)
+    enriquecidos = []
+    for item in homologados:
+        numero_item = item.get("numeroItem")
+        estimado = item.get("valorUnitarioEstimado")
+        # Preço real = valorUnitarioHomologado (adjudicado no /resultados). O estimado do
+        # edital costuma ser placeholder (0/0,01); só cai nele quando não há resultado.
+        forn = data_res = ""
+        preco = estimado
+        if item.get("temResultado"):
+            res = fetch_items.fetch_resultado_vencedor(cnpj, ano, seq_itens, numero_item,
+                                                       silent=True)
+            if res and res.get("valorUnitarioHomologado") not in (None, "", 0):
+                preco = res.get("valorUnitarioHomologado")
+                forn = res.get("nomeRazaoSocialFornecedor") or ""
+                data_res = res.get("dataResultado") or ""
+        enriquecidos.append({**item, "_preco": preco, "_fornecedor": forn,
+                             "_data_resultado": data_res, "_estimado": estimado})
+
+    with _lock_cache:
+        if len(_cache_itens) >= _TETO_CACHE_COMPRAS:
+            _cache_itens.clear()
+        _cache_itens[chave] = enriquecidos
+    return enriquecidos
+
+
+def limpar_cache_itens() -> None:
+    """Zera o cache de itens por compra. A etapa 2 chama no início de cada execução — dado do
+    PNCP muda entre execuções, e cache que sobrevive a um `run` esconderia atualização."""
+    with _lock_cache:
+        _cache_itens.clear()
+
+
+def montar_item_key(compra_key: str, numero_item) -> str:
+    """Chave do item. O primeiro componente é a COMPRA, nunca o documento (ADR-024).
+
+    Quem tem o número de controle de um documento em mãos passa por `urls.chave_compra()`
+    antes — é a única função que deriva essa chave.
+    """
+    return f"{compra_key}::{numero_item}"
 
 
 def _base_resultado(r: dict, fonte: str) -> dict:
@@ -125,31 +193,29 @@ def _coletar_de_base(base: dict, fonte: str, conceito: str) -> tuple[list[dict],
         seq_itens = seq
 
     try:
-        itens = fetch_items.fetch_itens(cnpj, ano, seq_itens, silent=True)
+        homologados = _itens_da_compra(cnpj, ano, seq_itens)
     except Exception:  # noqa: BLE001
         return [], "erro"
-    homologados = fetch_items.filtrar_homologados(itens)
     if not homologados:
         return [], "sem_homologado"
 
     url_pncp = urls.url_documento(base["numeroControlePNCP"], fonte)
+    # A identidade do item é a COMPRA (ADR-024). `numeroControlePNCP` continua na linha porque
+    # a etapa 2 precisa dele para gravar o DOCUMENTO; ele já não entra no `item_key`.
+    compra_key = urls.chave_compra(base["numeroControlePNCP"])
 
     linhas = []
     for item in homologados:
+        # Preço e fornecedor já vêm resolvidos de `_itens_da_compra` — resolvê-los aqui
+        # significaria uma chamada de `/resultados` por item POR ATA (ver ADR-024).
         numero_item = item.get("numeroItem")
-        estimado = item.get("valorUnitarioEstimado")
-        # Preço real = valorUnitarioHomologado (adjudicado no /resultados). O estimado do edital
-        # costuma ser placeholder (0/0,01); só cai nele quando não há resultado homologado.
-        forn = data_res = ""
-        preco = estimado
-        if item.get("temResultado"):
-            res = fetch_items.fetch_resultado_vencedor(cnpj, ano, seq_itens, numero_item, silent=True)
-            if res and res.get("valorUnitarioHomologado") not in (None, "", 0):
-                preco = res.get("valorUnitarioHomologado")
-                forn = res.get("nomeRazaoSocialFornecedor") or ""
-                data_res = res.get("dataResultado") or ""
+        estimado = item.get("_estimado")
+        preco = item.get("_preco")
+        forn = item.get("_fornecedor") or ""
+        data_res = item.get("_data_resultado") or ""
         linhas.append({
-            "item_key": montar_item_key(base["numeroControlePNCP"], numero_item),
+            "item_key": montar_item_key(compra_key, numero_item),
+            "compra_key": compra_key,
             "tipo_doc": fonte,
             "numeroControlePNCP": base["numeroControlePNCP"],
             "numeroItem": numero_item,

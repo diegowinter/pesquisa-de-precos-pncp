@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from pesquisa_precos.db import copy
+from pesquisa_precos.db.repos.documento import SQL_DOCUMENTO_DO_ITEM
 
 COLUNAS_GRUPO = ("tipo", "codigo", "item_key", "par_key", "posicao",
                  "preco_unitario", "flag_preco", "motivo_flag", "run_id")
@@ -59,10 +60,10 @@ def linhas_do_run(sessao: Session, run_id: int) -> list[dict]:
                COALESCE(NULLIF(e.descricao_final, ''), i.descricao_api) AS descricao_final,
                c.nome_pdm, c.description AS descricao_catalogo, c.nome_classe, c.active
           FROM grupo_item g
-          JOIN item i      ON i.item_key = g.item_key
-          JOIN documento d ON d.numero_controle_pncp = i.numero_controle_pncp
+          JOIN item i ON i.item_key = g.item_key
           JOIN catalogo_item c ON c.tipo = g.tipo AND c.codigo = g.codigo
           LEFT JOIN item_enriquecido e ON e.item_key = g.item_key
+    """ + SQL_DOCUMENTO_DO_ITEM + """
          WHERE g.run_id = :r
          ORDER BY g.codigo, g.posicao
     """), {"r": run_id}).mappings().all()

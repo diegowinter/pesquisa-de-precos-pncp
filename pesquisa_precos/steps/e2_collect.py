@@ -149,7 +149,7 @@ def _linha_item(linha: dict) -> tuple:
     descricao = linha.get("descricao_api") or ""
     unidade = linha.get("unidade") or None
     return (
-        linha.get("item_key"), linha.get("numeroControlePNCP"),
+        linha.get("item_key"), linha.get("compra_key"),
         _inteiro(linha.get("numeroItem")), descricao, unidade,
         _decimal(linha.get("quantidade")), _decimal(linha.get("preco_unitario")),
         _decimal(linha.get("preco_estimado")), linha.get("fornecedor") or None,
@@ -408,6 +408,10 @@ def _coletar_busca(busca: _Busca, params: Params, db, repo, repo_termo, *,
 
 def run(params: Params, ctx: RunContext) -> StepResult:
     db = _exigir_banco()
+    # Os itens de uma compra são buscados uma vez e reaproveitados entre as atas dela
+    # (ADR-024). O cache é por execução: dado do PNCP muda entre runs, e um cache que
+    # sobrevivesse esconderia a atualização que a etapa existe para capturar.
+    collect_pncp.limpar_cache_itens()
     from pesquisa_precos.db.repos import documento as repo
     from pesquisa_precos.db.repos import termo as repo_termo
 

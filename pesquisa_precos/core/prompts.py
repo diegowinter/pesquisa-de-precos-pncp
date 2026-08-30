@@ -330,34 +330,65 @@ def montar_prompt_extrair_tabela_documento() -> str:
     )
 
 
-def montar_prompt_casar_item_tabela(item_api: dict, tabela_texto: str) -> str:
-    """Casa UM item da API do PNCP contra a tabela já extraída do documento.
+def bloco_itens_candidatos(itens_api: list[dict]) -> str:
+    """Os candidatos como texto. Renderizado em CÓDIGO, não no template do banco: é dado de
+    domínio, como o bloco de categorias da etapa 3 (ADR-014)."""
+    linhas = []
+    for item in itens_api:
+        numero = item.get("numeroItem", "")
+        desc = (item.get("descricao_api") or "").strip()
+        qtd = item.get("quantidade", "")
+        preco = item.get("preco_unitario", "")
+        linhas.append(f"  [{numero}] {desc} | qtd: {qtd} | preço: {preco}")
+    return "\n".join(linhas)
 
-    A entrada é curta e só contém itens: a chamada não vê o documento inteiro, que é o
-    ponto do desenho de duas passadas.
+
+def montar_prompt_casar_itens_tabela(itens_api: list[dict], tabela_texto: str) -> str:
+    """Casa os itens CANDIDATOS de uma compra contra a tabela extraída de UM documento.
+
+    Uma chamada por documento, não por item (ADR-024). A API do PNCP entrega itens por compra,
+    e um pregão gera N atas — cada ata registra só o que um fornecedor ganhou. Perguntar item a
+    item significava, para o pregão 507 da Embrapa, 82 perguntas em cada uma das 25 atas: 2.050
+    chamadas para 82 respostas úteis. Aqui a tabela vai uma vez e os candidatos vão juntos.
+
+    Espera-se que a MAIORIA dos candidatos não esteja na tabela — isso é o normal, não falha.
+    O prompt diz isso explicitamente para o modelo não se sentir obrigado a casar tudo, que é
+    o modo de falhar mais caro: casamento forçado vira preço errado no produto final.
     """
-    numero = item_api.get("numeroItem", "")
-    descricao_api = item_api.get("descricao_api", "")
+    linhas = []
+    for item in itens_api:
+        numero = item.get("numeroItem", "")
+        desc = (item.get("descricao_api") or "").strip()
+        qtd = item.get("quantidade", "")
+        preco = item.get("preco_unitario", "")
+        linhas.append(f"  [{numero}] {desc} | qtd: {qtd} | preço: {preco}")
+    itens_fmt = "\n".join(linhas)
+
     return (
-        "Você recebe UM item da API do PNCP e a TABELA DE ITENS extraída do documento da "
-        "ata/contrato. Diga qual linha da tabela é o MESMO item — casando por número do "
-        "item e/ou descrição — ou que não há correspondência.\n\n"
-        "ITEM DA API (referência, descrição pobre):\n"
-        f"  Número do item: {numero}\n"
-        f"  Descrição: {descricao_api}\n\n"
+        "Você recebe a TABELA DE ITENS extraída de um documento (ata de registro de preços ou "
+        "contrato) e uma LISTA DE ITENS CANDIDATOS vindos da API do PNCP.\n\n"
+        "Diga QUAIS candidatos aparecem nessa tabela, e devolva os dados de cada um.\n\n"
+        "IMPORTANTE: os candidatos são todos os itens do PREGÃO, e este documento normalmente "
+        "contém apenas ALGUNS deles — um pregão gera várias atas, uma por fornecedor. É "
+        "esperado e correto que a maioria dos candidatos NÃO esteja aqui. Não force "
+        "correspondência: devolver poucos itens certos é o resultado bom.\n\n"
         "TABELA DO DOCUMENTO:\n"
         f"{tabela_texto}\n\n"
+        "ITENS CANDIDATOS (formato: [número] descrição | qtd | preço da API):\n"
+        f"{itens_fmt}\n\n"
         "REGRAS:\n"
-        "- Case pelo SENTIDO do objeto, não pela grafia. O número do item ajuda, mas a "
+        "- Case pelo SENTIDO do objeto, não pela grafia. O número do candidato ajuda, mas a "
         "descrição manda: se o número aponta uma linha de objeto claramente diferente, "
         "confie na descrição.\n"
-        "- COPIE preco_unitario e quantidade da LINHA escolhida, exatamente como estão na "
-        "tabela. NÃO converta separador decimal e NÃO arredonde.\n"
-        "- descricao_completa é a descrição do item COMO ESTÁ na tabela, com as "
-        "especificações técnicas, sem preço, marca nem fornecedor.\n"
+        "- Use quantidade e preço do candidato como confirmação — quando batem com a linha da "
+        "tabela, é o mesmo item.\n"
+        "- COPIE preco_unitario e quantidade da LINHA DA TABELA, exatamente como estão. NÃO "
+        "converta separador decimal e NÃO arredonde.\n"
+        "- descricao_completa é a descrição do item COMO ESTÁ na tabela, com as especificações "
+        "técnicas, sem preço, marca nem fornecedor.\n"
         "- fornecedor só se a tabela tiver essa informação; senão, string vazia.\n"
-        "- Se NENHUMA linha for o mesmo item, encontrado=false e os demais campos vazios. "
-        "NÃO invente correspondência.\n\n"
-        'Responda SOMENTE com JSON puro: {"encontrado": true, "descricao_completa": "...", '
-        '"preco_unitario": "", "quantidade": "", "fornecedor": ""}'
+        "- NÃO inclua candidato que não está na tabela. Lista vazia é resposta válida.\n\n"
+        'Responda SOMENTE com JSON puro: {"itens": [{"numero_item": 1, '
+        '"descricao_completa": "...", "preco_unitario": "", "quantidade": "", '
+        '"fornecedor": ""}]}'
     )
