@@ -99,3 +99,80 @@ def test_lock_registra_o_pid_real_do_worker():
     assert hasattr(lock, "registrar_pid")
     fonte = inspect.getsource(launcher.iniciar_subprocesso)
     assert "registrar_pid(sessao, run_etapa_id, processo.pid)" in fonte
+
+
+# ── SQL que só quebra em produção ────────────────────────────────────────────────────
+
+@pytest.mark.skipif(not __import__("pesquisa_precos.db.session", fromlist=["is_available"])
+                    .is_available()[0], reason="sem banco")
+def test_gravar_veredito_executa_no_postgres():
+    """`gravar_veredito` só roda na etapa 6c, que é PAGA — um erro de SQL aqui aparece depois
+    de o LLM ter sido cobrado. Foi o que houve em 2026-08-30: o alias declarava `model` e o
+    SET lia `v.modelo` (resquício da renomeação para inglês), e 520 vereditos pagos se
+    perderam na gravação.
+
+    Executa contra uma chave inexistente e desfaz: valida o SQL sem tocar em dado.
+    """
+    from pesquisa_precos.db import session as db
+    from pesquisa_precos.db.repos import par as repo
+
+    with db.session() as sessao:
+        assert repo.gravar_veredito(
+            sessao, [("__par_que_nao_existe__", "sim", "j", "m")]) == 0
+        sessao.rollback()
+
+
+def test_veredito_da_6c_le_a_string_e_nao_a_verdade_booleana():
+    """`comparar_par` devolve "sim"/"nao"/"erro". Testar `if res["mesmo_item"]` faz "nao" —
+    string não vazia — valer VERDADEIRO, e todo par vira `sim`. Aconteceu em 2026-08-30: os
+    893 ambíguos saíram `sim`, com justificativas dizendo "naturezas distintas"."""
+    import pathlib
+    import re
+
+    fonte = pathlib.Path("pesquisa_precos/steps/e6c_validate.py").read_text(encoding="utf-8")
+    corpo = "\n".join(ln for ln in fonte.splitlines() if not re.match(r"\s*#", ln))
+    assert 'if res.get("mesmo_item") else' not in corpo
+    assert 'mesmo not in ("sim", "nao")' in corpo
+
+
+def test_toda_etapa_devolve_step_result():
+    """`run()` sem `return` devolve `None`, e o worker quebra em `resultado.metrics` DEPOIS de
+    a etapa ter feito e gravado todo o trabalho. A etapa 7 caía assim (2026-08-30): gravou
+    1.065 linhas em `grupo_item` e a tela marcou "falhou".
+
+    A checagem é sintática: o último comando de `run()` tem de ser `return` (ou `raise`), o
+    que impede a função de "cair pelo fim" devolvendo `None`.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from pesquisa_precos.steps import registry
+
+    faltando = []
+    for definicao in registry.ETAPAS:
+        modulo = definicao.carregar()
+        arvore = ast.parse(textwrap.dedent(inspect.getsource(modulo.run)))
+        ultimo = arvore.body[0].body[-1]
+        if not isinstance(ultimo, (ast.Return, ast.Raise)):
+            faltando.append(f"{definicao.key} ({modulo.__name__}): termina em "
+                            f"{type(ultimo).__name__}")
+    assert not faltando, "run() pode cair pelo fim devolvendo None: " + "; ".join(faltando)
+
+
+def test_xlsx_aceita_caractere_de_controle_do_pdf():
+    """O XLSX proíbe caracteres de controle; o Postgres só proíbe o NUL. Um `\x13` no lugar
+    de um travessão atravessou coleta, extração, pareamento e agrupamento, e derrubou a
+    etapa 8 — a ÚLTIMA — por UMA linha em 34.256 (2026-08-30).
+    """
+    from openpyxl import Workbook
+
+    from pesquisa_precos.steps.e8_export import _para_celula
+
+    sujo = "COLETE NIVEL IIIA " + chr(0x13) + " NIJ STD 0101.06"
+    limpo = _para_celula(sujo)
+    assert chr(0x13) not in limpo
+    assert "COLETE NIVEL IIIA" in limpo and "NIJ STD" in limpo
+    # o que importa é o openpyxl aceitar, não a nossa regex concordar consigo mesma
+    Workbook().active.append([limpo])
+    assert _para_celula(3.5) == 3.5 and _para_celula(None) is None

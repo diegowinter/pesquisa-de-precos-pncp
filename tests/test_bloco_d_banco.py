@@ -207,7 +207,13 @@ def test_export_vai_e_volta_do_banco():
 
     conteudo = montar_xlsx([dict.fromkeys(COLUNAS_PLASEG, "y")])
     with db.session() as s:
-        run_id = repo_exec.run_aberto_ou_criar(s, "teste_bloco_d")
+        # Run próprio e descartável. Antes o teste chamava `run_aberto_ou_criar`, que
+        # REAPROVEITA o último run aberto de mesmo rótulo — e por isso deixava a run
+        # "teste_bloco_d" viva no banco depois de passar. Teste que toca tabela de domínio
+        # limpa o que criou (ver CLAUDE.md).
+        cv = repo_exec.config_versao_por_rotulo(s, "default")
+        assert cv is not None, "sem config_version 'default' no banco"
+        run_id = repo_exec.criar_run(s, "teste_bloco_d", cv)
         export_id = repo_grupo.registrar_export(
             s, run_id, "completo", None, 1, 1, "hash-de-teste",
             conteudo=conteudo, nome_arquivo="itens_plaseg.xlsx")
@@ -221,6 +227,7 @@ def test_export_vai_e_volta_do_banco():
             assert caminho is None, "no caminho banco não existe arquivo em disco"
         finally:
             s.execute(text("DELETE FROM export WHERE id = :i"), {"i": export_id})
+            s.execute(text("DELETE FROM run WHERE id = :r"), {"r": run_id})
             s.commit()
 
 

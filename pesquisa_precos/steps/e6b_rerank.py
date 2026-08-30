@@ -71,7 +71,7 @@ def run(params: Params, ctx: RunContext) -> StepResult:
               FROM par p
               JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
               JOIN item i ON i.item_key = p.item_key
-              LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+              LEFT JOIN item_enriquecido_melhor e ON e.item_key = p.item_key
              WHERE p.sobreviveu AND p.score_rerank IS NULL
              ORDER BY p.par_key{limite}
         """)).all()

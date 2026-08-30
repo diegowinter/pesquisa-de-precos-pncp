@@ -48,7 +48,10 @@ from pesquisa_precos.steps.base import RunContext, Estimate, StepResult
 KEY = "8"
 # 2.0.0 (Fase 13): o caminho CSV saiu — nada é gravado em disco (ADR-018/ADR-020). O formato
 # do XLSX nunca mudou; o que mudou é onde ele vive.
-CODE_VERSION = "2.0.0"
+# 2.1.0 — o run exportado passou a sair de `ctx.run_id` (o run da execução) antes de cair
+# no `max(run_id)` de `grupo_item`. O fallback por máximo exportava o run errado quando a
+# etapa 7 carimbava outro id — ver o bump da 7 para 2.2.0.
+CODE_VERSION = "2.1.0"
 
 # NOME do arquivo oferecido no download (`export.nome_arquivo`), não um caminho: a etapa não
 # escreve em disco. O usuário salva onde quiser, a partir da interface.
@@ -71,7 +74,7 @@ class Params(BaseModel):
         False, description="Exporta só os itens NOVOS desde o último export --novos "
                            "(compara com o snapshot anterior e o avança).")
     run_id: int | None = Field(
-        None, description="Run a exportar (default: o último com ranking em grupo_item)")
+        None, description="Run a exportar (vazio: o run desta execução)")
 
 
 def parse_controle(nc: str) -> tuple[str, str, str]:
@@ -163,7 +166,10 @@ def carregar_do_banco(params: Params, ctx: RunContext) -> tuple[pd.DataFrame, di
     if not ok:
         raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     with db.session() as s:
-        run_id = params.run_id or repo_grupo.ultimo_run_com_grupos(s)
+        # O run da execução vem primeiro: `ultimo_run_com_grupos` é `max(run_id)` e só
+        # serve de último recurso (reexportar fora de um run). Confiar no máximo já fez o
+        # export sair de um run que não era o da execução.
+        run_id = params.run_id or ctx.run_id or repo_grupo.ultimo_run_com_grupos(s)
         if run_id is None:
             raise SystemExit("Nenhum run com ranking em grupo_item. Rode a etapa 7 antes.")
         linhas = repo_grupo.linhas_do_run(s, run_id)
@@ -237,10 +243,30 @@ def montar_xlsx(linhas_csv: list) -> bytes:
     ws.title = "Itens PLASEG"
     ws.append(COLUNAS_PLASEG)
     for linha in linhas_csv:
-        ws.append([linha[c] for c in COLUNAS_PLASEG])
+        ws.append([_para_celula(linha[c]) for c in COLUNAS_PLASEG])
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+# Caracteres que o formato XLSX proíbe (controle, exceto tab/LF/CR). `openpyxl` levanta
+# `IllegalCharacterError` neles, e o texto vem do PDF, onde travessão e aspas tipográficas
+# viram byte de controle com alguma frequência. O Postgres aceita todos menos o NUL (que o
+# `db.copy.texto_para_pg` já remove na etapa 5), então eles atravessam o banco inteiro e só
+# explodem aqui — na ÚLTIMA etapa, depois de todo o trabalho caro.
+_ILEGAIS_XLSX = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _para_celula(valor):
+    """Valor pronto para uma célula: sem caractere que o XLSX recuse.
+
+    Em 2026-08-30 UMA linha em 34.256 derrubou a etapa 8 inteira — um `\x13` no lugar de um
+    travessão, na descrição de um colete. Substituir por espaço preserva a separação de
+    palavras, que é o que aquele caractere estava fazendo no texto original.
+    """
+    if not isinstance(valor, str):
+        return valor
+    return _ILEGAIS_XLSX.sub(" ", valor)
 
 
 def montar_linhas(df: pd.DataFrame, catmap: dict) -> list:

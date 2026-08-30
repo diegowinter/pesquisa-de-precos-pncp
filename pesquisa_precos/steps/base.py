@@ -79,6 +79,11 @@ class RunContext(Protocol):
     action: Acao
     mode: Modo
     providers: "Providers"
+    # O run em curso. `None` só em `estimate()`, que roda fora de um run (`NullContext`).
+    # Faltava aqui: sem contrato para ler o run corrente, a etapa 7 criava um run próprio
+    # (`run_aberto_ou_criar`, resquício da Fase 2) e carimbava `grupo_item`/`export` com um id
+    # que não era o da execução — foi assim que a run 395 saiu partida em duas.
+    run_id: int | None
 
     def progresso(self, processed: int, total: int | None = None,
                   descricao: str | None = None) -> None:

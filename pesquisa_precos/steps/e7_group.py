@@ -36,7 +36,10 @@ KEY = "7"
 # (ADR-020). A regra de agrupamento em si nunca mudou.
 # 2.1.0 — Fase 14 (ADR-022): `min_itens`/`top_n` deixaram de cair para `ctx.config` (o `.env`)
 # e passam a sair só de `Params`/`config_version`. Mesma razão do bump da 6b.
-CODE_VERSION = "2.1.0"
+# 2.2.0 — a etapa deixou de criar o próprio run (`run_aberto_ou_criar`, resquício da Fase 2)
+# e passou a carimbar `grupo_item` com o run da execução (`ctx.run_id`). O campo `run` do
+# `Params` saiu junto: quem define o run é quem executa, não o formulário.
+CODE_VERSION = "2.2.0"
 
 META_ITEM = ["tipo_doc", "numeroControlePNCP", "numeroItem", "unidade", "quantidade",
              "preco_unitario", "preco_estimado", "fornecedor", "data_resultado",
@@ -55,12 +58,10 @@ class Params(BaseModel):
         0, ge=0, description="Máx. de itens (mais baratos) por código; 0 = SEM TETO")
     fator_iqr: float = Field(
         3.0, gt=0, description="Multiplicador do IQR na marcação de outlier de preço")
-    run: str = Field(
-        "corrente", description="Rótulo do run que carimba grupo_item")
 
 
-def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
-    """Pares confirmados + metadados do item, direto do banco. Devolve (df, run_id).
+def confirmados_do_banco() -> pd.DataFrame:
+    """Pares confirmados + metadados do item, direto do banco.
 
     Um SELECT só, no repositório — a etapa não escreve SQL (regra da Fase 2). As colunas
     saem com os MESMOS nomes que o caminho CSV usa (`numeroControlePNCP`, `numeroItem`…),
@@ -68,7 +69,6 @@ def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
     aqui é mais barato que manter duas versões da regra de menor preço.
     """
     from pesquisa_precos.db import session as db
-    from pesquisa_precos.db.repos import execution as repo_exec
     from pesquisa_precos.db.repos import par as repo_par
 
     ok, detalhe = db.is_available()
@@ -76,9 +76,8 @@ def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
         raise SystemExit(f"Banco indisponível ({detalhe}). Confira DATABASE_URL no .env.")
     with db.session() as s:
         linhas = repo_par.confirmados(s)
-        run_id = repo_exec.run_aberto_ou_criar(s, rotulo_run)
     if not linhas:
-        return pd.DataFrame(), run_id
+        return pd.DataFrame()
 
     df = pd.DataFrame(linhas).rename(columns={
         "numero_controle_pncp": "numeroControlePNCP",
@@ -89,7 +88,7 @@ def confirmados_do_banco(rotulo_run: str) -> tuple[pd.DataFrame, int]:
     for coluna in df.columns:
         if coluna not in ("preco_unitario", "preco_estimado", "quantidade"):
             df[coluna] = df[coluna].map(lambda v: "" if v is None else str(v))
-    return df, run_id
+    return df
 
 
 def flag_iqr(precos: pd.Series, fator: float = 3.0) -> pd.Series:
@@ -117,19 +116,19 @@ def estimate(params: Params, ctx: RunContext) -> Estimate:
     return Estimate(unidades=n, chamadas_llm=0, cost_usd=0.0, detalhes=comum)
 
 
-def carregar_confirmados(params: Params, ctx: RunContext) -> tuple[pd.DataFrame, int | None]:
-    """Pares confirmados já enriquecidos com metadados do item. (df, run_id)."""
-    conf, run_id = confirmados_do_banco(params.run)
+def carregar_confirmados(params: Params, ctx: RunContext) -> pd.DataFrame:
+    """Pares confirmados já enriquecidos com metadados do item."""
+    conf = confirmados_do_banco()
     if conf.empty:
-        return conf, run_id
+        return conf
     from pesquisa_precos.db import session as db
     from pesquisa_precos.db.repos import catalogo as repo_cat
     with db.session() as s:
         catt = repo_cat.texto_por_codigo(s)
     conf["nome_catalogo"] = conf["codigo"].map(
         lambda c: catt.get(c, {}).get("nome_pdm", ""))
-    ctx.log("info", f"[7] run #{run_id} — {len(conf)} pares confirmados.")
-    return conf, run_id
+    ctx.log("info", f"[7] run #{ctx.run_id} — {len(conf)} pares confirmados.")
+    return conf
 
 
 def carregar_faixas(params: Params) -> dict[str, tuple[float, float]]:
@@ -183,7 +182,11 @@ def gravar_no_banco(selec: pd.DataFrame, run_id: int, ctx: RunContext) -> int:
 def run(params: Params, ctx: RunContext) -> StepResult:
     min_itens, top_n = params.min_itens, params.top_n
 
-    conf, run_id = carregar_confirmados(params, ctx)
+    run_id = ctx.run_id
+    if run_id is None:
+        raise SystemExit("A etapa 7 grava resultado e precisa de um run. Execute-a pela web.")
+
+    conf = carregar_confirmados(params, ctx)
     if conf.empty:
         raise SystemExit("Nenhum par confirmado (aceito/sim). Rode 6b/6c antes.")
 
@@ -217,4 +220,20 @@ def run(params: Params, ctx: RunContext) -> StepResult:
     if top_n and top_n > 0:
         selec = selec.groupby("codigo", group_keys=False).head(top_n)
 
-    gravar_no_banco(selec, run_id, ctx)
+    gravadas = gravar_no_banco(selec, run_id, ctx)
+
+    # O `return` faltava: `run()` caía no fim da função devolvendo `None`, e o worker quebrava
+    # em `resultado.metrics` DEPOIS de a etapa ter feito e gravado todo o trabalho — falha que
+    # parece de execução e é de contrato. `StepResult` é o contrato de toda etapa.
+    return StepResult(
+        processed=len(selec),
+        resumo=f"{gravadas} referências de preço em {len(fecham)} códigos "
+               f"(min_itens={min_itens}, top_n={top_n or 'sem teto'})",
+        metrics={
+            "confirmados": len(conf),
+            "flag_preco": n_flag_total,
+            "codigos_fechados": len(fecham),
+            "grupo_item": gravadas,
+            "faixas_por_categoria": len(faixa),
+        },
+    )

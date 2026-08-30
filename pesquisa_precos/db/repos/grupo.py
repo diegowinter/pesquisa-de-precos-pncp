@@ -62,7 +62,7 @@ def linhas_do_run(sessao: Session, run_id: int) -> list[dict]:
           FROM grupo_item g
           JOIN item i ON i.item_key = g.item_key
           JOIN catalogo_item c ON c.tipo = g.tipo AND c.codigo = g.codigo
-          LEFT JOIN item_enriquecido e ON e.item_key = g.item_key
+          LEFT JOIN item_enriquecido_melhor e ON e.item_key = g.item_key
     """ + SQL_DOCUMENTO_DO_ITEM + """
          WHERE g.run_id = :r
          ORDER BY g.codigo, g.posicao

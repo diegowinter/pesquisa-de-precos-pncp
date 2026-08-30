@@ -72,7 +72,11 @@ def gravar_veredito(sessao: Session,
              "       updated_at = now() "
              "  FROM unnest(CAST(:pks AS text[]), CAST(:vds AS text[]), "
              "              CAST(:jus AS text[]), CAST(:mds AS text[])) "
-             "       AS v(pk, veredito, just, model) "
+             # `modelo` e não `model`: o SET acima lê `v.modelo`. A renomeação para inglês
+             # de 2026-08-22 trocou o alias e não o uso, e como a 6c nunca tinha rodado o
+             # `UndefinedColumn` só apareceu em 2026-08-30 — DEPOIS de 520 chamadas pagas ao
+             # LLM, cujos vereditos foram todos perdidos na gravação.
+             "       AS v(pk, veredito, just, modelo) "
              " WHERE p.par_key = v.pk"),
         {"pks": [p for p, _, _, _ in linhas],
          "vds": [v for _, v, _, _ in linhas],
@@ -119,7 +123,7 @@ def confirmados(sessao: Session) -> list[dict]:
                COALESCE(NULLIF(e.descricao_final, ''), i.descricao_api) AS descricao_final
           FROM par p
           JOIN item i ON i.item_key = p.item_key
-          LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+          LEFT JOIN item_enriquecido_melhor e ON e.item_key = p.item_key
     """ + SQL_DOCUMENTO_DO_ITEM + """
          WHERE p.final_decision = 'confirmado'
     """)).mappings().all()

@@ -80,7 +80,7 @@ def carregar_do_banco() -> tuple[list[dict], list[dict]]:
                             ic.categoria
                        FROM item i
                        JOIN item_categoria ic USING (item_key)
-                       LEFT JOIN item_enriquecido e USING (item_key)
+                       LEFT JOIN item_enriquecido_melhor e USING (item_key)
                       WHERE i.sobrevivente
                         AND coalesce(e.destino::text, 'manter') <> 'descartar'
                  """)).all()]

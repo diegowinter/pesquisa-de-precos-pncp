@@ -397,3 +397,26 @@ def test_casamento_da_etapa_5_e_por_documento_e_nao_por_item():
     fonte = (Path(__file__).resolve().parents[1]
              / "pesquisa_precos" / "steps" / "e5_extract.py").read_text(encoding="utf-8")
     assert "casar_itens_tabela" in fonte
+
+
+def test_ninguem_junta_item_enriquecido_pela_item_key_sozinha():
+    """`item_enriquecido` tem uma linha por DOCUMENTO desde a ADR-024 (média 3,47 por item,
+    máximo 47). Juntar por `item_key` sozinho multiplica silenciosamente: a etapa 6b pontuou
+    1.707 pares como se fossem 4.770, e as etapas 7/8 transformariam o mesmo item em várias
+    referências de preço — a duplicação que a ADR-024 existe para eliminar.
+
+    Quem precisa de UMA linha por item usa a view `item_enriquecido_melhor` (migration 0017),
+    que além de deduplicar escolhe deterministicamente a melhor linha.
+    """
+    import pathlib
+    import re
+
+    ofensores = []
+    for arquivo in list(pathlib.Path("pesquisa_precos").rglob("*.py")):
+        texto = arquivo.read_text(encoding="utf-8")
+        for linha in texto.splitlines():
+            if re.search(r"JOIN\s+item_enriquecido\b", linha):
+                ofensores.append(f"{arquivo}: {linha.strip()}")
+    assert not ofensores, (
+        "JOIN direto em `item_enriquecido` multiplica por documento — use "
+        "`item_enriquecido_melhor`:\n" + "\n".join(ofensores))

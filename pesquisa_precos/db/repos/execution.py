@@ -115,24 +115,6 @@ def run_do_acervo_migrado(sessao: Session) -> int | None:
     return run_por_rotulo(sessao, ROTULO_ACERVO_MIGRADO)
 
 
-def run_aberto_ou_criar(sessao: Session, label: str) -> int:
-    """Run corrente para as etapas que gravam resultado. Cria config default se não houver.
-
-    Existe porque as etapas 7 e 8 precisam de um `run_id` para escrever, e na Fase 2 ainda não
-    há quem crie run (isso é a Fase 3). Deliberadamente simples: reaproveita o último run
-    aberto de mesmo rótulo em vez de acumular um run por execução.
-    """
-    existente = sessao.execute(
-        text("SELECT id FROM run WHERE label = :r AND status = 'open' "
-             "ORDER BY id DESC LIMIT 1"), {"r": label}).scalar()
-    if existente:
-        return existente
-    cv = config_versao_por_rotulo(sessao, "default")
-    if cv is None:
-        cv = criar_config_versao(sessao, "default", notes="criada automaticamente")
-    return criar_run(sessao, label, cv)
-
-
 # ── Prompts ─────────────────────────────────────────────────────────────────────────
 
 def upsert_prompt(sessao: Session, name: str, description: str, capability: str,

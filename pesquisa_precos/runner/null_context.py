@@ -27,6 +27,7 @@ class NullContext:
         self.step = step
         self.action = action
         self.mode = mode
+        self.run_id = None      # `estimate()` roda fora de um run — ver RunContext.run_id
         self.teto_custo_usd = cost_cap_usd
         self.providers = Providers(providers_session)
 

@@ -30,7 +30,9 @@ from pesquisa_precos.steps.base import (Cancelada, Estimate, RunContext, StepRes
                                         avanco_cancelavel, sem_reasoning)
 
 KEY = "6c"
-CODE_VERSION = "2.0.0"
+# 2.1.0: o veredito é a STRING "sim"/"nao", não um bool — `if res["mesmo_item"]` fazia
+#        "nao" (string não vazia) virar `sim` em 100% dos pares.
+CODE_VERSION = "2.1.0"
 
 
 class Params(BaseModel):
@@ -66,7 +68,7 @@ SQL_AMBIGUOS = """
       FROM par p
       JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
       JOIN item i ON i.item_key = p.item_key
-      LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+      LEFT JOIN item_enriquecido_melhor e ON e.item_key = p.item_key
      WHERE p.decisao = 'ambiguo' AND p.veredito IS NULL
      ORDER BY p.par_key
 """
@@ -115,7 +117,20 @@ def _rodar(params: Params, ctx: RunContext) -> StepResult:
             return curador.comparar_par(linha[1] or "", linha[2] or "")
 
         def ok(linha, res):
-            veredito = "sim" if res.get("mesmo_item") else "nao"
+            # `comparar_par` devolve a STRING "sim"/"nao"/"erro" (ADR-013), não um bool.
+            # `if res.get("mesmo_item")` testava verdade booleana, e "nao" é string não
+            # vazia — ou seja, VERDADEIRA. Em 2026-08-30 isso transformou os 893 ambíguos em
+            # 893 `sim`, com justificativas que diziam o contrário ("naturezas distintas").
+            # `erro` (falha de chamada ou JSON ilegível) NÃO vira veredito: ele fica de fora,
+            # para não gravar como decisão o que foi ausência de resposta.
+            mesmo = str(res.get("mesmo_item") or "").strip().lower()
+            if mesmo not in ("sim", "nao"):
+                vereditos["indeterminado"] += 1
+                n_ok[0] += 1
+                ctx.item_error(linha[0], res.get("justificativa") or "resposta ilegível",
+                               tipo="llm", name="comparar_par sem veredito")
+                return
+            veredito = mesmo
             vereditos[veredito] += 1
             n_ok[0] += 1
             lote.append((linha[0], veredito, (res.get("justificativa") or "")[:500], model))
@@ -168,7 +183,7 @@ SQL_ROTULOS_NOVOS = """
       FROM par p
       JOIN catalogo_item c ON c.tipo = p.tipo AND c.codigo = p.codigo
       JOIN item i ON i.item_key = p.item_key
-      LEFT JOIN item_enriquecido e ON e.item_key = p.item_key
+      LEFT JOIN item_enriquecido_melhor e ON e.item_key = p.item_key
      WHERE p.final_decision IN ('confirmado', 'rejeitado')
        AND NOT EXISTS (SELECT 1 FROM label r WHERE r.par_key = p.par_key)
 """
