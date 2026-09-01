@@ -20,28 +20,48 @@ body {
   margin: 0;
 }
 
+/* Duas linhas fixas: título e badge do operador na primeira (afastados nas pontas), as
+   opções na segunda. Vale em qualquer largura — o que muda com o tamanho da tela é só a
+   forma do menu (fileira aberta ou submenus). */
 header.topo {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1.5rem;
+  gap: .6rem 1.5rem;
   padding: .75rem 1.5rem;
   background: var(--painel);
   border-bottom: 1px solid var(--borda);
 }
-
-header.topo { flex-wrap: wrap; gap: 1rem 1.5rem; }
+header.topo .marca { order: 1; }
+header.topo .usuario { order: 2; margin-left: auto; }
+.menu { order: 3; width: 100%; margin-top: .25rem; }
 header.topo a { color: var(--texto); text-decoration: none; }
 header.topo a:hover { color: var(--gate); }
 header.topo .marca { font-weight: 600; }
 
-/* Menu agrupado: o operador precisa enxergar QUE telas existem, não só a atual. */
-.menu { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-right: auto; }
-.menu-grupo { display: flex; flex-direction: column; gap: .15rem; }
+/* Menu agrupado: o operador precisa enxergar QUE telas existem, não só a atual.
+   Cada grupo é um <details>; no desktop o conteúdo é reaberto pelo CSS (regra abaixo), em
+   tela estreita ele volta a ser um submenu de clique. */
+.menu { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+.menu-grupo { display: flex; flex-direction: column; gap: .35rem; }
 .menu-titulo {
   font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--texto-fraco);
+  color: var(--texto-fraco); list-style: none; cursor: default;
 }
-.menu-itens { display: flex; flex-wrap: wrap; gap: .3rem; }
+.menu-titulo::-webkit-details-marker { display: none; }
+.menu-grupo > .menu-itens { display: flex; flex-wrap: wrap; gap: .3rem; }
+
+/* Desktop: o <details> fica sempre "aberto" sem o atributo `open` — assim a mesma marcação
+   serve às duas larguras. Chrome ≥131 esconde o conteúdo por `::details-content`
+   (content-visibility), navegadores anteriores por `display` no slot: cobrimos os dois. */
+@media (min-width: 1200px) {
+  .menu-titulo .chevron { display: none; }
+  /* A caixa do item ativo alinha pela BORDA com o título e o rótulo do grupo — sangrar o
+     padding inteiro jogava o realce para fora da margem do cabeçalho. */
+  .menu-grupo > .menu-itens { margin-left: 0; }
+  .menu-grupo::details-content { content-visibility: visible; block-size: auto; }
+  .menu-grupo > .menu-itens { display: flex !important; }
+}
 .menu-itens a {
   font-size: .9rem; padding: .25rem .55rem; border-radius: 5px;
   border: 1px solid transparent;
@@ -50,7 +70,43 @@ header.topo .marca { font-weight: 600; }
 .menu-itens a.ativo {
   color: var(--gate); border-color: var(--gate); background: #16202d;
 }
-header.topo .usuario { display: flex; align-items: center; gap: .75rem; }
+header.topo .usuario { display: flex; align-items: center; gap: .75rem; margin-left: auto; }
+
+/* ── Cabeçalho em tela estreita ─────────────────────────────────────────────────────
+   A marca e a badge do operador ficam na primeira linha (badge sempre no canto direito);
+   o menu desce inteiro para a segunda, e cada grupo vira um submenu que abre no clique.
+
+   O corte é 1200px porque é onde a fileira completa (marca + 10 links + badge) deixa de
+   caber: abaixo disso ela quebrava em três linhas em vez de compactar. */
+@media (max-width: 1199px) {
+  header.topo { gap: .75rem 1rem; }   /* o padding é o mesmo do desktop */
+  .menu { gap: 1.1rem; }
+  .menu-grupo { position: relative; }
+  /* Sem caixa e em tom apagado: o rótulo do grupo é orientação, não ação — quem convida ao
+     clique é o link dentro do submenu. */
+  .menu-titulo {
+    cursor: pointer; display: inline-flex; align-items: center; gap: .3em;
+    /* Sem recuo à esquerda: o primeiro rótulo tem de nascer na mesma coluna do título do
+       cabeçalho, e qualquer padding aqui o empurrava para fora desse eixo. */
+    padding: .3rem 0;
+    color: var(--texto-fraco); font-size: .75rem; line-height: 1;
+  }
+  .menu-titulo:hover { color: var(--texto); }
+  .menu-grupo[open] > .menu-titulo { color: var(--gate); }
+  /* Só maiúsculas: a caixa do texto tem folga embaixo, então o chevron centralizado pelo
+     flex fica óptica­mente baixo. O 1px de subida acerta o eixo. */
+  .menu-titulo .chevron {
+    width: 1.15em; height: 1.15em; color: var(--texto-fraco);
+    transform: translateY(-1px); transition: transform .15s ease;
+  }
+  .menu-grupo[open] .chevron { transform: translateY(-1px) rotate(180deg); color: var(--gate); }
+  .menu-grupo > .menu-itens {
+    position: absolute; z-index: 20; top: calc(100% + .3rem); left: 0;
+    flex-direction: column; flex-wrap: nowrap; min-width: max-content;
+    background: var(--painel); border: 1px solid var(--borda); border-radius: 6px;
+    padding: .35rem; box-shadow: 0 8px 20px rgba(0,0,0,.45);
+  }
+}
 
 main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 

@@ -13,11 +13,14 @@ histórico ruim de suporte, e 6 KB inline sai mais barato que uma requisição a
 from __future__ import annotations
 
 import sys
+
+# Console do Windows é cp1252 e engasga com a seta do print final.
+sys.stdout.reconfigure(encoding="utf-8")
 from pathlib import Path
 
 NOMES = """layers circle-dollar-sign download git-compare list-checks message-square-text
 sliders-horizontal settings plug bell circle circle-play pause check triangle-alert x ban
-user log-out refresh-cw play file-spreadsheet""".split()
+user log-out refresh-cw play file-spreadsheet chevron-down""".split()
 
 DESTINO = Path(__file__).resolve().parent.parent / "pesquisa_precos/web/templates/_icons.svg"
 ATRIBUTOS = ('viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '

@@ -14,16 +14,18 @@
   <header class="topo">
     <a class="marca" href="/runs">Pesquisa de Preços PLASEG</a>
     <nav class="menu">
+      {# <details> em vez de <div>: em telas estreitas cada grupo vira um submenu que abre no
+         clique, sem JS. No desktop o CSS reabre tudo (`display:flex` no conteúdo). #}
       {% for grupo, itens in nav %}
-      <div class="menu-grupo">
-        <span class="menu-titulo">{{ grupo }}</span>
+      <details class="menu-grupo">
+        <summary class="menu-titulo">{{ grupo }}{{ icone("chevron-down", "chevron") }}</summary>
         <div class="menu-itens">
           {% for href, rotulo, ico in itens %}
           <a href="{{ href }}"
              class="{{ 'ativo' if caminho == href or caminho.startswith(href ~ '/') else '' }}">{{ icone(ico) }}{{ rotulo }}</a>
           {% endfor %}
         </div>
-      </div>
+      </details>
       {% endfor %}
     </nav>
     <div class="usuario">
