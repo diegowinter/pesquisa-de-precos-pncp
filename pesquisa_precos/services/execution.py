@@ -86,6 +86,10 @@ def obter_run(run_id: int) -> dict[str, Any] | None:
         etapas.append({**base, "titulo": definicao.titulo,
                        "depends_on": list(definicao.depends_on)})
     run["steps"] = etapas
+    # Nada marca o run como `finished` no banco: ele só sai de `open` ao ser abortado. Então
+    # "acabou" é derivado — toda etapa do registry concluída ou pulada. Sem isso a tela
+    # oferecia "abortar run" numa run que já tinha entregado o export.
+    run["completa"] = all(e["status"] in ("finished", "skipped") for e in etapas)
     return run
 
 

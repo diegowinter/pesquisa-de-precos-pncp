@@ -154,3 +154,9 @@ form.inline { display: inline; }
 }
 .linha-run .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 .linha-run button { display: inline-flex; align-items: center; gap: .4em; }
+
+/* Botão apagado: continua legível (o operador precisa ler o rótulo), mas sem convidar ao
+   clique — `not-allowed` + `title` explicam por que está fora de alcance. */
+button:disabled, button:disabled:hover {
+  opacity: .4; cursor: not-allowed; filter: grayscale(.6);
+}
