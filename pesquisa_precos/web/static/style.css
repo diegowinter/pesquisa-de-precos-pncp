@@ -29,9 +29,28 @@ header.topo {
   border-bottom: 1px solid var(--borda);
 }
 
+header.topo { flex-wrap: wrap; gap: 1rem 1.5rem; }
 header.topo a { color: var(--texto); text-decoration: none; }
 header.topo a:hover { color: var(--gate); }
-header.topo .marca { font-weight: 600; margin-right: auto; }
+header.topo .marca { font-weight: 600; }
+
+/* Menu agrupado: o operador precisa enxergar QUE telas existem, não só a atual. */
+.menu { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-right: auto; }
+.menu-grupo { display: flex; flex-direction: column; gap: .15rem; }
+.menu-titulo {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--texto-fraco);
+}
+.menu-itens { display: flex; flex-wrap: wrap; gap: .15rem; }
+.menu-itens a {
+  font-size: .9rem; padding: .15rem .5rem; border-radius: 5px;
+  border: 1px solid transparent;
+}
+.menu-itens a:hover { background: #1f242c; }
+.menu-itens a.ativo {
+  color: var(--gate); border-color: var(--gate); background: #16202d;
+}
+header.topo .usuario { display: flex; align-items: center; gap: .75rem; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 

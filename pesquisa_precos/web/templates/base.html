@@ -10,22 +10,30 @@
 </head>
 <body>
   {% if usuario %}
+  {% set caminho = request.url.path %}
   <header class="topo">
     <a class="marca" href="/runs">Pesquisa de Preços PLASEG</a>
-    <a href="/runs">Runs</a>
-    <a href="/cost">Custo</a>
-    <a href="/exports">Exports</a>
-    <a href="/diff">Diff entre runs</a>
-    <a href="/catalog">Allow-list</a>
-    <a href="/config">Configuração</a>
-    <a href="/recalibrate">Recalibrar</a>
-    <a href="/prompts">Prompts</a>
-    <a href="/notifications">Notificações</a>
-    <a href="/providers">Provedores</a>
-    <span class="tag">{{ usuario }}</span>
-    <form class="linha" method="post" action="/logout">
-      <button type="submit">sair</button>
-    </form>
+    <nav class="menu">
+      {% for grupo, itens in nav %}
+      <div class="menu-grupo">
+        <span class="menu-titulo">{{ grupo }}</span>
+        <div class="menu-itens">
+          {% for href, rotulo in itens %}
+          <a href="{{ href }}"
+             class="{{ 'ativo' if caminho == href or caminho.startswith(href + '/') else '' }}">{{ rotulo }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </nav>
+    <div class="usuario">
+      <span class="tag">{{ usuario }}</span>
+      {% if senha_exigida %}
+      <form class="linha" method="post" action="/logout">
+        <button type="submit">sair</button>
+      </form>
+      {% endif %}
+    </div>
   </header>
   {% endif %}
   <main>

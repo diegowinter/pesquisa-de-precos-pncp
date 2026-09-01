@@ -40,3 +40,25 @@ ROTULO_ACAO = {
     "resume": "retomar",
     "redo": "refazer",
 }
+
+
+# Navegação do cabeçalho: grupos com rótulo, para o operador enxergar que telas existem.
+# Cada item é (href, rótulo); `prefixo` é o que marca o link como ativo na rota atual.
+NAV = (
+    ("Execução", (
+        ("/runs", "Runs"),
+        ("/cost", "Custo"),
+        ("/exports", "Exports"),
+        ("/diff", "Diff entre runs"),
+    )),
+    ("Dados", (
+        ("/catalog", "Allow-list"),
+        ("/prompts", "Prompts"),
+        ("/recalibrate", "Recalibrar"),
+    )),
+    ("Ajustes", (
+        ("/config", "Configuração"),
+        ("/providers", "Provedores"),
+        ("/notifications", "Notificações"),
+    )),
+)

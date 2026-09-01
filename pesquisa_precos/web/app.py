@@ -54,7 +54,7 @@ from pesquisa_precos.services.providers import (
     InvalidProvider,
 )
 from pesquisa_precos.web import auth
-from pesquisa_precos.web.state import CLASSE_STEP, ICONE_STEP, ROTULO_ACAO, ROTULO_STEP
+from pesquisa_precos.web.state import CLASSE_STEP, ICONE_STEP, NAV, ROTULO_ACAO, ROTULO_STEP
 
 RAIZ_WEB = Path(__file__).resolve().parent
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -115,6 +115,7 @@ templates.env.globals["icone_step"] = ICONE_STEP
 templates.env.globals["classe_step"] = CLASSE_STEP
 templates.env.globals["rotulo_step"] = ROTULO_STEP
 templates.env.globals["rotulo_acao"] = ROTULO_ACAO
+templates.env.globals["nav"] = NAV
 # Assinatura do CSS na URL: sem ela o navegador segura a folha antiga entre reinícios, e uma
 # correção de layout parece não ter sido aplicada.
 templates.env.globals["versao_estatica"] = int(
@@ -124,7 +125,13 @@ templates.env.globals["versao_estatica"] = int(
 def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,
             status_code: int = 200):
     """Renderiza um template com o que toda tela precisa: usuário logado e erro na query."""
-    ctx = {"usuario": request.session.get("usuario"), "erro": request.query_params.get("erro")}
+    # Sem `WEB_SENHA` o login é desligado e nada passa por `/login` — a sessão fica sem
+    # `usuario`. Mesmo aí a navegação precisa aparecer, então o nome cai no padrão.
+    usuario = request.session.get("usuario")
+    if not usuario and auth.autenticado(request):
+        usuario = "operador"
+    ctx = {"usuario": usuario, "senha_exigida": auth.senha_exigida(),
+           "erro": request.query_params.get("erro")}
     ctx.update(contexto or {})
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 
