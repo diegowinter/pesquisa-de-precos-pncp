@@ -1,4 +1,3 @@
-{% from "_macros.html" import icone %}
 {# Fragmento do grafo — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.1). #}
 <div id="grafo" class="grafo" hx-get="/runs/{{ run.id }}/graph" hx-trigger="every 3s" hx-swap="outerHTML">
   {% for e in run.steps %}

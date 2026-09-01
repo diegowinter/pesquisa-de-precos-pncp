@@ -116,6 +116,10 @@ templates.env.globals["classe_step"] = CLASSE_STEP
 templates.env.globals["rotulo_step"] = ROTULO_STEP
 templates.env.globals["rotulo_acao"] = ROTULO_ACAO
 templates.env.globals["nav"] = NAV
+# O macro de ícone é global e não `{% from %}` em cada tela: importado por template ele fica
+# invisível para `test_template_nao_usa_variavel_que_a_rota_nao_fornece`, e um `{% from %}`
+# esquecido só apareceria como ícone sumido em produção.
+templates.env.globals["icone"] = templates.env.get_template("_macros.html").module.icone
 # Assinatura do CSS na URL: sem ela o navegador segura a folha antiga entre reinícios, e uma
 # correção de layout parece não ter sido aplicada.
 templates.env.globals["versao_estatica"] = int(

@@ -146,3 +146,11 @@ form.inline { display: inline; }
 }
 .no-etapa .icone { display: flex; }
 .no-etapa .icone .ico { width: 1.35em; height: 1.35em; }
+
+.titulo-pagina { font-size: 1.35rem; margin: 0 0 .6rem; }
+.linha-run {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 1rem; margin-bottom: 1.25rem;
+}
+.linha-run .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.linha-run button { display: inline-flex; align-items: center; gap: .4em; }

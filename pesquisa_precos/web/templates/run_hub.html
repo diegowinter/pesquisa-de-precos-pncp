@@ -1,21 +1,20 @@
 {% extends "base.html" %}
 {% block titulo %}Run #{{ run.id }} — {{ run.label }}{% endblock %}
 {% block conteudo %}
-<div class="painel">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div>
-      <h2>Run #{{ run.id }} · "{{ run.label }}"</h2>
-      <span class="tag">modo: {{ run.mode }}</span>
-      <span class="tag">status: {{ run.status }}</span>
-      <span class="tag">custo: US$ {{ "%.2f"|format(run.cost_usd or 0) }}{% if run.cost_cap_usd %} / US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</span>
-    </div>
-    {% if run.status == 'open' %}
-    <form method="post" action="/runs/{{ run.id }}/abort"
-          onsubmit="return confirm('Abortar este run? A etapa em execução será cancelada.');">
-      <button class="perigo" type="submit">abortar run</button>
-    </form>
-    {% endif %}
+<h1 class="titulo-pagina">Run #{{ run.id }} · "{{ run.label }}"</h1>
+
+<div class="linha-run">
+  <div class="chips">
+    <span class="tag">modo: {{ run.mode }}</span>
+    <span class="tag">status: {{ run.status }}</span>
+    <span class="tag">custo: US$ {{ "%.2f"|format(run.cost_usd or 0) }}{% if run.cost_cap_usd %} / US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</span>
   </div>
+  {% if run.status == 'open' %}
+  <form method="post" action="/runs/{{ run.id }}/abort"
+        onsubmit="return confirm('Abortar este run? A etapa em execução será cancelada.');">
+    <button class="perigo" type="submit">{{ icone("ban") }}abortar run</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="painel">
