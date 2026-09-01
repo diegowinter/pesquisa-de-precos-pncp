@@ -1,10 +1,11 @@
+{% from "_macros.html" import icone %}
 {# Fragmento de progresso — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.2). #}
 {# Envolve cabeçalho E painel de ações: os botões dependem do status, e deixá-los fora do
    fragmento fazia a tela oferecer "Cancelar" numa etapa que já havia terminado. #}
 <div id="cabecalho-etapa" hx-get="/runs/{{ run.id }}/steps/{{ key }}/fragment"
      hx-trigger="every 3s" hx-swap="outerHTML">
 <div class="painel">
-  <h2>{{ icone_step[detalhe.status] }} Etapa {{ key }} — {{ definicao.titulo }}</h2>
+  <h2>{{ icone(icone_step[detalhe.status], "ico-g") }} Etapa {{ key }} — {{ definicao.titulo }}</h2>
   <span class="tag">{{ (rotulo_step | default({})).get(detalhe.status, detalhe.status) }}</span>
   {% if detalhe.action %}<span class="tag">ação: {{ (rotulo_acao | default({})).get(detalhe.action, detalhe.action) }}</span>{% endif %}
   <span class="tag">custo: US$ {{ "%.2f"|format(detalhe.cost_usd or 0) }}</span>

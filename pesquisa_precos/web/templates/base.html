@@ -1,4 +1,5 @@
 <!doctype html>
+{% from "_macros.html" import icone %}
 <html lang="pt-br">
 <head>
   <meta charset="utf-8">
@@ -9,8 +10,8 @@
   <script src="/static/vendor/alpine.min.js" defer></script>
 </head>
 <body>
+  {% include "_icons.svg" %}
   {% if usuario %}
-  {% set caminho = request.url.path %}
   <header class="topo">
     <a class="marca" href="/runs">Pesquisa de Preços PLASEG</a>
     <nav class="menu">
@@ -18,19 +19,19 @@
       <div class="menu-grupo">
         <span class="menu-titulo">{{ grupo }}</span>
         <div class="menu-itens">
-          {% for href, rotulo in itens %}
+          {% for href, rotulo, ico in itens %}
           <a href="{{ href }}"
-             class="{{ 'ativo' if caminho == href or caminho.startswith(href + '/') else '' }}">{{ rotulo }}</a>
+             class="{{ 'ativo' if caminho == href or caminho.startswith(href ~ '/') else '' }}">{{ icone(ico) }}{{ rotulo }}</a>
           {% endfor %}
         </div>
       </div>
       {% endfor %}
     </nav>
     <div class="usuario">
-      <span class="tag">{{ usuario }}</span>
+      <span class="tag">{{ icone("user") }}{{ usuario }}</span>
       {% if senha_exigida %}
       <form class="linha" method="post" action="/logout">
-        <button type="submit">sair</button>
+        <button type="submit">{{ icone("log-out") }}sair</button>
       </form>
       {% endif %}
     </div>

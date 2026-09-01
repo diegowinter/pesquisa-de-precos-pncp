@@ -131,7 +131,7 @@ def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,
     if not usuario and auth.autenticado(request):
         usuario = "operador"
     ctx = {"usuario": usuario, "senha_exigida": auth.senha_exigida(),
-           "erro": request.query_params.get("erro")}
+           "caminho": request.url.path, "erro": request.query_params.get("erro")}
     ctx.update(contexto or {})
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 

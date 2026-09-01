@@ -41,9 +41,9 @@ header.topo .marca { font-weight: 600; }
   font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
   color: var(--texto-fraco);
 }
-.menu-itens { display: flex; flex-wrap: wrap; gap: .15rem; }
+.menu-itens { display: flex; flex-wrap: wrap; gap: .3rem; }
 .menu-itens a {
-  font-size: .9rem; padding: .15rem .5rem; border-radius: 5px;
+  font-size: .9rem; padding: .25rem .55rem; border-radius: 5px;
   border: 1px solid transparent;
 }
 .menu-itens a:hover { background: #1f242c; }
@@ -79,16 +79,16 @@ th { color: var(--texto-fraco); font-weight: 500; }
 }
 .no-etapa .icone { font-size: 1.3rem; }
 .no-etapa .titulo { font-size: .72rem; text-align: center; color: var(--texto-fraco); }
-.no-etapa.concluida { border-color: var(--ok); }
-.no-etapa.concluida .icone { color: var(--ok); }
-.no-etapa.executando { border-color: var(--gate); }
-.no-etapa.executando .icone { color: var(--gate); }
+.no-etapa.finished { border-color: var(--ok); }
+.no-etapa.finished .icone { color: var(--ok); }
+.no-etapa.running { border-color: var(--gate); }
+.no-etapa.running .icone { color: var(--gate); }
 .no-etapa.gate { border-color: var(--gate); box-shadow: 0 0 0 2px rgba(88,166,255,.25); }
 .no-etapa.gate .icone { color: var(--gate); }
-.no-etapa.falhou { border-color: var(--erro); }
-.no-etapa.falhou .icone { color: var(--erro); }
-.no-etapa.desatualizada .icone { color: var(--alerta); }
-.no-etapa.cancelada .icone, .no-etapa.nao-iniciada .icone { color: var(--neutro); }
+.no-etapa.failed { border-color: var(--erro); }
+.no-etapa.failed .icone { color: var(--erro); }
+.no-etapa.outdated .icone { color: var(--alerta); }
+.no-etapa.cancelled .icone, .no-etapa.nao-iniciada .icone { color: var(--neutro); }
 .seta { color: var(--texto-fraco); }
 
 .barra { background: #0b0d10; border-radius: 4px; height: 10px; overflow: hidden; }
@@ -132,3 +132,17 @@ form.linha { display: inline; }
 
 /* Formulário de uma ação só (botão em linha dentro de uma célula de tabela). */
 form.inline { display: inline; }
+
+/* ── Ícones (sprite Lucide, templates/_icons.svg) ──────────────────────────────────── */
+/* O ícone é seguido por um NÓ DE TEXTO, não por um elemento: `:last-child` casaria com ele
+   e zeraria o respiro. O espaçamento vem do `gap` de quem contém, não de margem no ícone. */
+.ico { width: 1em; height: 1em; flex: none; vertical-align: -.15em; }
+.ico-g { width: 1.15em; height: 1.15em; }
+
+/* Alinhamento óptico: `inline-flex` + `gap` alinha pelo centro da linha, o que o
+   `vertical-align` sozinho não faz dentro de um container flex. */
+.menu-itens a, .tag, header.topo button, .painel h2 {
+  display: inline-flex; align-items: center; gap: .4em;
+}
+.no-etapa .icone { display: flex; }
+.no-etapa .icone .ico { width: 1.35em; height: 1.35em; }

@@ -1,0 +1,5 @@
+{# `{{ icone("settings") }}` → um <use> do sprite incluído no base.html.
+   `classe` permite variar tamanho/cor sem tocar no macro. #}
+{% macro icone(nome, classe="") -%}
+<svg class="ico {{ classe }}" aria-hidden="true"><use href="#i-{{ nome }}"></use></svg>
+{%- endmacro %}

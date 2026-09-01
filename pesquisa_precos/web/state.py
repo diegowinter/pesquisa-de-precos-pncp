@@ -1,15 +1,16 @@
 """Ícones e rótulos de `step_status` (docs/06_API_E_WEB.md §4.1) — usados pelos templates do
 grafo e da tela de step. Central para não espalhar o mapeamento em cada `.html`."""
 
+# Nomes do sprite Lucide (`templates/_icons.svg`), renderizados pelo macro `icone()`.
 ICONE_STEP = {
-    "not_started": "○",
-    "running": "▶",
-    "awaiting_approval": "⏸",
-    "finished": "✓",
-    "outdated": "⚠",
-    "failed": "✗",
-    "cancelled": "⊘",
-    "skipped": "⊘",
+    "not_started": "circle",
+    "running": "circle-play",
+    "awaiting_approval": "pause",
+    "finished": "check",
+    "outdated": "triangle-alert",
+    "failed": "x",
+    "cancelled": "ban",
+    "skipped": "ban",
 }
 
 CLASSE_STEP = {
@@ -43,22 +44,22 @@ ROTULO_ACAO = {
 
 
 # Navegação do cabeçalho: grupos com rótulo, para o operador enxergar que telas existem.
-# Cada item é (href, rótulo); `prefixo` é o que marca o link como ativo na rota atual.
+# Cada item é (href, rótulo, ícone do sprite); ativo = a rota atual bate com o href.
 NAV = (
     ("Execução", (
-        ("/runs", "Runs"),
-        ("/cost", "Custo"),
-        ("/exports", "Exports"),
-        ("/diff", "Diff entre runs"),
+        ("/runs", "Runs", "layers"),
+        ("/cost", "Custo", "circle-dollar-sign"),
+        ("/exports", "Exports", "file-spreadsheet"),
+        ("/diff", "Diff entre runs", "git-compare"),
     )),
     ("Dados", (
-        ("/catalog", "Allow-list"),
-        ("/prompts", "Prompts"),
-        ("/recalibrate", "Recalibrar"),
+        ("/catalog", "Allow-list", "list-checks"),
+        ("/prompts", "Prompts", "message-square-text"),
+        ("/recalibrate", "Recalibrar", "sliders-horizontal"),
     )),
     ("Ajustes", (
-        ("/config", "Configuração"),
-        ("/providers", "Provedores"),
-        ("/notifications", "Notificações"),
+        ("/config", "Configuração", "settings"),
+        ("/providers", "Provedores", "plug"),
+        ("/notifications", "Notificações", "bell"),
     )),
 )
