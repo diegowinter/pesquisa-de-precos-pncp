@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/style.css?v={{ versao_estatica }}">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/vendor/alpine.min.js" defer></script>
+  <script src="/static/menu.js?v={{ versao_estatica }}" defer></script>
 </head>
 <body>
   {% include "_icons.svg" %}
@@ -15,9 +16,10 @@
     <a class="marca" href="/runs">Pesquisa de Preços PLASEG</a>
     <nav class="menu">
       {# <details> em vez de <div>: em telas estreitas cada grupo vira um submenu que abre no
-         clique, sem JS. No desktop o CSS reabre tudo (`display:flex` no conteúdo). #}
+         clique. `name="menu"` faz o navegador fechar um grupo ao abrir outro (accordion
+         nativo); o clique fora fica com `menu.js`. No desktop o CSS reabre tudo. #}
       {% for grupo, itens in nav %}
-      <details class="menu-grupo">
+      <details class="menu-grupo" name="menu">
         <summary class="menu-titulo">{{ grupo }}{{ icone("chevron-down", "chevron") }}</summary>
         <div class="menu-itens">
           {% for href, rotulo, ico in itens %}

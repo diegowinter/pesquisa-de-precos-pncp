@@ -120,10 +120,10 @@ templates.env.globals["nav"] = NAV
 # invisível para `test_template_nao_usa_variavel_que_a_rota_nao_fornece`, e um `{% from %}`
 # esquecido só apareceria como ícone sumido em produção.
 templates.env.globals["icone"] = templates.env.get_template("_macros.html").module.icone
-# Assinatura do CSS na URL: sem ela o navegador segura a folha antiga entre reinícios, e uma
-# correção de layout parece não ter sido aplicada.
-templates.env.globals["versao_estatica"] = int(
-    (RAIZ_WEB / "static" / "style.css").stat().st_mtime)
+# Assinatura dos estáticos na URL: sem ela o navegador segura a folha (ou o script) antigo
+# entre reinícios, e uma correção de layout parece não ter sido aplicada.
+templates.env.globals["versao_estatica"] = int(max(
+    caminho.stat().st_mtime for caminho in (RAIZ_WEB / "static").glob("*.*")))
 
 
 def _render(request: Request, name: str, contexto: dict[str, Any] | None = None,

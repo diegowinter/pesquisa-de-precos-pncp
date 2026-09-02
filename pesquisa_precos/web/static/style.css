@@ -46,7 +46,7 @@ header.topo .marca { font-weight: 600; }
 .menu-grupo { display: flex; flex-direction: column; gap: .35rem; }
 .menu-titulo {
   font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--texto-fraco); list-style: none; cursor: default;
+  color: var(--texto-fraco); list-style: none; cursor: default; user-select: none;
 }
 .menu-titulo::-webkit-details-marker { display: none; }
 .menu-grupo > .menu-itens { display: flex; flex-wrap: wrap; gap: .3rem; }
