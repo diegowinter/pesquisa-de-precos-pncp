@@ -1,10 +1,12 @@
-{# Fragmento do grafo — recarregado via HTMX a cada 3s (docs/06_API_E_WEB.md §4.1). #}
-<div id="grafo" class="grafo" hx-get="/runs/{{ run.id }}/graph" hx-trigger="every 3s" hx-swap="outerHTML">
-  {% for e in run.steps %}
-  <a class="no-etapa {{ classe_step[e.status] }}" href="/runs/{{ run.id }}/steps/{{ e.step }}">
-    <span class="icone">{{ icone(icone_step[e.status]) }}</span>
-    <span class="titulo">{{ e.step }}<br>{{ e.titulo }}</span>
-  </a>
-  {% if not loop.last %}<span class="traco" aria-hidden="true"></span>{% endif %}
-  {% endfor %}
-</div>
+{# Fragmento do grafo — só os cards (docs/06_API_E_WEB.md §4.1).
+
+   O elemento que ROLA (`#grafo`) fica no run_hub e nunca é trocado: o HTMX substitui apenas
+   este conteúdo (`hx-swap="innerHTML"`). Quando o swap era `outerHTML`, o container novo
+   nascia com `scrollLeft` zerado e a cada 3s a pipeline voltava para a etapa 0a. #}
+{% for e in run.steps %}
+<a class="no-etapa {{ classe_step[e.status] }}" href="/runs/{{ run.id }}/steps/{{ e.step }}">
+  <span class="icone">{{ icone(icone_step[e.status]) }}</span>
+  <span class="titulo">{{ e.step }}<br>{{ e.titulo }}</span>
+</a>
+{% if not loop.last %}<span class="traco" aria-hidden="true"></span>{% endif %}
+{% endfor %}

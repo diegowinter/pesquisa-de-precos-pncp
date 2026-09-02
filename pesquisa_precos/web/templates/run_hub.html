@@ -23,6 +23,9 @@
 </div>
 
 <div class="painel">
-  {% include "_graph.html" %}
+  <div id="grafo" class="grafo" hx-get="/runs/{{ run.id }}/graph"
+       hx-trigger="every 3s" hx-swap="innerHTML">
+    {% include "_graph.html" %}
+  </div>
 </div>
 {% endblock %}
