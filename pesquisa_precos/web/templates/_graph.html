@@ -5,6 +5,6 @@
     <span class="icone">{{ icone(icone_step[e.status]) }}</span>
     <span class="titulo">{{ e.step }}<br>{{ e.titulo }}</span>
   </a>
-  {% if not loop.last %}<span class="seta">──►</span>{% endif %}
+  {% if not loop.last %}<span class="traco" aria-hidden="true"></span>{% endif %}
   {% endfor %}
 </div>

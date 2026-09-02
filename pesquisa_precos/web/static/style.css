@@ -127,14 +127,26 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--borda); font-size: .9rem; }
 th { color: var(--texto-fraco); font-weight: 500; }
 
-.grafo { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
+/* A pipeline é UMA linha: quebrar em várias fazia a ordem das etapas depender da largura da
+   janela. Passando de 12 cards, rola na horizontal dentro do painel. */
+.grafo {
+  display: flex; flex-wrap: nowrap; gap: .25rem; align-items: stretch;
+  overflow-x: auto; padding-bottom: .5rem;
+}
 .no-etapa {
-  display: flex; flex-direction: column; align-items: center; gap: .2rem;
-  padding: .5rem .75rem; border-radius: 6px; border: 1px solid var(--borda);
-  min-width: 88px; text-decoration: none; color: var(--texto);
+  /* `flex-start` e não `center`: com os cards esticados à mesma altura, centralizar fazia o
+     ícone subir ou descer conforme o título tivesse 1, 2 ou 3 linhas. */
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: .2rem; padding: .5rem .5rem; border-radius: 6px; border: 1px solid var(--borda);
+  /* Largura fixa: o título quebra em quantas linhas precisar, e todos os cards ficam do
+     mesmo tamanho independentemente do tamanho do texto. */
+  width: 178px; flex: none; text-decoration: none; color: var(--texto);
 }
 .no-etapa .icone { font-size: 1.3rem; }
-.no-etapa .titulo { font-size: .72rem; text-align: center; color: var(--texto-fraco); }
+.no-etapa .titulo {
+  font-size: .72rem; line-height: 1.25; text-align: center; color: var(--texto-fraco);
+  overflow-wrap: anywhere;
+}
 .no-etapa.finished { border-color: var(--ok); }
 .no-etapa.finished .icone { color: var(--ok); }
 .no-etapa.running { border-color: var(--gate); }
@@ -145,7 +157,10 @@ th { color: var(--texto-fraco); font-weight: 500; }
 .no-etapa.failed .icone { color: var(--erro); }
 .no-etapa.outdated .icone { color: var(--alerta); }
 .no-etapa.cancelled .icone, .no-etapa.nao-iniciada .icone { color: var(--neutro); }
-.seta { color: var(--texto-fraco); }
+/* Traço puro, sem ponta: a ordem já é dada pela leitura da esquerda para a direita. */
+.traco {
+  flex: none; align-self: center; width: 20px; height: 1px; background: var(--borda);
+}
 
 .barra { background: #0b0d10; border-radius: 4px; height: 10px; overflow: hidden; }
 .barra > div { background: var(--gate); height: 100%; }
