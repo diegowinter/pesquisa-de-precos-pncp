@@ -5,9 +5,9 @@
 
 <div class="linha-run">
   <div class="chips">
-    <span class="tag">modo: {{ run.mode }}</span>
-    <span class="tag">status: {{ "completa" if run.completa and run.status == 'open' else run.status }}</span>
-    <span class="tag">custo: US$ {{ "%.2f"|format(run.cost_usd or 0) }}{% if run.cost_cap_usd %} / US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</span>
+    <span class="tag">Modo: {{ run.mode }}</span>
+    <span class="tag">Status: {{ "completa" if run.completa and run.status == 'open' else run.status }}</span>
+    <span class="tag">Custo: US$ {{ "%.2f"|format(run.cost_usd or 0) }}{% if run.cost_cap_usd %} / US$ {{ "%.2f"|format(run.cost_cap_usd) }}{% endif %}</span>
   </div>
   {% if run.status == 'open' %}
   <form method="post" action="/runs/{{ run.id }}/abort"
@@ -17,7 +17,7 @@
     <button class="perigo" type="submit" {{ "disabled" if run.completa }}
             title="{{ 'Run completa — não há nada em execução para abortar.'
                       if run.completa else 'Cancela a etapa em execução e encerra o run.' }}">
-      {{ icone("ban") }}abortar run</button>
+      {{ icone("ban") }}Abortar run</button>
   </form>
   {% endif %}
 </div>

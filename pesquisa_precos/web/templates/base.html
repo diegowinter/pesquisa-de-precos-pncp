@@ -31,7 +31,7 @@
       {% endfor %}
     </nav>
     <div class="usuario">
-      <span class="tag">{{ icone("user") }}{{ usuario }}</span>
+      <span class="tag">{{ icone("user") }}{{ usuario | capitalize }}</span>
       {% if senha_exigida %}
       <form class="linha" method="post" action="/logout">
         <button type="submit">{{ icone("log-out") }}sair</button>
